@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetStorm 3D</title>
+<script src="https://cdn.jsdelivr.net/npm/aframe@1.8.0/dist/aframe-v1.8.0.min.js"></script>
+<!-- The build puts the stylesheet, the app (which registers the components and systems below) and
+     the AI worker's source here, so that dist/index.html is one self-contained file. -->
+<!--INLINE:style-->
+<!--INLINE:app-->
+<!--INLINE:ai-->
+</head>
+<body>
+<div id="loading">Raising the islands…</div>
+
+<div id="top" class="panel">
+  <div class="stat" id="storm" title="Storm Power: what everything costs">⚡ <b>0</b></div>
+  <div class="stat" id="clock">⏱ <b>0:00</b></div>
+  <div class="sep"></div>
+  <button class="tb" id="pause" title="Pause (Space)">Pause</button>
+  <button class="tb" id="speed" title="Game speed (+ / −)">1×</button>
+  <div class="sep"></div>
+  <button class="tb wide" id="artSprites" title="The original pixel-art sprites" disabled>Sprites</button>
+  <button class="tb wide on" id="artModels" title="Simple 3D models">3D</button>
+  <div class="sep wide"></div>
+  <button class="tb" id="help">Help</button>
+  <button class="tb" id="restart">Restart</button>
+</div>
+
+<div id="goal" class="panel"><h3>Next step</h3><p id="goalText"></p><p class="sub" id="goalSub"></p></div>
+<div id="sel" class="panel"></div>
+<div id="bar" class="panel">
+  <div class="group"><span>Bridge pieces</span><div class="cards" id="hand"></div></div>
+  <div class="group"><span>Build</span><div class="cards" id="units"></div></div>
+  <div class="group"><span>Priest builds</span><div class="cards" id="priestBuilds"></div></div>
+</div>
+<div id="toasts"></div>
+<div id="tip"></div>
+<div id="modal"><div class="box panel" id="modalBox"></div></div>
+
+<a-scene renderer="antialias: true; toneMapping: ACESFilmic; exposure: 1.05; anisotropy: 8; maxCanvasWidth: 2560; maxCanvasHeight: 2560"
+         shadow="type: pcf"
+         light="defaultLightsEnabled: false"
+         fog="type: linear; color: #b4c8e4; near: 170; far: 640"
+         vr-mode-ui="enabled: false"
+         loading-screen="enabled: false"
+         device-orientation-permission-ui="enabled: false">
+
+  <!-- sky, sun and clouds -->
+  <a-sky radius="1200" segments-width="48" segments-height="24" material="shader: ns-sky; sunDirection: -0.53 0.71 0.41"></a-sky>
+  <a-entity light="type: hemisphere; color: #e3eefc; groundColor: #7a6248; intensity: 1.15"></a-entity>
+  <a-entity id="sun" position="-70 95 55" ns-sun
+            light="type: directional; color: #fff0d8; intensity: 2.6; target: #sun-target; castShadow: true;
+                   shadowMapWidth: 4096; shadowMapHeight: 4096; shadowBias: -0.0004;
+                   shadowCameraLeft: -95; shadowCameraRight: 95; shadowCameraTop: 80; shadowCameraBottom: -80;
+                   shadowCameraNear: 10; shadowCameraFar: 340"></a-entity>
+  <a-entity id="sun-target" position="0 0 0"></a-entity>
+  <a-entity ns-clouds__low="clusters: 85; seed: 11; innerRadius: 20; outerRadius: 480; height: -62; spread: 16; size: 7; spin: 0.004"
+            ns-clouds__high="clusters: 16; seed: 23; innerRadius: 125; outerRadius: 340; height: 8; spread: 26; size: 5; spin: -0.006"></a-entity>
+
+  <!-- the battlefield: islands and bridges, every unit as an entity, effects, the placement overlay -->
+  <a-entity id="terrain" ns-terrain></a-entity>
+  <a-entity id="units" ns-units></a-entity>
+  <a-entity id="effects" ns-effects></a-entity>
+  <a-entity id="placement" ns-placement></a-entity>
+
+  <a-entity id="camera" camera="fov: 45; near: 0.3; far: 2500"
+            look-controls="enabled: false" wasd-controls="enabled: false"
+            orbit-rig="target: -7 0 7; radius: 82; theta: 0; phi: 55"></a-entity>
+</a-scene>
+</body>
+</html>
