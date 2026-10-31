@@ -11,7 +11,15 @@ project uses unchanged as its engine. This repository is the 3D client around it
 
 ## What you can play
 
-Mission 1, *The War Begins!*, against netstorm-web's computer opponent:
+The main menu offers two kinds of battle against netstorm-web's computer opponent:
+
+- **Mission 1, *The War Begins!***, guided step by step (below).
+- **Skirmish**: a random map from a seed, with your Fury and the enemy's (Wind, Rain or Thunder),
+  2 to 9 islands, the opponent's level (easy, normal, hard) and the starting Storm Power. You know
+  the Sun's units; the computer plays an alignment drawn from the seed. New geysers rise during
+  the battle. The same seed gives the same map, so a map can be replayed or shared.
+
+In the mission:
 
 1. Your **Priest** builds a **Sun Workshop**. Put the **Sun Cannon** into its production slots.
 2. Build **Golems** at your Temple and send them to **geysers** for Storm Power.
@@ -63,7 +71,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run dev` | Builds in watch mode and serves the page on port 8080 (set `PORT` to change it). |
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error. CI runs it. |
-| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the opening and a staged endgame, failing on any page error. Needs `npx playwright install chromium` once. CI runs it. |
+| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the mission's opening, a staged endgame and five minutes of a skirmish, failing on any page error. Needs `npx playwright install chromium` once. CI runs it. |
 
 ## How it is built
 
@@ -109,8 +117,8 @@ from GitHub Actions once (*Settings → Pages → Source: GitHub Actions*).
 
 ## Not there yet
 
-- Only the first mission. The engine has the rest of the campaign and random skirmish maps; the
-  next-step hints and some models are written for mission 1.
+- Only the first mission of the campaign; the engine has the other fifteen. Skirmish has no
+  spells or Obelisks yet.
 - In "Sprites" mode each unit is one still frame, not the original's animation.
 - Tested in desktop Chromium; phones and other browsers are less tried.
 

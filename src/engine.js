@@ -4,7 +4,7 @@
  * the interface strings, the island-under-attack alarm and which shooter throws which missile. Nothing here is changed; it is only gathered in one place.
  */
 export * from '@netstorm/sim';
-export { slimUnits, slimMaps, slimMissions, mapsOf } from 'ns-client/game-data.ts';
+export { slimUnits, slimMaps, slimMissions, mapsOf, outcome } from 'ns-client/game-data.ts';
 export { createMatchWorld, ME, ENEMY } from 'ns-client/setup.ts';
 export { DEFAULT_OPTIONS } from 'ns-client/options.ts';
 export { nextEvent } from 'ns-client/mission-events.ts';

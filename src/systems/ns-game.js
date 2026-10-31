@@ -3,7 +3,7 @@
  * commands, and passes the simulation's events on to the HUD and the effects. The scene's
  * components draw what it holds in `G`.
  */
-import { NS, THREE, G, MISSION, ME, defs, origin, errorText } from '../state.js';
+import { NS, THREE, G, ME, defs, origin, wx, wz, errorText } from '../state.js';
 import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
@@ -22,19 +22,33 @@ AFRAME.registerSystem('ns-game', {
       this.el.addEventListener('ns-tap', (e) => this.onTap(e.detail));
       this.el.addEventListener('ns-hover', (e) => this.onHover(e.detail));
       window.addEventListener('keydown', (e) => this.onKey(e));
-      this.start();
+      this.start(G.setup, { menu: true });
       setTimeout(() => document.getElementById('loading')?.classList.add('gone'), 300);
     });
   },
 
-  /** A new match: the components rebuild from it on `ns-new-game`. */
-  start() {
-    newGame();
+  /**
+   * A new match, the mission or a skirmish: the components rebuild from it on `ns-new-game`. With
+   * `menu`, the main menu comes up over it instead of the briefing.
+   */
+  start(setup = G.setup, { menu = false } = {}) {
+    newGame(setup);
     this.sound().newGame();
     this.destroyed.clear();
     this.el.emit('ns-new-game');
+    this.frameView();
     this.hud.reset();
-    this.hud.briefing();
+    if (menu) this.hud.menu();
+    else this.hud.briefing();
+  },
+
+  /** The camera's starting view: the mission's whole battlefield, or a skirmish's home island. */
+  frameView() {
+    const rig = document.getElementById('camera')?.components['orbit-rig'];
+    if (!rig) return;
+    const temple = G.world.templeOf(ME);
+    if (G.mission || !temple) rig.setHome(new THREE.Vector3(-7, 0, 7), 82);
+    else rig.setHome(new THREE.Vector3(wx(temple.x + temple.fx / 2), 0, wz(temple.y + temple.fy / 2) + 6), 70);
   },
 
   tick(t, dt) {
@@ -81,13 +95,19 @@ AFRAME.registerSystem('ns-game', {
         default: break;
       }
     }
-    // the mission's script: success or failure
+    if (G.ended) return;
+    // a skirmish ends on the simulation's verdict; a mission on its script's pages
+    if (!G.mission) {
+      const result = NS.outcome(G.world, ME);
+      if (result) hud.result(result === 'won');
+      return;
+    }
     const event = NS.nextEvent(G.view, ME, G.raised);
-    const page = event ? MISSION.pages[event] : null;
+    const page = event ? G.mission.pages[event] : null;
     if (page) hud.page(event, page);
-    else if (!G.ended && G.view.winner != null) {
+    else if (G.view.winner != null) {
       const won = G.view.winner === ME;
-      hud.page(won ? 'succeeded' : 'failed', MISSION.pages[won ? 'succeeded' : 'failed']);
+      hud.page(won ? 'succeeded' : 'failed', G.mission.pages[won ? 'succeeded' : 'failed']);
     }
   },
 

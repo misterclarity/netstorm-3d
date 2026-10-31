@@ -4,11 +4,23 @@
  */
 import { NS, DATA, G, MISSION, TPS, ME, WORLD, defs, origin } from './state.js';
 
-/** Start the mission afresh. */
-export function newGame() {
-  const options = {
-    ...NS.DEFAULT_OPTIONS, mode: 'mission', mission: MISSION.id, storm: MISSION.storm, lang: 'en', difficulty: 'normal',
-  };
+/** Skirmish settings the menu starts from. */
+export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, seed: 42 };
+
+/**
+ * Start a match afresh: the mission, or a skirmish on a map generated from its seed, set up as
+ * netstorm-web's setup.ts sets them up.
+ */
+export function newGame(setup = G.setup) {
+  G.setup = setup;
+  G.mission = setup.mode === 'mission' ? MISSION : null;
+  const base = { ...NS.DEFAULT_OPTIONS, lang: 'en', difficulty: 'normal' };
+  const options = G.mission
+    ? { ...base, mode: 'mission', mission: MISSION.id, storm: MISSION.storm }
+    : {
+      ...base, mode: 'skirmish', opponent: 'ai', theme: setup.theme, enemyTheme: setup.enemyTheme, islands: setup.islands,
+      difficulty: setup.difficulty, storm: setup.storm, seed: setup.seed,
+    };
   G.options = options;
   G.world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
   G.view = G.world.view();
@@ -60,8 +72,14 @@ function startWorker() {
   }
 }
 
+/** A mission gives each computer side its own orders; a skirmish plays at the level chosen. */
 function aiOptions(player) {
-  return { ...(MISSION.sides[player]?.ai ?? {}), player, difficulty: G.options.difficulty };
+  return { ...(G.mission?.sides[player]?.ai ?? {}), player, difficulty: G.options.difficulty };
+}
+
+function aiDelay(player) {
+  if (!G.mission) return NS.DIFFICULTY[G.options.difficulty].moveSeconds;
+  return G.mission.sides[player]?.delay ?? G.mission.aiDelay ?? 6;
 }
 
 function moveNow(player) {
@@ -86,8 +104,7 @@ function requestAi() {
   const w = G.world;
   for (const [player, p] of w.players) {
     if (player === ME || !p.ai || !p.alive) continue;
-    const delay = MISSION.sides[player]?.delay ?? MISSION.aiDelay ?? 6;
-    if ((w.tick - player) % Math.max(1, Math.round(delay * TPS)) !== 0) continue;
+    if ((w.tick - player) % Math.max(1, Math.round(aiDelay(player) * TPS)) !== 0) continue;
     const due = G.schedule.request(w.tick, player);
     if (G.worker) {
       G.pending.set(`${due}:${player}`, { due, player, at: performance.now() });

@@ -152,11 +152,14 @@ export const MODELS = {
     const vane = part(g, box(1.4, 0.05, 0.14), mat('#6b4a2c'), 0, 2.15, 0);
     rep.anim.push((s) => { vane.rotation.y = s * 4; });
   },
-  golem(rep, g) {
+  golem(rep, g, e) {
+    // the Sun's Golem is stone; the other Furies' walkers take their colour
+    const theme = defs.get(e?.type)?.theme ?? 'sun';
+    const skin = theme === 'sun' ? '#b9a98a' : FURY_COLOR[theme];
     const body = new THREE.Group();
     g.add(body);
-    part(body, box(0.5, 0.55, 0.36), mat('#b9a98a'), 0, 0.72, 0);
-    part(body, box(0.3, 0.26, 0.28), mat('#c9b99a'), 0, 1.15, 0);
+    part(body, box(0.5, 0.55, 0.36), mat(skin), 0, 0.72, 0);
+    part(body, box(0.3, 0.26, 0.28), mat(theme === 'sun' ? '#c9b99a' : skin), 0, 1.15, 0);
     part(body, box(0.52, 0.08, 0.38), mat(OWNER_COLOR[rep.owner]), 0, 0.84, 0);
     const legs = [part(body, box(0.16, 0.45, 0.18), mat('#9c8d70'), -0.13, 0.22, 0), part(body, box(0.16, 0.45, 0.18), mat('#9c8d70'), 0.13, 0.22, 0)];
     const arms = [part(body, box(0.12, 0.45, 0.14), mat('#a99a7c'), -0.33, 0.72, 0), part(body, box(0.12, 0.45, 0.14), mat('#a99a7c'), 0.33, 0.72, 0)];
@@ -170,6 +173,40 @@ export const MODELS = {
       const a = Math.sin(phase) * 0.5;
       legs[0].rotation.x = a; legs[1].rotation.x = -a; arms[0].rotation.x = -a; arms[1].rotation.x = a;
     };
+  },
+  balloon(rep, g, e) {
+    const theme = defs.get(e.type)?.theme ?? 'sun';
+    const body = new THREE.Group();
+    body.position.y = 3.2;
+    g.add(body);
+    part(body, sph(0.75, 12, 10), mat(theme === 'sun' ? '#e8c46a' : FURY_COLOR[theme])).scale.set(1, 1.15, 1);
+    part(body, cyl(0.06, 0.06, 0.08, 12), mat(OWNER_COLOR[rep.owner]), 0, -0.8, 0).scale.set(8, 1, 8);
+    for (const [x, z] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]]) part(body, box(0.03, 0.7, 0.03), mat('#5a4a3a'), x, -1.15, z);
+    part(body, box(0.6, 0.35, 0.6), mat('#8a5a34'), 0, -1.6, 0);
+    rep.cargo = new THREE.Group();
+    rep.cargo.position.y = 1.4;
+    g.add(rep.cargo);
+    rep.anim.push((s) => { body.position.y = 3.2 + Math.sin(s * 1.3 + rep.id) * 0.18; });
+  },
+  fence(rep, g, e) {
+    const theme = defs.get(e.type)?.theme ?? 'sun', c = theme === 'sun' ? '#e8b04a' : FURY_COLOR[theme];
+    part(g, cyl(0.35, 0.45, 0.3, 8), mat('#8a7a66'), 0, 0.15, 0);
+    part(g, cyl(0.16, 0.2, 1.6, 8), mat('#9c8d70'), 0, 1.0, 0);
+    const orb = part(g, ico(0.3, 1), glow(c, c, 0.9), 0, 2.0, 0);
+    rep.anim.push((s) => { orb.scale.setScalar(0.9 + Math.sin(s * 3 + rep.id) * 0.1); });
+  },
+  antiair(rep, g, e) {
+    const c = FURY_COLOR[defs.get(e.type)?.theme ?? 'thunder'] ?? '#a184ea';
+    part(g, cyl(1.0, 1.15, 0.45, 8), mat('#6f6a78'), 0, 0.22, 0);
+    part(g, cyl(0.45, 0.6, 2.2, 8), mat('#7d7889'), 0, 1.5, 0);
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      const rod = part(g, cyl(0.04, 0.06, 1.4, 5), mat('#c9c4d4', { metalness: 0.6, roughness: 0.3 }), Math.cos(a) * 0.35, 3.0, Math.sin(a) * 0.35);
+      rod.rotation.z = Math.cos(a) * 0.3;
+      rod.rotation.x = -Math.sin(a) * 0.3;
+    }
+    const orb = part(g, ico(0.35, 1), glow(c, c, 1.0), 0, 2.85, 0);
+    rep.anim.push((s) => { orb.material.emissiveIntensity = 0.7 + Math.abs(Math.sin(s * 4 + rep.id)) * 0.6; });
   },
   flyer(rep, g) {
     const body = new THREE.Group();
@@ -241,17 +278,18 @@ export const MODELS = {
 /** Which model a world entity gets. */
 export function modelKind(e) {
   if (['priest', 'crystal', 'geyser', 'obelisk', 'flyer'].includes(e.kind)) return e.kind;
-  if (e.kind === 'transport') return 'golem';
   const d = defs.get(e.type);
+  if (e.kind === 'transport') return d?.cls === 'Aerial Transport' || d?.group === 'balloon' ? 'balloon' : 'golem';
   if (!d) return 'generic';
   if (d.cls === 'Energy') return 'temple';
   if (d.cls === 'Production') return 'workshop';
   if (d.cls === 'Altar') return 'altar';
-  return { battery: 'generator', cannon: 'cannon', archer: 'archer', blocker: 'blocker', aviary: 'aviary' }[d.group] ?? 'generic';
+  if (d.cls === 'Anti-Air') return 'antiair';
+  return { battery: 'generator', cannon: 'cannon', archer: 'archer', blocker: 'blocker', aviary: 'aviary', fence: 'fence' }[d.group] ?? 'generic';
 }
 
 /** How tall a thing stands, for its health bar. */
-export const HEIGHT = { temple: 5, workshop: 4.2, altar: 3, generator: 3, cannon: 2.2, archer: 2, blocker: 4, aviary: 2.6, flyer: 5.2, geyser: 0 };
+export const HEIGHT = { temple: 5, workshop: 4.2, altar: 3, generator: 3, cannon: 2.2, archer: 2, blocker: 4, aviary: 2.6, flyer: 5.2, balloon: 4.6, fence: 2.4, antiair: 3.6, geyser: 0 };
 
 /** The original sprite an entity is drawn with in "Sprites" mode, or null to keep its model. */
 export function spriteKey(e) {

@@ -34,8 +34,11 @@ const browser = await chromium.launch({
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
 });
 
+const pages = [];
+
 async function open(viewport = { width: 1000, height: 640 }) {
   const page = await browser.newPage({ viewport });
+  pages.push(page);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && m.text().includes('[netstorm-3d]')) errors.push(m.text()); });
@@ -56,6 +59,13 @@ async function open(viewport = { width: 1000, height: 640 }) {
   return { page, errors };
 }
 
+/** From the main menu into the mission, past its briefing. */
+async function startMission(page) {
+  await page.click('[data-start="mission"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'The War Begins!');
+  await page.click('#modal button.main');
+}
+
 /** Run n ticks at once, the computer's moves worked out in place. */
 const fastForward = (page, n) => page.evaluate((n) => {
   const { G, stepWorld, flushPendingAi } = window.NS3D;
@@ -69,7 +79,7 @@ const SCENARIOS = {
    * the Sun Cannon in a production slot, a bridge piece. */
   async opening() {
     const { page, errors } = await open();
-    await page.click('#modal button.main');
+    await startMission(page);
     await page.waitForTimeout(1500);
     await page.evaluate(() => {
       const { G, game, NS } = window.NS3D, v = G.view, t = G.world.templeOf(1);
@@ -132,7 +142,7 @@ const SCENARIOS = {
    * performs the sacrifice, the mission is won. */
   async endgame() {
     const { page, errors } = await open({ width: 800, height: 500 });
-    await page.click('#modal button.main');
+    await startMission(page);
     await fastForward(page, 30);
     await page.evaluate(() => {
       const { G } = window.NS3D, w = G.world, foe = w.priestOf(2), t = w.templeOf(1);
@@ -179,6 +189,40 @@ const SCENARIOS = {
   },
 };
 
+SCENARIOS.skirmish = async () => {
+  const { page, errors } = await open();
+  // a skirmish from the menu: Thunder against Wind on four islands, a fixed map
+  await page.selectOption('#skTheme', 'thunder');
+  await page.selectOption('#skEnemy', 'wind');
+  await page.selectOption('#skIslands', '4');
+  await page.fill('#skSeed', '7');
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 }).catch(async (e) => {
+    throw new Error(`no skirmish briefing; the page shows "${await page.evaluate(() => document.querySelector('#modal h2')?.textContent)}", ${JSON.stringify(await page.evaluate(() => window.NS3D.G.setup))}; ${errors.join('; ')}`);
+  });
+  await page.click('#modal button.main');
+  const start = await page.evaluate(() => {
+    const { G } = window.NS3D;
+    return { mission: G.mission, theme: G.world.players.get(1).theme, enemy: G.world.players.get(2).theme, buildings: [...G.view.entities.values()].filter((e) => e.kind === 'building' && e.owner === 2).length };
+  });
+  if (start.mission !== null || start.theme !== 'thunder' || start.enemy !== 'wind') throw new Error(`not the skirmish asked for: ${JSON.stringify(start)}`);
+  // the computer plays its side for five minutes of game time
+  await fastForward(page, 3000);
+  await page.waitForTimeout(1500);
+  const after = await page.evaluate(() => {
+    const { G } = window.NS3D, all = [...G.view.entities.values()];
+    return {
+      buildings: all.filter((e) => e.kind === 'building' && e.owner === 2).length,
+      bridges: Array.from(G.view.terrain).filter((t) => t >= 2 && t <= 4).length,
+      units: document.querySelectorAll('[ns-unit]').length,
+      goal: document.getElementById('goalText').textContent,
+    };
+  });
+  if (after.buildings <= start.buildings && after.bridges === 0) throw new Error(`the computer did nothing: ${JSON.stringify(after)}`);
+  if (!after.goal) throw new Error('no next step shown');
+  return errors;
+};
+
 let failed = 0;
 for (const [name, run] of Object.entries(SCENARIOS)) {
   if (only && name !== only) continue;
@@ -191,6 +235,8 @@ for (const [name, run] of Object.entries(SCENARIOS)) {
     failed++;
     console.log(`✗ ${name}: ${e.message}`);
   }
+  // one page at a time: software rendering is slow enough as it is
+  for (const page of pages.splice(0)) await page.close();
 }
 await browser.close();
 server.close();

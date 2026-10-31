@@ -3,7 +3,7 @@
  * the card of the selected thing, the next-step card, toasts and the dialogs.
  */
 import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, FACING_NAMES, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml } from './state.js';
-import { submit } from './game.js';
+import { submit, SKIRMISH_DEFAULTS } from './game.js';
 import { modelKind } from './models.js';
 import { describeBuild, loadNewer } from './version.js';
 
@@ -138,9 +138,11 @@ export class Hud {
   known() {
     return [...G.world.players.get(ME).tech].map((id) => defs.get(id)).filter((d) => d && BUILDABLE.has(d.cls) && !PRIEST_BUILT.has(d.cls));
   }
-  /** "Use your High Priest to build Temples, Workshops, and Altars." */
+  /** "Use your High Priest to build Temples, Workshops, and Altars"; the Outpost where a side has it. */
   priestCards() {
-    return [...new Set([`${playerTheme(ME)}factory`, 'sunfactory', 'altar'])].map((id) => defs.get(id)).filter(Boolean);
+    const ids = [`${playerTheme(ME)}factory`, 'sunfactory', 'altar'];
+    if (G.world.players.get(ME).tech.has('outpost')) ids.push('outpost');
+    return [...new Set(ids)].map((id) => defs.get(id)).filter(Boolean);
   }
 
   renderBar() {
@@ -342,13 +344,19 @@ export class Hud {
 
   /* ------------------------ the next step, read off the battle --------------------------- */
   renderGoal() {
-    const v = G.view, me = G.world.players.get(ME);
-    const mine = [...v.entities.values()].filter((e) => e.owner === ME);
+    const v = G.view, w = G.world, me = w.players.get(ME);
+    const all = [...v.entities.values()], mine = all.filter((e) => e.owner === ME);
     const has = (f) => mine.some(f);
-    const cls = (e) => e.kind === 'building' && defs.get(e.type)?.cls;
-    const foe = v.priestOf(2);
-    const sunShop = mine.find((e) => e.kind === 'building' && e.type === 'sunfactory');
-    const cannonReach = defs.get('suncannon').range + 1;
+    const def = (e) => (e.kind === 'building' || e.kind === 'transport') ? defs.get(e.type) : null;
+    const foes = [...w.players.values()].filter((p) => p.alive && w.hostile(ME, p.id));
+    const foe = foes.map((p) => v.priestOf(p.id)).find(Boolean);
+    const known = [...me.tech].map((id) => defs.get(id)).filter(Boolean);
+    const gunTypes = known.filter((d) => d.cls === 'Shooter');
+    const gunName = gunTypes.find((d) => d.group === 'cannon')?.name ?? gunTypes[0]?.name ?? 'guns';
+    const sunShop = mine.find((e) => e.type === 'sunfactory');
+    const guns = mine.filter((e) => def(e)?.cls === 'Shooter' && !e.rising);
+    const reaches = foe && guns.some((g) => Math.hypot(g.x + g.fx / 2 - foe.x, g.y + g.fy / 2 - foe.y) <= def(g).range + 1);
+    const toward = this.direction();
     let goal, sub = '';
     if (foe?.state === 'chained') {
       const altar = v.entities.get(foe.chainedAt), mp = v.priestOf(ME);
@@ -358,40 +366,59 @@ export class Hud {
     } else if (foe?.state === 'carried' && v.entities.get(foe.carriedBy)?.owner === ME) {
       goal = 'Your Golem is carrying the enemy Priest to your Altar. Protect it on the way.';
     } else if (foe?.state === 'down') {
-      goal = has((e) => cls(e) === 'Altar' && !e.rising)
+      goal = has((e) => def(e)?.cls === 'Altar' && !e.rising)
         ? 'The enemy Priest is down! Select a Golem and click him to carry him to your Altar.'
         : 'The enemy Priest is down, but you need an Altar first: pick “Altar” under Priest builds.';
     } else if (!sunShop) {
       goal = 'Your Priest builds Workshops. Pick “Sun Workshop” under Priest builds, then click a free spot on your island.';
       sub = 'Everything costs Storm Power (⚡). You start with some; Golems bring more from geysers.';
     } else if (sunShop.rising > 0) goal = 'Your Priest is building the Sun Workshop…';
-    else if (!sunShop.slots.length) goal = 'Select the Sun Workshop and add “Sun Cannon” to its production slots.';
+    else if (!sunShop.slots.length) goal = `Select the Sun Workshop and add “${gunName}” to its production slots.`;
     else if (!has((e) => e.kind === 'transport')) {
       goal = 'Build a Golem: it carries Storm Power from geysers to your Temple.';
       sub = 'Golems are made at your Temple and appear on your island.';
     } else if (!has((e) => e.kind === 'transport' && e.goal !== 'idle')) {
       goal = 'Select a Golem, then click a geyser to collect Storm Power. Geysers on islets need a bridge first.';
-    } else if (!has((e) => e.kind === 'building' && e.type === 'suncannon')) {
-      goal = 'Lay bridge pieces toward the enemy in the east, then build Sun Cannons near the end of your bridge.';
-      sub = 'Bridges join by their ends. Cannons need Energy: blue rings show where you have it.';
-    } else if (foe && !mine.some((e) => e.type === 'suncannon' && Math.hypot(e.x + 1.5 - foe.x, e.y + 1.5 - foe.y) <= cannonReach)
-      && !has((e) => e.kind === 'building' && e.type === `${playerTheme(ME)}factory`)) {
-      goal = 'Your cannons can’t reach the enemy Priest yet. Build a Rain Workshop with your Priest: it unlocks Rain Generators, which carry Energy out along your bridges.';
-      sub = 'Then lay more bridge east and build cannons within range of the enemy Priest (yellow ring).';
-    } else if (!has((e) => cls(e) === 'Altar')) {
+    } else if (!guns.length) {
+      goal = `Lay bridge pieces toward the enemy${toward ? ` in the ${toward}` : ''}, then build ${gunName}s near the end of your bridge.`;
+      sub = 'Bridges join by their ends. Guns need Energy: blue rings show where you have it.';
+    } else if (foe && !reaches && this.energyAdvice()) {
+      goal = `Your guns can’t reach the enemy Priest yet. ${this.energyAdvice()}`;
+      sub = `Then lay more bridge${toward ? ` ${toward}` : ''} and build guns within range of the enemy Priest (yellow ring).`;
+    } else if (!has((e) => def(e)?.cls === 'Altar')) {
       goal = 'Build an Altar with your Priest: captured Priests are sacrificed there.';
-      sub = 'Meanwhile push your cannons toward the enemy Priest and his Disc Throwers.';
+      sub = 'Meanwhile push your guns toward the enemy Priest. Red rings show where enemy guns reach.';
     } else {
-      goal = 'Knock out the enemy Priest with cannon fire (below half health), then send a Golem to capture him.';
-      sub = 'He stands near his Temple in the east. Cannons shoot what is in range on their own.';
+      goal = 'Knock out the enemy Priest with gunfire (below half health), then send a Golem to capture him.';
+      sub = `He stands near his Temple${toward ? ` to the ${toward}` : ''}. Guns shoot what is in range on their own.`;
     }
     if (me.storm < 400 && !has((e) => e.kind === 'transport' && e.goal !== 'idle')) sub = 'Low on Storm Power: send Golems to geysers.';
     if (G.ended) {
-      goal = v.winner === ME || G.raised.has('badteamdead') ? 'Victory! Your island is free.' : 'The battle is lost.';
-      sub = 'Press Restart to play again.';
+      goal = NS.outcome(w, ME) === 'won' || G.raised.has('badteamdead') ? 'Victory!' : 'The battle is lost.';
+      sub = 'Press Restart to play again, or go back to the main menu.';
     }
     $('goalText').textContent = goal;
     $('goalSub').textContent = sub;
+  }
+
+  /** Where the enemy's Temple lies from yours, as a compass direction (north is up the screen). */
+  direction() {
+    const w = G.world, mine = w.templeOf(ME);
+    const foe = [...w.players.values()].filter((p) => p.alive && w.hostile(ME, p.id)).map((p) => w.templeOf(p.id)).find(Boolean);
+    if (!mine || !foe) return '';
+    const a = Math.atan2(foe.y - mine.y, foe.x - mine.x); // y grows southward
+    return ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'][((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
+  }
+
+  /** How to carry Energy further out with the Generators the player knows, or '' if none. */
+  energyAdvice() {
+    const me = G.world.players.get(ME);
+    const gens = [...me.tech].map((id) => defs.get(id)).filter((d) => d?.group === 'battery');
+    if (!gens.length) return '';
+    const ready = gens.find((d) => NS.makerError(G.view, ME, d) === null);
+    if (ready) return `Build ${ready.name}s near the front: they carry Energy out along your bridges.`;
+    const d = gens[0], fury = (d.theme ?? 'sun').replace(/^./, (c) => c.toUpperCase());
+    return `Build a ${fury} Workshop with your Priest: it unlocks ${d.name}s, which carry Energy out along your bridges.`;
   }
 
   /* --------------------------------------- dialogs --------------------------------------- */
@@ -406,7 +433,61 @@ export class Hud {
     $('modal').style.display = 'none';
   }
 
+  /** The main menu: the mission, or a skirmish with its settings. */
+  menu() {
+    G.paused = true;
+    G.started = false;
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('netstorm-3d:skirmish') ?? '{}'); } catch { /* no storage */ }
+    const s = { ...SKIRMISH_DEFAULTS, ...saved };
+    const fury = (id, value) => `<select id="${id}">${['wind', 'rain', 'thunder'].map((f) => `<option value="${f}" ${f === value ? 'selected' : ''}>${f[0].toUpperCase() + f.slice(1)}</option>`).join('')}</select>`;
+    const pick = (id, values, value, label = (x) => x) => `<select id="${id}">${values.map((x) => `<option value="${x}" ${String(x) === String(value) ? 'selected' : ''}>${label(x)}</option>`).join('')}</select>`;
+    this.modal(`<h2>NetStorm 3D</h2>
+      <p class="text">Islands at war above the clouds: build bridges, gather Storm Power and sacrifice the enemy’s Priest.</p>
+      <div class="modes">
+        <section><h3>${escapeHtml(MISSION.title)}</h3><p>Mission 1 of the campaign: break free from ${escapeHtml(MISSION.enemy)}. Guided step by step.</p>
+          <button class="main" data-start="mission">Play mission</button></section>
+        <section><h3>Skirmish</h3><p>A random map against the computer.</p>
+          <div class="form">
+            <label>Your Fury ${fury('skTheme', s.theme)}</label>
+            <label>Enemy Fury ${fury('skEnemy', s.enemyTheme)}</label>
+            <label>Islands ${pick('skIslands', [2, 4, 6, 9], s.islands)}</label>
+            <label>Opponent ${pick('skLevel', ['easy', 'normal', 'hard'], s.difficulty, (x) => x[0].toUpperCase() + x.slice(1))}</label>
+            <label>Storm Power ${pick('skStorm', [1000, 2000, 5000, 10000], s.storm)}</label>
+            <label>Map <span class="seed"><input id="skSeed" type="number" min="0" max="99999" value="${s.seed}"><button type="button" id="skDice" title="Another map">🎲</button></span></label>
+          </div>
+          <button class="main" data-start="skirmish">Start skirmish</button></section>
+      </div>`, []);
+    const box = $('modalBox');
+    box.querySelector('#skDice').onclick = () => { box.querySelector('#skSeed').value = String(Math.floor(Math.random() * 100000)); };
+    box.querySelector('[data-start="mission"]').onclick = () => this.game.start({ mode: 'mission' });
+    box.querySelector('[data-start="skirmish"]').onclick = () => {
+      const setup = {
+        mode: 'skirmish',
+        theme: box.querySelector('#skTheme').value,
+        enemyTheme: box.querySelector('#skEnemy').value,
+        islands: Number(box.querySelector('#skIslands').value),
+        difficulty: box.querySelector('#skLevel').value,
+        storm: Number(box.querySelector('#skStorm').value),
+        seed: Math.max(0, Math.min(99999, Math.floor(Number(box.querySelector('#skSeed').value) || 0))),
+      };
+      try { localStorage.setItem('netstorm-3d:skirmish', JSON.stringify(setup)); } catch { /* no storage */ }
+      this.game.start(setup);
+    };
+  }
+
+  begin() {
+    this.closeModal();
+    G.started = true;
+    G.paused = false;
+    G.clock.reset();
+    this.updateTop();
+    this.sound.begin();
+  }
+
   briefing() {
+    if (!G.mission) return this.skirmishBriefing();
+    const MISSION = G.mission;
     const text = (MISSION.pages['a.']?.text ?? MISSION.briefing).replace(/^The War Begins!\s*/, '');
     this.modal(`<h2>${escapeHtml(MISSION.title)}</h2><div class="text">${escapeHtml(text)}</div>
       <ol><li>Have your <b>Priest</b> build a <b>Sun Workshop</b>, then put the <b>Sun Cannon</b> in its production slots.</li>
@@ -414,7 +495,29 @@ export class Hud {
       <li>Knock out the enemy Priest with cannons, carry him to your <b>Altar</b> with a Golem, and have your Priest perform the sacrifice.</li></ol>
       <p class="note">Your enemy, ${escapeHtml(MISSION.enemy)}, is played by netstorm-web’s own computer opponent.</p>`,
     [{ label: 'Controls', act: () => this.help(true) },
-      { label: 'Play mission', main: true, act: () => { this.closeModal(); G.started = true; G.paused = false; G.clock.reset(); this.updateTop(); this.sound.begin(); } }]);
+      { label: 'Play mission', main: true, act: () => this.begin() }]);
+  }
+
+  skirmishBriefing() {
+    const s = G.setup, cap = (x) => x[0].toUpperCase() + x.slice(1);
+    const enemy = [...G.world.players.values()].find((p) => p.id !== ME);
+    this.modal(`<h2>Skirmish</h2>
+      <p class="text">You are ${cap(s.theme)}; ${escapeHtml(enemy?.name ?? 'the computer')} is ${cap(s.enemyTheme)} and plays at ${s.difficulty} level. ${s.islands} islands, map ${s.seed}.</p>
+      <ol><li>Win by capturing the enemy’s Priest and sacrificing him at your Altar; lose if he does it to you.</li>
+      <li>You know the Sun’s units. Your Priest builds the Workshops that make them, and an Altar.</li>
+      <li>New geysers appear during the battle. Golems carry their Storm Power home.</li></ol>`,
+    [{ label: 'Main menu', act: () => this.menu() }, { label: 'Controls', act: () => this.help(true) }, { label: 'Start', main: true, act: () => this.begin() }]);
+  }
+
+  /** The end of a skirmish. */
+  result(won) {
+    if (G.ended) return;
+    G.ended = true;
+    G.paused = true;
+    this.sound.end(won);
+    this.modal(`<h2>${won ? 'Victory!' : 'Defeat'}</h2><p class="text">${escapeHtml(won ? NS.m.page_enemy_sacrificed() : NS.m.page_own_sacrificed())}</p>`,
+      [{ label: 'Keep looking', act: () => this.closeModal() }, { label: 'Main menu', act: () => this.game.start(G.setup, { menu: true }) },
+        { label: 'Play again', main: true, act: () => this.game.start() }]);
   }
 
   help(fromBriefing = false) {
@@ -434,8 +537,10 @@ export class Hud {
   confirmRestart() {
     const was = G.paused;
     G.paused = true;
-    this.modal('<h2>Restart the mission?</h2><p class="text">The battle starts over from the beginning.</p>',
-      [{ label: 'Cancel', act: () => { this.closeModal(); G.paused = was; G.clock.reset(); } }, { label: 'Restart', main: true, act: () => this.game.start() }]);
+    this.modal(`<h2>Restart the ${G.mission ? 'mission' : 'skirmish'}?</h2><p class="text">The battle starts over from the beginning${G.mission ? '' : ', on the same map'}.</p>`,
+      [{ label: 'Cancel', act: () => { this.closeModal(); G.paused = was; G.clock.reset(); } },
+        { label: 'Main menu', act: () => this.game.start(G.setup, { menu: true }) },
+        { label: 'Restart', main: true, act: () => this.game.start() }]);
   }
 
   /** A newer build has been published: offer to load it. */
@@ -459,6 +564,7 @@ export class Hud {
     G.paused = true;
     this.sound.end(won);
     this.modal(`<h2>${won ? 'Victory!' : 'Defeat'}</h2><div class="text">${escapeHtml(page.text.replace(/^(Success!|Failure!)\s*/, ''))}</div>`,
-      [{ label: 'Keep looking', act: () => this.closeModal() }, { label: 'Play again', main: true, act: () => this.game.start() }]);
+      [{ label: 'Keep looking', act: () => this.closeModal() }, { label: 'Main menu', act: () => this.game.start(G.setup, { menu: true }) },
+        { label: 'Play again', main: true, act: () => this.game.start() }]);
   }
 }

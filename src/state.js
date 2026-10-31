@@ -14,6 +14,10 @@ export const MISSION = DATA.missions.find((m) => m.id === 'thewarbegins') ?? DAT
 
 /** The match in progress and what the player is doing with it. */
 export const G = {
+  /** What was chosen in the menu: { mode: 'mission' } or { mode: 'skirmish', theme, enemyTheme, … }. */
+  setup: { mode: 'mission' },
+  /** The mission being played, or null in a skirmish. */
+  mission: MISSION,
   world: null,
   view: null,
   options: null,

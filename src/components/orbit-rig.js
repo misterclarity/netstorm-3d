@@ -36,6 +36,13 @@ AFRAME.registerComponent('orbit-rig', {
     this.goal = { t: this.home.t.clone(), r: this.home.r, th: this.home.th, ph: this.home.ph };
   },
 
+  /** A new starting view, glided to. */
+  setHome(target, radius) {
+    this.home.t.copy(target);
+    if (radius) this.home.r = radius;
+    this.reset();
+  },
+
   /** Jump straight to a view, without the glide. */
   snap(view) {
     Object.assign(this.goal, view);
