@@ -54,7 +54,10 @@ To see where you stand:
 
 Two art styles can be switched in the top bar:
 
-- **3D**: low-poly models made for this project.
+- **3D**: low-poly models made for this project. Each Fury has its own look (the Sun's sandstone,
+  terracotta and gold; the Wind's timber and canvas, its sails and rotors turning; the Rain's blue
+  stone, ice and water; the Thunder's dark metal, copper coils and violet light), every unit its
+  own model, and each carries its owner's colour: a banner, a ring round its base, a belt.
 - **Sprites**: the original game's sprites as cards standing in the 3D world, with its grass
   tiles on the islands. Units are animated as netstorm-web animates them: its `slotOf()` picks
   each unit's frame on each tick (walking and turning, guns turning and firing, buildings rising,

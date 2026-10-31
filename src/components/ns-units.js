@@ -5,7 +5,7 @@
  * as a model or a sprite card, moves it smoothly from cell to cell and shows its health.
  */
 import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, playerTheme } from '../state.js';
-import { MODELS, HEIGHT, modelKind, spriteKey, cargoModel, part, ico, glow, bake } from '../models.js';
+import { MODELS, heightOf, modelKind, spriteKey, cargoModel, part, ico, glow, bake } from '../models.js';
 
 const { THREE } = AFRAME;
 
@@ -111,13 +111,14 @@ AFRAME.registerComponent('ns-unit', {
     const kind = e ? modelKind(e) : 'generic';
     this.rep = {
       id: this.data.id, kind: e?.kind, type: e?.type, owner: e?.owner ?? 0, anim: [], yaw: 0, phase: 0,
-      foot: e?.kind === 'building' ? [e.fx, e.fy] : null, height: HEIGHT[kind] ?? (e?.kind === 'building' ? 2.5 : 1.6),
+      foot: e?.kind === 'building' ? [e.fx, e.fy] : null, height: 1.6,
       own: [], // what this unit alone holds on the GPU, freed with it
     };
     this.model = new THREE.Group();
     if (e) {
       (MODELS[kind] ?? MODELS.generic)(this.rep, this.model, e);
       bake(this.model, `${kind}|${e.type ?? ''}|${e.owner ?? 0}`);
+      this.rep.height = heightOf(this.model);
     }
     this.el.setObject3D('model', this.model);
     this.pos = null;
@@ -182,7 +183,7 @@ AFRAME.registerComponent('ns-unit', {
       this.model.scale.y = grow;
       if (this.card) this.card.scale.y = grow;
       if (rep.turret) rep.turret.rotation.y = FACING_YAW[e.facing ?? 2];
-      if (rep.barrel) rep.barrel.position.z = 0.95 - (e.lastShot >= 0 && G.world.tick - e.lastShot < 3 ? 0.25 : 0);
+      if (rep.barrel) rep.barrel.position.z = (rep.barrelZ ?? 0.95) - (e.lastShot >= 0 && G.world.tick - e.lastShot < 3 ? 0.25 : 0);
       if (rep.slotsMark) this.markSlots(e);
     }
     if (rep.steam) this.steam(e, s);

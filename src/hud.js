@@ -251,7 +251,7 @@ export class Hud {
     const kind = modelKind({ kind: d.cls === 'Ground Transport' ? 'transport' : 'building', type: id });
     g.beginPath();
     if (kind === 'cannon') { g.arc(23, 26, 9, 0, Math.PI * 2); g.fill(); g.fillStyle = '#333'; g.fillRect(23, 21, 17, 6); }
-    else if (kind === 'golem') { g.fillRect(17, 12, 12, 16); g.fillRect(19, 5, 8, 7); g.fillRect(17, 28, 4, 8); g.fillRect(25, 28, 4, 8); }
+    else if (kind === 'walker') { g.fillRect(17, 12, 12, 16); g.fillRect(19, 5, 8, 7); g.fillRect(17, 28, 4, 8); g.fillRect(25, 28, 4, 8); }
     else if (kind === 'generator') { g.moveTo(23, 4); g.lineTo(31, 18); g.lineTo(23, 32); g.lineTo(15, 18); g.closePath(); g.fill(); g.fillStyle = '#8c8f97'; g.fillRect(14, 32, 18, 5); }
     else if (kind === 'aviary') { g.arc(23, 28, 12, Math.PI, 0); g.fill(); g.fillStyle = '#6b4a2c'; g.fillRect(10, 12, 26, 3); }
     else if (kind === 'workshop') {

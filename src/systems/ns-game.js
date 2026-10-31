@@ -9,13 +9,14 @@ import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
 import { Minimap } from '../minimap.js';
 import { groundCell } from '../space.js';
+import * as models from '../models.js';
 
 AFRAME.registerSystem('ns-game', {
   init() {
     this.destroyed = new Set();
     this.raycaster = new THREE.Raycaster();
     // handles for tests and the console
-    window.NS3D = { G, NS, origin, game: this, stepWorld, flushPendingAi, submit };
+    window.NS3D = { G, NS, origin, game: this, stepWorld, flushPendingAi, submit, models };
     this.el.addEventListener('loaded', () => {
       this.hud = new Hud(this);
       this.minimap = new Minimap(this);
