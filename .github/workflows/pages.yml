@@ -30,6 +30,9 @@ jobs:
       # plays the mission headless for a couple of minutes of game time
       - run: npm run check
       - run: npm run build
+      # plays the built page in headless Chromium: the opening and a staged endgame
+      - run: npx playwright install --with-deps chromium
+      - run: npm run playtest
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

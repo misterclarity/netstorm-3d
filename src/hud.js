@@ -5,6 +5,7 @@
 import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, FACING_NAMES, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml } from './state.js';
 import { submit } from './game.js';
 import { modelKind } from './models.js';
+import { describeBuild, loadNewer } from './version.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -425,7 +426,8 @@ export class Hud {
       <li><b>Bridges:</b> click a piece (or <kbd>1</kbd>–<kbd>6</kbd>), then the map. <kbd>R</kbd> rotates. Pieces join only by their ends; the yellow dot marks the cell under the cursor.</li>
       <li><b>Build:</b> click a card, then the map. <kbd>R</kbd> turns cannons. Hold <kbd>Shift</kbd> to build several. Blue rings show your Energy; yellow, the gun’s range.</li>
       <li><b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <b>Salvage:</b> <kbd>Delete</kbd></li>
-      <li><b>Touch:</b> tap to select; with a piece or building chosen, tap once to preview and again to place.</li></ol>`,
+      <li><b>Touch:</b> tap to select; with a piece or building chosen, tap once to preview and again to place.</li></ol>
+      <p class="note">Build ${escapeHtml(describeBuild())} · <a href="https://github.com/misterclarity/netstorm-3d" target="_blank" rel="noopener">source on GitHub</a></p>`,
     [{ label: fromBriefing ? 'Back' : 'Resume', main: true, act: () => { if (fromBriefing) this.briefing(); else { this.closeModal(); G.paused = was; G.clock.reset(); } } }]);
   }
 
@@ -434,6 +436,17 @@ export class Hud {
     G.paused = true;
     this.modal('<h2>Restart the mission?</h2><p class="text">The battle starts over from the beginning.</p>',
       [{ label: 'Cancel', act: () => { this.closeModal(); G.paused = was; G.clock.reset(); } }, { label: 'Restart', main: true, act: () => this.game.start() }]);
+  }
+
+  /** A newer build has been published: offer to load it. */
+  newVersion(version) {
+    if (document.getElementById('update')) return;
+    const el = document.createElement('div');
+    el.id = 'update';
+    el.className = 'panel';
+    el.innerHTML = '<span>A new version of the game is available.</span><button>Reload</button>';
+    el.querySelector('button').onclick = () => loadNewer(version);
+    document.body.appendChild(el);
   }
 
   /** A page of the mission's script: victory or defeat end the battle. */

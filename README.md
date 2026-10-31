@@ -22,6 +22,9 @@ Mission 1, *The War Begins!*, against netstorm-web's computer opponent:
 5. Knock the enemy Priest out, have a Golem carry him to your **Altar**, then send your Priest to
    the Altar to perform the sacrifice.
 
+If something goes wrong, a small panel says so and the game keeps running. **Help** shows which
+build you are playing, and a notice offers to reload when a newer one has been published.
+
 A *Next step* card reads the state of the battle and tells you what to do next. **Help** in the
 top bar lists the controls: orbit by dragging, pan with right-drag or Shift-drag, zoom with the
 wheel or a pinch, `R` rotates pieces and cannons, `Esc` cancels, `Space` pauses.
@@ -60,6 +63,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run dev` | Builds in watch mode and serves the page on port 8080 (set `PORT` to change it). |
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error. CI runs it. |
+| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the opening and a staged endgame, failing on any page error. Needs `npx playwright install chromium` once. CI runs it. |
 
 ## How it is built
 

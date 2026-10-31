@@ -6,6 +6,7 @@
 import { NS, THREE, G, MISSION, ME, defs, origin, errorText } from '../state.js';
 import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
+import { watchForUpdates } from '../version.js';
 
 AFRAME.registerSystem('ns-game', {
   init() {
@@ -16,6 +17,7 @@ AFRAME.registerSystem('ns-game', {
     window.NS3D = { G, NS, origin, game: this, stepWorld, flushPendingAi, submit };
     this.el.addEventListener('loaded', () => {
       this.hud = new Hud(this);
+      watchForUpdates((version) => this.hud.newVersion(version));
       this.el.systems.shadow?.setShadowMapEnabled(true);
       this.el.addEventListener('ns-tap', (e) => this.onTap(e.detail));
       this.el.addEventListener('ns-hover', (e) => this.onHover(e.detail));

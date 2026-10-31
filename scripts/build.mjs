@@ -12,6 +12,7 @@ import * as esbuild from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, watch } from 'node:fs';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const VENDOR = resolve('vendor/netstorm-web');
@@ -60,16 +61,27 @@ const minify = !args.has('--watch');
 const app = { ...common, entryPoints: ['src/main.js'], outfile: 'build/app.js', format: 'iife', platform: 'browser', minify };
 const worker = { ...common, entryPoints: ['src/ai-worker.js'], outfile: 'build/ai-worker.js', format: 'iife', platform: 'browser', minify };
 
-/** Put the stylesheet, the app and the worker's source into the page. */
+/** Which build this is: the package version and the commit, marked when the tree has changes. */
+function buildInfo() {
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+  let commit = '';
+  try { commit = execFileSync('git', ['describe', '--always', '--dirty=+'], { encoding: 'utf8' }).trim(); } catch { /* not a git checkout */ }
+  return { version: args.has('--watch') ? 'dev' : `${pkg.version}${commit ? `-${commit}` : ''}`, commit, date: new Date().toISOString() };
+}
+
+/** Put the stylesheet, the build's identity, the app and the worker's source into the page. */
 function assemble() {
+  const build = buildInfo();
   // nothing in an inline script may close it early
   const safe = (js) => js.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\!--');
   const html = readFileSync('index.html', 'utf8')
     .replace('<!--INLINE:style-->', () => `<style>\n${readFileSync('src/style.css', 'utf8')}</style>`)
+    .replace('<!--INLINE:build-->', () => `<script>window.NS3D_BUILD = ${JSON.stringify(build)};</script>`)
     .replace('<!--INLINE:app-->', () => `<script>${safe(readFileSync('build/app.js', 'utf8'))}</script>`)
     .replace('<!--INLINE:ai-->', () => `<script id="ns-ai" type="text/plain">${safe(readFileSync('build/ai-worker.js', 'utf8'))}</script>`);
   writeFileSync('dist/index.html', html);
-  console.log(`dist/index.html: ${(html.length / 1024).toFixed(0)} KB`);
+  writeFileSync('dist/version.json', JSON.stringify({ version: build.version }));
+  console.log(`dist/index.html: ${(html.length / 1024).toFixed(0)} KB, build ${build.version}`);
 }
 
 if (args.has('--watch')) {
@@ -83,8 +95,10 @@ if (args.has('--watch')) {
   const port = Number(process.env.PORT) || 8080;
   createServer((req, res) => {
     const path = new URL(req.url, 'http://x').pathname;
-    if (path !== '/' && path !== '/index.html') { res.writeHead(404).end(); return; }
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }).end(readFileSync('dist/index.html'));
+    const file = { '/': 'index.html', '/index.html': 'index.html', '/version.json': 'version.json' }[path];
+    if (!file) { res.writeHead(404).end(); return; }
+    const type = file.endsWith('.json') ? 'application/json' : 'text/html; charset=utf-8';
+    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' }).end(readFileSync(`dist/${file}`));
   }).listen(port, () => console.log(`serving http://localhost:${port}; the page is rebuilt when a file changes (reload to see it)`));
 } else {
   await Promise.all([esbuild.build(app), esbuild.build(worker)]);

@@ -2,6 +2,7 @@
  * NetStorm 3D: netstorm-web's game in an A-Frame scene. This registers the shader, systems and
  * components that index.html uses; it has to run before <a-scene> starts.
  */
+import './errors.js'; // first: it guards every component registered after it
 import './shaders/ns-sky.js';
 import './systems/ns-art.js';
 import './systems/ns-sound.js';
