@@ -123,7 +123,7 @@
 
 /* the event log, under the next step */
 #log { padding: 10px 12px; font-size: 12px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
-#log[hidden] { display: none; }
+#log[hidden], .tb[hidden] { display: none; }
 #log h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
 #log ol { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 260px; }
 #log li { padding: 3px 0; border-top: 1px solid rgba(255,255,255,0.06); line-height: 1.35; color: #dbe4f0; }
@@ -136,3 +136,5 @@
 #mini .row { display: flex; gap: 4px; }
 #mini .tb { flex: 1; padding: 5px 4px; font-size: 11.5px; border: 1px solid var(--line); }
 @media (max-height: 700px) and (min-width: 761px) { #miniCanvas { width: 150px; height: 150px; } }
+/* the tabletop preview: the table's own panel has the bottom bar, the selection and the next step */
+body.tabletop #bar, body.tabletop #sel, body.tabletop #goal { display: none !important; }

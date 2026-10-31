@@ -4,6 +4,7 @@
  * your Temple or Priest, or keep the camera on the selected unit.
  */
 import { G, ME, WORLD, OWNER_COLOR, FURY_COLOR, origin, wx, wz, playerTheme } from './state.js';
+import { groundPoint, lookAtCell, unit } from './space.js';
 
 const { THREE } = AFRAME;
 const SIZE = 190;
@@ -17,13 +18,12 @@ export class Minimap {
     this.base.width = this.base.height = SIZE;
     this.revision = -1;
     this.raycaster = new THREE.Raycaster();
-    this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const look = (e) => {
       const r = this.canvas.getBoundingClientRect();
       const x = this.x0 + ((e.clientX - r.left) / r.width) * this.span;
       const y = this.y0 + ((e.clientY - r.top) / r.height) * this.span;
       G.follow = null;
-      this.rig()?.focus(wx(x), wz(y));
+      lookAtCell(wx(x), wz(y));
     };
     let dragging = false;
     this.canvas.addEventListener('pointerdown', (e) => { dragging = true; this.canvas.setPointerCapture(e.pointerId); look(e); });
@@ -48,7 +48,7 @@ export class Minimap {
   toTemple() {
     const t = G.world?.templeOf(ME);
     G.follow = null;
-    if (t) this.rig()?.focus(wx(t.x + t.fx / 2), wz(t.y + t.fy / 2), 45);
+    if (t) lookAtCell(wx(t.x + t.fx / 2), wz(t.y + t.fy / 2), 45);
   }
 
   toPriest() {
@@ -57,12 +57,13 @@ export class Minimap {
     G.selected = p.id;
     G.follow = p.id;
     this.game.hud.dirty = true;
-    this.rig()?.focus(wx(p.x + 0.5), wz(p.y + 0.5), 32);
+    lookAtCell(wx(p.x + 0.5), wz(p.y + 0.5), 32);
   }
 
   toggleFollow() {
     G.follow = G.follow === null && G.selected !== null ? G.selected : null;
-    if (G.follow !== null) this.rig()?.zoomTo(Math.min(this.rig().goal.r, 40));
+    const rig = this.rig();
+    if (G.follow !== null && rig?.enabled) rig.zoomTo(Math.min(rig.goal.r, 40 * unit()));
   }
 
   /** Keep the camera on the unit followed, while it lasts. */
@@ -71,7 +72,7 @@ export class Minimap {
     if (G.follow === null) return;
     const el = this.game.units()?.byId.get(G.follow);
     if (!el || !G.view.entities.has(G.follow)) { G.follow = null; return; }
-    this.rig()?.focus(el.object3D.position.x, el.object3D.position.z);
+    lookAtCell(el.object3D.position.x, el.object3D.position.z);
   }
 
   /** The islands and bridges, redrawn when the terrain changes. */
@@ -128,11 +129,10 @@ export class Minimap {
     }
     // what the camera sees: the screen's corners on the ground
     const cam = this.game.el.camera;
-    if (cam) {
+    if (cam && this.rig()?.enabled && !this.game.xr()?.mode) {
       const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => {
         this.raycaster.setFromCamera(new THREE.Vector2(x, y), cam);
-        const hit = new THREE.Vector3();
-        return this.raycaster.ray.intersectPlane(this.plane, hit) ? hit : null;
+        return groundPoint(this.raycaster.ray);
       });
       if (corners.every(Boolean)) {
         g.strokeStyle = 'rgba(255,255,255,0.85)';

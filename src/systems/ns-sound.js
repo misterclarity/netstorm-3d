@@ -9,6 +9,7 @@
  * side of the screen.
  */
 import { NS, G, ME, wx, wz } from '../state.js';
+import { toLocal, toScene, unit } from '../space.js';
 import SOUNDS from '../../build/sounds.json';
 
 const { THREE } = AFRAME;
@@ -40,7 +41,8 @@ AFRAME.registerSystem('ns-sound', {
     try { Object.assign(this.settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}')); } catch { /* no storage */ }
     document.addEventListener('visibilitychange', () => {
       if (!this.ctx) return;
-      if (document.hidden) this.ctx.suspend().catch(() => {});
+      // a headset may hide the page it shows the scene for: the sound goes on there
+      if (document.hidden && !this.el.xrSession) this.ctx.suspend().catch(() => {});
       else this.ctx.resume().catch(() => {});
     });
   },
@@ -86,18 +88,25 @@ AFRAME.registerSystem('ns-sound', {
     return found;
   },
 
-  /** Volume and pan of a sound at scene position `at` (THREE.Vector3), as the camera sees it. */
+  /**
+   * Volume and pan of a sound at battlefield position `at` (THREE.Vector3, in cells), as the camera
+   * hears it: from what the orbiting camera looks at, or from a headset's place over the table.
+   */
   where(at) {
     if (!at) return { volume: 1, pan: 0 };
     const rig = document.getElementById('camera')?.components['orbit-rig'];
-    let volume = 1, pan = 0;
-    if (rig) {
-      const far = Math.hypot(at.x - rig.cur.t.x, at.z - rig.cur.t.z) + Math.max(0, rig.cur.r - 45) * 0.35;
-      volume = Math.min(1, Math.max(FAINTEST, 1 - (far - FULL_REACH) / FADE_REACH));
-    }
     const cam = this.el.camera;
+    let volume = 1, pan = 0, far = null;
+    if (rig?.enabled) {
+      const t = toLocal(rig.cur.t);
+      far = Math.hypot(at.x - t.x, at.z - t.z) + Math.max(0, rig.cur.r / unit() - 45) * 0.35;
+    } else if (cam) {
+      const head = toLocal(cam.getWorldPosition(new AFRAME.THREE.Vector3()));
+      far = Math.hypot(at.x - head.x, at.z - head.z) * 0.6 + Math.max(0, head.y - 45) * 0.35;
+    }
+    if (far !== null) volume = Math.min(1, Math.max(FAINTEST, 1 - (far - FULL_REACH) / FADE_REACH));
     if (cam) {
-      const p = at.clone().project(cam);
+      const p = toScene(at).project(cam);
       if (p.z < 1) pan = Math.max(-1, Math.min(1, p.x)) * PAN_REACH;
     }
     return { volume, pan };

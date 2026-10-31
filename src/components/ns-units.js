@@ -9,11 +9,16 @@ import { MODELS, HEIGHT, modelKind, spriteKey, cargoModel, part, ico, glow } fro
 
 const { THREE } = AFRAME;
 
-/** The camera's turn this frame, which every card and health bar copies. */
-const facing = { t: -1, q: new THREE.Quaternion() };
+/**
+ * The camera's turn this frame on the battlefield, which every card and health bar copies: the
+ * camera's own, less the battlefield root's when the table is turned.
+ */
+const facing = { t: -1, q: new THREE.Quaternion(), r: new THREE.Quaternion() };
 function cameraTurn(scene, t) {
   if (facing.t !== t && scene.camera) {
     scene.camera.getWorldQuaternion(facing.q);
+    const root = document.getElementById('world')?.object3D;
+    if (root) facing.q.premultiply(root.getWorldQuaternion(facing.r).invert());
     facing.t = t;
   }
   return facing.q;

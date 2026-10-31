@@ -24,6 +24,8 @@ AFRAME.registerComponent('orbit-rig', {
     this.pointers = new Map();
     this.keys = new Set();
     this.autoRotate = false;
+    /** Off while a headset moves the camera. */
+    this.enabled = true;
     const scene = this.el.sceneEl;
     if (scene.canvas) this.bind(scene.canvas);
     else scene.addEventListener('render-target-loaded', () => this.bind(scene.canvas));
@@ -43,10 +45,15 @@ AFRAME.registerComponent('orbit-rig', {
     this.reset();
   },
 
-  /** Glide to look at scene point (x, z), and optionally to a distance. */
-  focus(x, z, radius) {
-    this.goal.t.set(x, 0, z);
+  /** Glide to look at scene point (x, y, z), and optionally to a distance. */
+  focus(x, z, radius, y = 0) {
+    this.goal.t.set(x, y, z);
     if (radius) this.zoomTo(radius);
+  },
+
+  /** The view as it is now, to come back to with snap(). */
+  view() {
+    return { t: this.goal.t.clone(), r: this.goal.r, th: this.goal.th, ph: this.goal.ph };
   },
 
   zoomTo(radius) {
@@ -129,6 +136,7 @@ AFRAME.registerComponent('orbit-rig', {
   },
 
   tick(t, dt) {
+    if (!this.enabled) return;
     dt = Math.min(dt, 100);
     const k = this.keys, sp = dt * 0.5;
     if (!document.activeElement || document.activeElement === document.body) {

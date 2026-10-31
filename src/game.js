@@ -47,6 +47,8 @@ export function newGame(setup = G.setup) {
   }
   origin.x = Math.round((x0 + x1 + 1) / 2);
   origin.z = Math.round((y0 + y1 + 1) / 2);
+  // how far the ground reaches, in cells: what a table has to hold
+  G.span = Math.max(x1 - x0, y1 - y0) + 1;
 }
 
 /** The AI worker: built from the inlined source in the single-file build, else from ai-worker.js. */

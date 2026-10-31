@@ -186,6 +186,9 @@ AFRAME.registerComponent('ns-placement', {
     ringUnder(this.selRing, G.selected, true);
     ringUnder(this.hoverRing, hov && hov.id !== G.selected ? hov.id : null, false);
     if (hov) tip = game.hud.describe(hov);
+    // the tabletop panel shows it too, where there is no mouse
+    this.tipText = tip || '';
+    this.tipBad = bad;
     if (tip && G.mouse) {
       this.tip.textContent = tip;
       this.tip.className = bad ? 'bad' : '';

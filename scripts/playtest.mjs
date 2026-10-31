@@ -223,6 +223,137 @@ SCENARIOS.skirmish = async () => {
   return errors;
 };
 
+/**
+ * The tabletop: the preview on the screen played with the mouse (a card on the table's panel, then
+ * a cell of the shrunken map), then a headset's controllers, faked: their rays hover a cell, the
+ * trigger selects and builds, the sticks turn and zoom the map, A rotates the piece, the grip cancels.
+ */
+SCENARIOS.tabletop = async () => {
+  const { page, errors } = await open({ width: 1000, height: 720 });
+  await startMission(page);
+  await page.waitForTimeout(1000);
+  await page.keyboard.press('t');
+  await page.waitForTimeout(800);
+  // the orbiting camera a little back, so that the panel at the table's near edge is in view
+  await page.evaluate(() => { const r = document.getElementById('camera').components['orbit-rig']; r.snap({ r: 1.6, ph: 0.75, th: 0, t: r.goal.t.clone().setZ(r.goal.t.z + 0.25) }); });
+  await page.waitForTimeout(800);
+  const onScreen = (what) => page.evaluate((what) => {
+    const scene = document.querySelector('a-scene'), xr = scene.systems['ns-xr'], T = AFRAME.THREE, { origin } = window.NS3D;
+    let p;
+    if (typeof what === 'string') {
+      xr.panel.acc = 1e9;
+      xr.panel.update(16);
+      const it = xr.panel.items.find((b) => b.label === what);
+      if (!it) throw new Error(`no "${what}" on the panel: ${xr.panel.items.map((b) => b.label).join(', ')}`);
+      p = xr.panel.mesh.localToWorld(new T.Vector3(((it.x + it.w / 2) / 1280 - 0.5) * 0.5, (0.5 - (it.y + it.h / 2) / 800) * 0.3125, 0));
+    } else p = new T.Vector3(what[0] + 0.5 - origin.x, 0, what[1] + 0.5 - origin.z).applyMatrix4(document.getElementById('world').object3D.matrixWorld);
+    p.project(scene.camera);
+    const r = scene.canvas.getBoundingClientRect();
+    return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height };
+  }, what);
+  const click = async (what) => {
+    const p = await onScreen(what);
+    await page.mouse.move(p.x, p.y);
+    await page.waitForTimeout(100);
+    await page.mouse.down();
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  };
+  const site = (type) => page.evaluate((type) => {
+    const { G, NS } = window.NS3D, t = G.world.templeOf(1);
+    for (let y = t.y - 14; y < t.y + 18; y++) for (let x = t.x - 14; x < t.x + 22; x++) {
+      if (!G.view.canBuild({ player: 1, type, ...NS.anchorFor(G.world.def(type), x, y) })) return [x, y];
+    }
+    throw new Error(`no place for ${type}`);
+  }, type);
+  await click('Sun Workshop');
+  const tool = await page.evaluate(() => window.NS3D.G.tool);
+  if (tool.type !== 'sunfactory') throw new Error(`the panel's card did not pick the Sun Workshop: ${JSON.stringify(tool)}`);
+  await click(await site('sunfactory'));
+  await fastForward(page, 2);
+  if (!await page.evaluate(() => [...window.NS3D.G.view.entities.values()].some((e) => e.type === 'sunfactory' && e.owner === 1))) {
+    throw new Error('a click on the table did not build the Workshop');
+  }
+
+  // a headset with two controllers, as far as the game sees them
+  const vr = await page.evaluate(() => {
+    const scene = document.querySelector('a-scene'), xr = scene.systems['ns-xr'], T = AFRAME.THREE, { G, NS, origin } = window.NS3D;
+    const pad = () => ({ axes: [0, 0, 0, 0], buttons: Array.from({ length: 6 }, () => ({ pressed: false })) });
+    const right = { handedness: 'right', targetRayMode: 'tracked-pointer', targetRaySpace: 'R', gamepad: pad() };
+    const left = { handedness: 'left', targetRayMode: 'tracked-pointer', targetRaySpace: 'L', gamepad: pad() };
+    const hand = { R: new T.Vector3(0.2, 1.15, -0.15), L: new T.Vector3(-0.2, 1.15, -0.15) }, aim = {};
+    const pose = (at, to) => {
+      const q = new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 0, -1), to.clone().sub(at).normalize());
+      return { transform: { position: at, orientation: { x: q.x, y: q.y, z: q.z, w: q.w } } };
+    };
+    const frame = { getPose: (space) => aim[space] ?? null, getViewerPose: () => pose(new T.Vector3(0, 1.6, 0), new T.Vector3(0, 0.9, -1)) };
+    const session = { inputSources: [right, left], addEventListener() {}, removeEventListener() {} };
+    xr.refSpace = () => ({});
+    scene.xrSession = session;
+    xr.onEnter();
+    xr.recenter(frame.getViewerPose().transform);
+    xr.needCenter = false;
+    scene.object3D.updateMatrixWorld(true);
+    const cellAt = ([x, y]) => new T.Vector3(x + 0.5 - origin.x, 0, y + 0.5 - origin.z).applyMatrix4(xr.world.matrixWorld);
+    const card = (label) => {
+      xr.panel.acc = 1e9;
+      xr.panel.update(16);
+      const it = xr.panel.items.find((b) => b.label === label);
+      return xr.panel.mesh.localToWorld(new T.Vector3(((it.x + it.w / 2) / 1280 - 0.5) * 0.5, (0.5 - (it.y + it.h / 2) / 800) * 0.3125, 0));
+    };
+    const point = (to) => { aim.R = pose(hand.R, to); xr.pollInputs(16, frame, {}); };
+    const pull = () => xr.onSelect({ inputSource: right, frame });
+    const out = { mode: xr.mode, rig: document.getElementById('camera').components['orbit-rig'].enabled };
+    // hover, then select the Temple
+    const t = G.world.templeOf(1), tc = [t.x + 1, t.y + 1];
+    point(cellAt(tc));
+    out.hover = G.hover && G.hover.x === tc[0] && G.hover.y === tc[1];
+    out.beam = [...xr.beams.values()].some((b) => b.visible);
+    pull();
+    out.selected = G.selected === t.id;
+    // a Golem from the panel's card, built where the ray points
+    point(card('Golem'));
+    pull();
+    out.tool = G.tool.type;
+    let golem;
+    for (let y = t.y - 6; y < t.y + 10 && !golem; y++) for (let x = t.x - 6; x < t.x + 10 && !golem; x++) {
+      if (!G.view.canBuild({ player: 1, type: 'sunwalker', ...NS.anchorFor(G.world.def('sunwalker'), x, y) })) golem = [x, y];
+    }
+    point(cellAt(golem));
+    pull();
+    out.golemCell = golem;
+    // the right stick turns and zooms the map; A rotates the piece; the grip cancels
+    right.gamepad.axes = [0, 0, 0.9, -0.9];
+    xr.pollInputs(100, frame, {});
+    right.gamepad.axes = [0, 0, 0, 0];
+    out.turned = xr.yaw !== 0 && xr.zoom > 1;
+    const rot = G.rot;
+    right.gamepad.buttons[4].pressed = true;
+    xr.pollInputs(16, frame, {});
+    right.gamepad.buttons[4].pressed = false;
+    out.rotated = G.rot !== rot;
+    G.tool = { kind: 'piece', hand: 0 };
+    xr.onSqueeze();
+    out.cancelled = G.tool.kind === 'select';
+    return out;
+  });
+  await fastForward(page, 2);
+  const golems = await page.evaluate(() => [...window.NS3D.G.view.entities.values()].filter((e) => e.kind === 'transport' && e.owner === 1).length);
+  const bad = Object.entries({ ...vr, golem: golems > 0 }).filter(([k, v]) => v === false && k !== 'rig');
+  if (vr.mode !== 'vr' || vr.rig) throw new Error(`not in VR: ${JSON.stringify(vr)}`);
+  if (bad.length) throw new Error(`in VR, these failed: ${bad.map(([k]) => k).join(', ')} (${JSON.stringify(vr)})`);
+  // and out again: the screen's view back
+  const back = await page.evaluate(() => {
+    const scene = document.querySelector('a-scene'), xr = scene.systems['ns-xr'];
+    xr.onExit();
+    scene.xrSession = undefined;
+    xr.setMode(null);
+    return { mode: xr.mode, scale: xr.world.scale.x, rig: document.getElementById('camera').components['orbit-rig'].enabled };
+  });
+  if (back.mode !== null || back.scale !== 1 || !back.rig) throw new Error(`not back on the screen: ${JSON.stringify(back)}`);
+  return errors;
+};
+
 let failed = 0;
 for (const [name, run] of Object.entries(SCENARIOS)) {
   if (only && name !== only) continue;

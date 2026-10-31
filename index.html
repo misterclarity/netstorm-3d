@@ -27,6 +27,10 @@
   <div class="sep"></div>
   <button class="tb" id="sfxToggle" title="Sound effects on or off">Sound</button>
   <button class="tb wide" id="musicToggle" title="Music on or off">Music</button>
+  <div class="sep"></div>
+  <button class="tb" id="xrTable" title="Play on a table, as a VR headset shows it (T)">Tabletop</button>
+  <button class="tb" id="xrVR" title="Play on a table in your VR headset" hidden>VR</button>
+  <button class="tb" id="xrAR" title="Put the battle on a real table, through your headset or phone" hidden>AR</button>
   <div class="sep wide"></div>
   <button class="tb" id="help">Help</button>
   <button class="tb" id="restart">Restart</button>
@@ -62,27 +66,41 @@
          shadow="type: pcf"
          light="defaultLightsEnabled: false"
          fog="type: linear; color: #b4c8e4; near: 170; far: 640"
-         vr-mode-ui="enabled: false"
+         xr-mode-ui="enabled: false"
+         keyboard-shortcuts="enterVR: false; exitVR: false"
+         webxr="optionalFeatures: bounded-floor, hand-tracking"
+         ar-hit-test="type: map; mapSize: 0.5 0.5; enabled: false"
          loading-screen="enabled: false"
          device-orientation-permission-ui="enabled: false">
 
-  <!-- sky, sun and clouds -->
+  <!-- sky and clouds -->
   <a-sky radius="1200" segments-width="48" segments-height="24" material="shader: ns-sky; sunDirection: -0.53 0.71 0.41"></a-sky>
   <a-entity light="type: hemisphere; color: #e3eefc; groundColor: #7a6248; intensity: 1.15"></a-entity>
-  <a-entity id="sun" position="-70 95 55" ns-sun
-            light="type: directional; color: #fff0d8; intensity: 2.6; target: #sun-target; castShadow: true;
-                   shadowMapWidth: 4096; shadowMapHeight: 4096; shadowBias: -0.0004;
-                   shadowCameraLeft: -95; shadowCameraRight: 95; shadowCameraTop: 80; shadowCameraBottom: -80;
-                   shadowCameraNear: 10; shadowCameraFar: 340"></a-entity>
-  <a-entity id="sun-target" position="0 0 0"></a-entity>
-  <a-entity ns-clouds__low="clusters: 85; seed: 11; innerRadius: 20; outerRadius: 480; height: -62; spread: 16; size: 7; spin: 0.004"
+  <a-entity id="clouds"
+            ns-clouds__low="clusters: 85; seed: 11; innerRadius: 20; outerRadius: 480; height: -62; spread: 16; size: 7; spin: 0.004"
             ns-clouds__high="clusters: 16; seed: 23; innerRadius: 125; outerRadius: 340; height: 8; spread: 26; size: 5; spin: -0.006"></a-entity>
 
-  <!-- the battlefield: islands and bridges, every unit as an entity, effects, the placement overlay -->
-  <a-entity id="terrain" ns-terrain></a-entity>
-  <a-entity id="units" ns-units></a-entity>
-  <a-entity id="effects" ns-effects></a-entity>
-  <a-entity id="placement" ns-placement></a-entity>
+  <!-- the table (where the tabletop modes put the battle; on the screen it is the scene's middle) and
+       on it the battlefield, in cells: the sun, islands and bridges, every unit as an entity, effects,
+       the placement overlay -->
+  <a-entity id="table">
+    <a-entity id="world">
+      <a-entity id="sun" position="-70 95 55" ns-sun
+                light="type: directional; color: #fff0d8; intensity: 2.6; target: #sun-target; castShadow: true;
+                       shadowMapWidth: 4096; shadowMapHeight: 4096; shadowBias: -0.0004;
+                       shadowCameraLeft: -95; shadowCameraRight: 95; shadowCameraTop: 80; shadowCameraBottom: -80;
+                       shadowCameraNear: 10; shadowCameraFar: 340"></a-entity>
+      <a-entity id="sun-target" position="0 0 0"></a-entity>
+      <a-entity id="terrain" ns-terrain></a-entity>
+      <a-entity id="units" ns-units></a-entity>
+      <a-entity id="effects" ns-effects></a-entity>
+      <a-entity id="placement" ns-placement></a-entity>
+    </a-entity>
+  </a-entity>
+
+  <!-- the hands in VR and AR: controller models; ns-xr draws their rays -->
+  <a-entity ns-hand="left"></a-entity>
+  <a-entity ns-hand="right"></a-entity>
 
   <a-entity id="camera" camera="fov: 45; near: 0.3; far: 2500"
             look-controls="enabled: false" wasd-controls="enabled: false"

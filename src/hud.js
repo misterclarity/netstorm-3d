@@ -6,6 +6,7 @@ import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS,
 import { submit, SKIRMISH_DEFAULTS } from './game.js';
 import { modelKind } from './models.js';
 import { describeBuild, loadNewer } from './version.js';
+import { toScene } from './space.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -122,8 +123,8 @@ export class Hud {
   /** "+120" rising from a point in the scene. */
   floater(text, at) {
     const cam = this.scene.camera;
-    if (!cam) return;
-    const p = at.clone().project(cam);
+    if (!cam || this.scene.xrSession) return;
+    const p = toScene(at).project(cam);
     if (p.z > 1) return;
     const r = this.scene.canvas.getBoundingClientRect();
     const el = document.createElement('div');
@@ -557,7 +558,8 @@ export class Hud {
       <li><b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <b>Salvage:</b> <kbd>Delete</kbd></li>
       <li><b>Look:</b> <kbd>H</kbd> your Temple · <kbd>P</kbd> your Priest · <kbd>F</kbd> follow the selected unit · click or drag on the minimap</li>
       <li><b>Danger:</b> <kbd>G</kbd> shows where enemy guns reach (red); they show by themselves while you hold a piece or a building · <kbd>L</kbd> the event log</li>
-      <li><b>Touch:</b> tap to select; with a piece or building chosen, tap once to preview and again to place.</li></ol>
+      <li><b>Touch:</b> tap to select; with a piece or building chosen, tap once to preview and again to place.</li>
+      <li><b>Tabletop:</b> <kbd>T</kbd> puts the battle on a table, as a headset shows it. <b>VR</b> and <b>AR</b> appear in the top bar when your headset or phone can do them: the trigger (or a tap) selects, lays and builds · grip cancels · A/X rotates the piece · right stick turns and zooms the map, left stick moves it · B/Y recenters (AR: moves the table)</li></ol>
       <p class="note">Build ${escapeHtml(describeBuild())} · <a href="https://github.com/misterclarity/netstorm-3d" target="_blank" rel="noopener">source on GitHub</a></p>`,
     [{ label: fromBriefing ? 'Back' : 'Resume', main: true, act: () => { if (fromBriefing) this.briefing(); else { this.closeModal(); G.paused = was; G.clock.reset(); } } }]);
   }

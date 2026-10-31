@@ -43,9 +43,15 @@ export const G = {
   mouse: null,
   lastStorm: 0,
   terrainRevision: -1,
+  /** How far the map's ground reaches, in cells. */
+  span: 100,
 };
 
-/** World cell (x, y) lies at scene (x - origin.x, 0, y - origin.z): the map's middle at 0, 0, 0. */
+/**
+ * World cell (x, y) lies at battlefield point (x - origin.x, 0, y - origin.z): the map's middle at
+ * 0, 0, 0. The battlefield is the #world entity: the scene itself on the screen, a table in the
+ * tabletop modes (space.js).
+ */
 export const origin = { x: 128, z: 128 };
 export const wx = (x) => x - origin.x;
 export const wz = (y) => y - origin.z;

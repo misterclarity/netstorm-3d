@@ -8,12 +8,12 @@ import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
 import { Minimap } from '../minimap.js';
+import { groundCell } from '../space.js';
 
 AFRAME.registerSystem('ns-game', {
   init() {
     this.destroyed = new Set();
     this.raycaster = new THREE.Raycaster();
-    this.ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     // handles for tests and the console
     window.NS3D = { G, NS, origin, game: this, stepWorld, flushPendingAi, submit };
     this.el.addEventListener('loaded', () => {
@@ -46,10 +46,13 @@ AFRAME.registerSystem('ns-game', {
     else this.hud.briefing();
   },
 
-  /** The camera's starting view: the mission's whole battlefield, or a skirmish's home island. */
+  /**
+   * The camera's starting view: the mission's whole battlefield, or a skirmish's home island. On a
+   * table the tabletop view sets it instead.
+   */
   frameView() {
     const rig = document.getElementById('camera')?.components['orbit-rig'];
-    if (!rig) return;
+    if (!rig || this.xr().mode) return;
     const temple = G.world.templeOf(ME);
     if (G.mission || !temple) rig.setHome(new THREE.Vector3(-7, 0, 7), 82);
     else rig.setHome(new THREE.Vector3(wx(temple.x + temple.fx / 2), 0, wz(temple.y + temple.fy / 2) + 6), 70);
@@ -58,7 +61,8 @@ AFRAME.registerSystem('ns-game', {
   tick(t, dt) {
     if (!G.world || !this.hud) return;
     dt = Math.min(dt, 250);
-    if (!G.paused && !G.ended && !document.hidden) G.clock.advance(dt * G.speed, stepWorld);
+    // a hidden page holds the battle; but a headset may hide the page it shows the battle for
+    if (!G.paused && !G.ended && (!document.hidden || this.el.xrSession)) G.clock.advance(dt * G.speed, stepWorld);
     this.handleEvents();
     if (G.view.terrainRevision !== G.terrainRevision) {
       G.terrainRevision = G.view.terrainRevision;
@@ -83,6 +87,7 @@ AFRAME.registerSystem('ns-game', {
   effects() { return this.el.querySelector('[ns-effects]')?.components['ns-effects']; },
   units() { return this.el.querySelector('[ns-units]')?.components['ns-units']; },
   sound() { return this.el.systems['ns-sound']; },
+  xr() { return this.el.systems['ns-xr']; },
 
   handleEvents() {
     const hud = this.hud, fx = this.effects(), sound = this.sound();
@@ -138,24 +143,33 @@ AFRAME.registerSystem('ns-game', {
   },
 
   /* ---------------------------------------- input ---------------------------------------- */
-  cellAt(px, py) {
+  /** The scene ray under screen point (px, py). */
+  rayAt(px, py) {
     const cam = this.el.camera;
     if (!cam) return null;
     const r = this.el.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((px - r.left) / r.width) * 2 - 1, -((py - r.top) / r.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, cam);
-    const hit = new THREE.Vector3();
-    if (!this.raycaster.ray.intersectPlane(this.ground, hit)) return null;
-    return { x: Math.floor(hit.x + origin.x), y: Math.floor(hit.z + origin.z) };
+    return this.raycaster.ray.clone();
+  },
+  /** The map cell under screen point (px, py), on the screen's battlefield or a table's. */
+  cellAt(px, py) {
+    const ray = this.rayAt(px, py);
+    return ray && groundCell(ray);
   },
   onHover(d) {
+    const ray = d && this.rayAt(d.x, d.y);
+    // over the tabletop's own panel there is no cell to point at
+    if (ray && this.xr().panelHover(ray)) { G.mouse = null; G.hover = null; return; }
     G.mouse = d;
-    G.hover = d ? this.cellAt(d.x, d.y) : null;
+    G.hover = ray ? groundCell(ray) : null;
   },
   onTap(d) {
-    if (!G.started) return;
+    const ray = this.rayAt(d.x, d.y);
+    if (d.button !== 2 && ray && this.xr().panelPress(ray)) return;
+    if (!G.started || this.hud.modalOpen()) return;
     if (d.button === 2) { this.cancel(); return; }
-    const cell = this.cellAt(d.x, d.y);
+    const cell = ray && groundCell(ray);
     if (!cell) return;
     if (d.touch && G.tool.kind !== 'select') {
       // on a touch screen the first tap shows where it goes, the second lays it
@@ -248,16 +262,19 @@ AFRAME.registerSystem('ns-game', {
     if (G.tool.kind !== 'select') this.setTool({ kind: 'select' });
     else if (G.selected !== null) { G.selected = null; this.hud.dirty = true; }
   },
+  /** Turn the bridge piece in hand, or the cannon about to be built. */
+  rotate() {
+    if (G.tool.kind === 'build') G.facing = (G.facing + 1) % 4;
+    else G.rot = (G.rot + 1) % 4;
+    this.sound().play('rotatepiece');
+    this.hud.dirty = true;
+  },
   onKey(e) {
     if (e.target.closest?.('input,textarea') || this.hud.modalOpen()) return;
     const k = e.key.toLowerCase();
     if (k === 'escape') this.cancel();
-    else if (k === 'r') {
-      if (G.tool.kind === 'build') G.facing = (G.facing + 1) % 4;
-      else G.rot = (G.rot + 1) % 4;
-      this.sound().play('rotatepiece');
-      this.hud.dirty = true;
-    } else if (k === ' ') { e.preventDefault(); this.hud.togglePause(); }
+    else if (k === 'r') this.rotate();
+    else if (k === ' ') { e.preventDefault(); this.hud.togglePause(); }
     else if (k >= '1' && k <= '6') {
       const i = Number(k) - 1;
       if (G.world.players.get(ME).hand[i]) this.setTool({ kind: 'piece', hand: i });

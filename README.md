@@ -5,7 +5,7 @@ Power in a 3D scene you can orbit. The rules, the missions and the computer oppo
 [netstorm-web](https://github.com/x-ror/netstorm-web), a browser remake of the game, which this
 project uses unchanged as its engine. This repository is the 3D client around it.
 
-**Play:** https://misterclarity.github.io/netstorm-3d/ (once GitHub Pages is on, see below)
+**Play:** https://misterclarity.github.io/netstorm-3d/
 
 ![The first mission in 3D mode](docs/screenshot.jpg)
 
@@ -56,9 +56,10 @@ Two art styles can be switched in the top bar:
   tiles on the islands. Units are animated as netstorm-web animates them: its `slotOf()` picks
   each unit's frame on each tick (walking and turning, guns turning and firing, buildings rising,
   geysers spouting, the Priest chanting), and each frame stands on its hot spot. A unit type's
-  frames load the first time one appears; its still sprite stands in meanwhile. They are not part of this repository. The page loads them at run time
-  from netstorm-web's repository on GitHub, at the commit the submodule pins. Where the page may
-  not load images from other sites, the button stays off and the models are used.
+  frames load the first time one appears; its still sprite stands in meanwhile. The sprites are
+  not part of this repository: the page loads them at run time from netstorm-web's repository on
+  GitHub, at the commit the submodule pins. Where the page may not load images from other sites,
+  the button stays off and the models are used.
 
 **Sound and music** come from netstorm-web too, read at run time in the same way: the battle's
 events (bridges laid, buildings rising and done, guns firing and shells landing, explosions, a
@@ -67,6 +68,39 @@ far-off cries, and the original's music, the Fury tracks in turn, with a fanfare
 the end. Sounds are louder the nearer they are to what the camera looks at, and panned to their
 side of the screen. **Sound** and **Music** in the top bar turn them off; the choice is
 remembered in the browser.
+
+### On a table: VR, AR and the tabletop view
+
+The battle can also stand on a table, about a centimetre to a cell, with a panel at the table's
+edge that holds the HUD: Storm Power and time, the next step, the selected unit and its orders,
+the bridge pieces and the builds, and the dialogs (the main menu, the briefing, victory and
+defeat). The panel always moves round to the side of the table you are on.
+
+![The first mission on the war table, as a VR headset shows it](docs/tabletop.jpg)
+
+- **VR** (top bar, shown when the browser has a VR headset): you stand on a paved islet of your
+  own above the clouds, and the battle stands on a round war table in front of you.
+- **AR** (top bar, shown on headsets with passthrough and AR phones): point at a real table or
+  the floor and pull the trigger, or tap, to put the islands there. Only their shadows fall on the
+  real surface.
+- **Tabletop** (top bar, or `T`): the same table on the screen, played with the mouse, to see
+  what a headset shows.
+
+In VR and AR the hand controllers point with a ray:
+
+| Control | Does |
+| --- | --- |
+| Trigger (or a tap on a phone) | Select, give orders, lay bridge pieces, build, press the panel's buttons, as a click does |
+| Grip | Cancel, as `Esc` |
+| A / X | Rotate the piece or the cannon in hand, as `R` |
+| Right stick | Turn the map (left and right), zoom it (up and down) |
+| Left stick | Slide the map across the table |
+| B / Y | VR: put the table in front of you again. AR: move it to another surface |
+| Stick press | Reset the map's turn, zoom and position |
+
+The panel has buttons for all of these too, for hand tracking and phones. On a phone, with a
+piece or a building chosen, the first tap shows where it goes and a second tap on the same spot
+places it.
 
 ## Running it
 
@@ -86,7 +120,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run dev` | Builds in watch mode and serves the page on port 8080 (set `PORT` to change it). |
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error. CI runs it. |
-| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the mission's opening, a staged endgame and five minutes of a skirmish, failing on any page error. Needs `npx playwright install chromium` once. CI runs it. |
+| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the mission's opening, a staged endgame, five minutes of a skirmish, and the tabletop (with the mouse, then with faked VR controllers), failing on any page error. Needs `npx playwright install chromium` once. CI runs it. |
 
 ## How it is built
 
@@ -108,8 +142,17 @@ systems and components they use.
 | `ns-residence` | component | The map's Residences. |
 | `ns-effects` | component | Shells in flight, impacts, explosions, falling bridges and islets. |
 | `ns-placement` | component | Bridge and building previews with the reason a spot is refused and the ends a piece joins by; the reach of guns (yours and the enemy's, `src/reach.js`), Energy rings, selection. |
+| `ns-xr` | system | The tabletop modes: scales the battlefield onto the table, the VR scenery, AR placement (A-Frame's `ar-hit-test`), the controllers' rays, sticks and buttons, the panel (`src/xr-panel.js`). |
+| `ns-hand` | component | A hand's controller model (the controller components `laser-controls` sets up, without its ray) and hand tracking. |
 
-The HUD (`src/hud.js`) and the minimap (`src/minimap.js`) are plain DOM over the scene. `src/models.js` holds the low-poly models.
+Everything on the battlefield lives under `<a-entity id="world">` inside `<a-entity id="table">`,
+in cells: on the screen both are the scene's origin; in the tabletop modes `#world` is scaled,
+turned and lifted onto the table. `src/space.js` turns rays and points between the scene and the
+battlefield, so that clicks, the minimap, sound and the sprite cards work the same in every mode.
+
+The HUD (`src/hud.js`) and the minimap (`src/minimap.js`) are plain DOM over the scene. The
+tabletop's panel draws the same HUD on a canvas texture: it reads the HUD's elements, and a press
+on one of its buttons clicks the HUD's own. `src/models.js` holds the low-poly models.
 
 **netstorm-web** sits in `vendor/netstorm-web` as a git submodule pinned to one commit. The build
 bundles its TypeScript straight from there (`src/engine.js` lists what is used: the simulation,
@@ -136,7 +179,9 @@ from GitHub Actions once (*Settings → Pages → Source: GitHub Actions*).
   spells or Obelisks yet.
 - In "Sprites" mode the overlays the original lays over some units (a Temple's whirl, a
   cannon's charge) and the units' shadows are not drawn yet.
-- Tested in desktop Chromium; phones and other browsers are less tried.
+- Tested in desktop Chromium; phones and other browsers are less tried. The VR and AR modes
+  follow the WebXR standard and A-Frame's controller support, and the playtest drives them with
+  faked controllers, but they have not been tried on a real headset or phone yet.
 
 ## Credits and legal
 
