@@ -71,6 +71,7 @@ async function startMission(page) {
 /** Run n ticks at once, the computer's moves worked out in place. */
 const fastForward = (page, n) => page.evaluate((ticks) => {
   const { G, stepWorld, flushPendingAi } = window.NS3D;
+  G.worker?.terminate();
   G.worker = null;
   for (let i = 0; i < ticks; i++) if (!stepWorld()) { flushPendingAi(); stepWorld(); }
   return G.world.tick;

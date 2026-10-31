@@ -78,8 +78,9 @@ function startWorker() {
       G.schedule.deliver(data.due, data.player, data.commands);
     };
     worker.onerror = (e) => {
+      // a worker that cannot run at all: the moves are worked out on the main thread from now on
       e.preventDefault?.();
-      if (worker === G.worker) { G.worker = null; flushPendingAi(); }
+      if (worker === G.worker) { worker.terminate(); G.worker = null; flushPendingAi(); }
     };
     return worker;
   } catch {
@@ -130,13 +131,23 @@ function requestAi() {
   }
 }
 
+/** How long a computer move may take in the worker before it is taken for stuck (ms). */
+const STUCK_MS = 15000;
+
 /** One tick, or false while a computer move owed on it has not come yet. */
 export function stepWorld() {
   const owed = G.schedule.take(G.world.tick);
   if (!owed) {
-    // a move that is very late is worked out here instead
+    // A worker that has not answered for very long is replaced, and the moves it owes are worked
+    // out here this once; the moves after go to the new worker again. (Falling back to the main
+    // thread for good would freeze the page for each move, which can take a second or more.)
     for (const req of G.pending.values()) {
-      if (performance.now() - req.at > 4000) { G.worker = null; flushPendingAi(); break; }
+      if (performance.now() - req.at > STUCK_MS) {
+        G.worker?.terminate();
+        G.worker = startWorker();
+        flushPendingAi();
+        break;
+      }
     }
     return false;
   }

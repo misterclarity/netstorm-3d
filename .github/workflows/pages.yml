@@ -30,6 +30,8 @@ jobs:
       - run: npm ci
       # plays the mission headless for a couple of minutes of game time
       - run: npm run check
+      # the AI worker's cache leaves the computer's moves as they were
+      - run: npm run ai-check
       - run: npm run build
       # plays the built page in headless Chromium: the opening, a staged endgame, a skirmish and the tabletop
       - run: npx playwright install --with-deps chromium

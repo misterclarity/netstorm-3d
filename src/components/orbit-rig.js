@@ -126,6 +126,13 @@ AFRAME.registerComponent('orbit-rig', {
     canvas.addEventListener('wheel', (e) => { e.preventDefault(); this.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
   },
 
+  /** Whether the view is changing: a drag, a key held, or a glide not yet arrived. */
+  moving() {
+    const c = this.cur, g = this.goal, near = 1e-3 * Math.max(1, g.r);
+    return this.pointers.size > 0 || this.keys.size > 0 || this.autoRotate
+      || c.t.distanceTo(g.t) > near || Math.abs(c.r - g.r) > near || Math.abs(c.th - g.th) > 1e-4 || Math.abs(c.ph - g.ph) > 1e-4;
+  },
+
   zoom(f) {
     this.goal.r = THREE.MathUtils.clamp(this.goal.r * f, this.data.minRadius, this.data.maxRadius);
   },

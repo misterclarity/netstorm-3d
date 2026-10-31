@@ -26,8 +26,42 @@ AFRAME.registerSystem('ns-game', {
       this.el.addEventListener('ns-hover', (e) => this.onHover(e.detail));
       window.addEventListener('keydown', (e) => this.onKey(e));
       this.start(G.setup, { menu: true });
+      if (this.el.renderStarted) this.pace();
+      else this.el.addEventListener('renderstart', () => this.pace(), { once: true });
       setTimeout(() => document.getElementById('loading')?.classList.add('gone'), 300);
     });
+  },
+
+  /**
+   * The frame loop, in place of A-Frame's: a frame at most 60 times a second (a high-refresh
+   * screen would draw twice as many for no gain), and 15 while nothing calls for more: the battle
+   * paused or not started, or a dialog open, with the camera still. A headset gets every frame.
+   * The sun's shadow map is drawn every other frame (it does not change with the camera, only with
+   * what moves on the islands), which halves the cost of the shadow pass.
+   */
+  pace() {
+    const scene = this.el, renderer = scene.renderer, render = scene.render;
+    let next = -Infinity, n = 0;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.setAnimationLoop((time, frame) => {
+      if (!renderer.xr.isPresenting) {
+        // each frame is due one interval after the last was due, so the rate holds on average
+        // whatever the screen's own rate; after a long gap the count starts over
+        const interval = 1000 / (this.lively() ? 60 : 15);
+        if (time < next - 1) return;
+        next = time - next > interval ? time + interval : next + interval;
+      }
+      renderer.shadowMap.needsUpdate = n++ % 2 === 0 || this.shadowsNow;
+      this.shadowsNow = false;
+      render(time, frame);
+    });
+    this.paced = true;
+  },
+
+  /** Whether the scene has to move smoothly now. */
+  lively() {
+    if (G.started && !G.paused && !G.ended && !this.hud.modalOpen()) return true;
+    return !!document.getElementById('camera')?.components['orbit-rig']?.moving();
   },
 
   /**
@@ -40,6 +74,7 @@ AFRAME.registerSystem('ns-game', {
     this.destroyed.clear();
     this.rising = new Set();
     this.el.emit('ns-new-game');
+    this.shadowsNow = true;
     this.frameView();
     this.hud.reset();
     if (menu) this.hud.menu();

@@ -14,6 +14,7 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { aiMemo } from './ai-memo.mjs';
 
 const VENDOR = resolve('vendor/netstorm-web');
 const args = new Set(process.argv.slice(2));
@@ -59,7 +60,9 @@ if (args.has('--check')) {
 
 const minify = !args.has('--watch');
 const app = { ...common, entryPoints: ['src/main.js'], outfile: 'build/app.js', format: 'iife', platform: 'browser', minify };
-const worker = { ...common, entryPoints: ['src/ai-worker.js'], outfile: 'build/ai-worker.js', format: 'iife', platform: 'browser', minify };
+// the computer opponent's worker: its world is a copy that never changes, so it may keep answers
+const worker = { ...common, entryPoints: ['src/ai-worker.js'], outfile: 'build/ai-worker.js', format: 'iife', platform: 'browser', minify,
+  plugins: [...common.plugins, aiMemo()] };
 
 /**
  * Which build this is: the package version and the commit, marked when the tree has changes, and

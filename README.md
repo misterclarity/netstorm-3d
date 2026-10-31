@@ -123,6 +123,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run dev` | Builds in watch mode and serves the page on port 8080 (set `PORT` to change it). |
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error. CI runs it. |
+| `npm run ai-check` | Plays eight minutes of a skirmish at each level twice, with and without the AI worker's cache (below), and fails unless the computer makes the same moves both ways; prints how long a move takes. CI runs it. |
 | `npm run playtest` | Plays the built page in headless Chromium (Playwright): the mission's opening, a staged endgame, five minutes of a skirmish, and the tabletop (with the mouse, then with faked VR controllers), failing on any page error. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
 
 ## How it is built
@@ -159,6 +160,27 @@ on one of its buttons clicks the HUD's own. `src/models.js` holds the low-poly m
 baked once built: the parts that never move are merged into a mesh per finish (their colours kept
 per vertex), and models of the same kind share their shapes and merged meshes, so a battle of
 fifty units is about a hundred draw calls and nothing piles up on the GPU as units come and go.
+
+**The computer opponent** is netstorm-web's AI (`aiMove` in its `packages/sim/src/ai.ts`): rules,
+not a learning system. Every few seconds of game time (in a skirmish 8 at easy, 5 at normal, 3 at
+hard; a mission sets its own) it reads the battle and gives the same kind of commands a player
+does: it sends transports to geysers, lays bridge pieces toward the best free geyser and later
+toward the enemy, around the cells his guns cover (except at easy), places guns and Generators at
+its bridge heads, builds and fills Workshops for the Furies it knows, answers air units with
+anti-air, and captures and sacrifices a downed Priest. The levels
+differ in how often it moves, how much it does in a move and how much it weighs danger, not in
+Storm Power or prices. Each move is worked out in a Web Worker on a copy of the world and applied
+a second of game time later.
+
+**What it costs to run.** Frames are drawn at most 60 times a second, and 15 while the battle is
+paused or a dialog is open and the camera is still; a headset gets every frame. The sun's shadow
+map is redrawn every other frame. In the AI's worker, netstorm-web's check of which ground is
+joined to the Temple, a flood fill over the whole territory that a move repeats for every bridge
+site it weighs, is kept once worked out (`scripts/ai-memo.mjs`, applied to the worker's bundle
+only, where the world is a copy that never changes): a move late in a battle takes about 70 ms
+instead of several hundred, and seconds at worst before. `npm run ai-check` shows the moves are
+the same. A worker that stops answering is replaced; the moves never move to the page's own thread
+for good.
 
 **netstorm-web** sits in `vendor/netstorm-web` as a git submodule pinned to one commit. The build
 bundles its TypeScript straight from there (`src/engine.js` lists what is used: the simulation,
