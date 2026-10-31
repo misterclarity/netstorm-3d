@@ -100,10 +100,11 @@ AFRAME.registerComponent('ns-placement', {
     // rings under the selected thing and the one under the cursor
     const units = game.units();
     const ringUnder = (mesh, id, pulse) => {
-      const el = id === null || id === undefined ? null : units?.byId.get(id);
-      mesh.visible = !!el;
-      if (!el) return;
-      const foot = el.components['ns-unit']?.rep.foot, r = foot ? Math.max(...foot) * 0.62 : 0.72;
+      // a unit added this frame has its component but is not set up yet: no ring until it is
+      const unit = id === null || id === undefined ? null : units?.byId.get(id)?.components['ns-unit'];
+      mesh.visible = !!unit?.rep;
+      if (!unit?.rep) return;
+      const el = unit.el, foot = unit.rep.foot, r = foot ? Math.max(...foot) * 0.62 : 0.72;
       mesh.position.set(el.object3D.position.x, 0.12, el.object3D.position.z);
       mesh.scale.setScalar(r * (pulse ? 1 + Math.sin(performance.now() / 200) * 0.04 : 1));
     };

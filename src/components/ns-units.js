@@ -62,7 +62,8 @@ AFRAME.registerComponent('ns-units', {
     const game = this.el.sceneEl.systems['ns-game'];
     for (const [id, el] of this.byId) {
       if (G.view.entities.has(id)) continue;
-      if (game.destroyed.has(id) && el.components['ns-unit']) game.effects()?.explode(el.components['ns-unit'].rep, el.object3D.position);
+      const rep = el.components['ns-unit']?.rep;
+      if (game.destroyed.has(id) && rep) game.effects()?.explode(rep, el.object3D.position);
       el.parentNode?.removeChild(el);
       this.byId.delete(id);
     }
