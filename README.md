@@ -127,7 +127,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error. CI runs it. |
 | `npm run ai-check` | Plays eight minutes of a skirmish at each level twice, with and without the AI worker's cache (below), and fails unless the computer makes the same moves both ways; prints how long a move takes. CI runs it. |
-| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the mission's opening, a staged endgame, five minutes of a skirmish, and the tabletop (with the mouse, then with faked VR controllers), failing on any page error. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
+| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the mission's opening, a staged endgame, a Priest sent to a geyser while holding a crystal, five minutes of a skirmish, and the tabletop (with the mouse, then with faked VR controllers), failing on any page error. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
 
 ## How it is built
 

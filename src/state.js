@@ -45,6 +45,8 @@ export const G = {
   terrainRevision: -1,
   /** How far the map's ground reaches, in cells. */
   span: 100,
+  /** Orders that wait for a carrier to bank the crystal it holds: carrier id → command. */
+  afterDelivery: new Map(),
 };
 
 /**

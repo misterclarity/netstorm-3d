@@ -41,6 +41,7 @@ export function newGame(setup = G.setup) {
   G.pending.clear();
   G.memories.clear();
   G.commands.length = 0;
+  G.afterDelivery.clear();
   G.raised = new Set();
   G.clock.reset();
   Object.assign(G, {

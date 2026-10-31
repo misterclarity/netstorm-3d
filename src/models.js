@@ -868,6 +868,8 @@ export const MODELS = {
     part(body, ico(0.09, 0), glow('#fff3c0', '#ffd24a', 1.2), 0.3, 1.55, 0.1);
     body.scale.setScalar(1.3);
     rep.body = body;
+    // a crystal he carries, over his head
+    rep.cargo = holder(g, 0, 2.4, 0);
   },
   crystal(rep, g) {
     const c = moving(part(g, octa(0.28), glow('#bff4ff', '#39c6ff', 1.1), 0, 0.45, 0));

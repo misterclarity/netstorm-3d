@@ -143,6 +143,14 @@ AFRAME.registerSystem('ns-game', {
           break;
         }
         case 'geyser': hud.log('A new geyser has risen'); break;
+        case 'delivered': {
+          const next = mine && G.afterDelivery.get(ev.data.transport);
+          if (next) {
+            G.afterDelivery.delete(ev.data.transport);
+            submit(next);
+          }
+          break;
+        }
         case 'upgrade': if (mine) hud.log(`Workshop upgraded to level ${ev.data.level + 1}`, 'good'); break;
         case 'salvaged': {
           const el = this.units()?.byId.get(ev.data.id);
@@ -256,15 +264,19 @@ AFRAME.registerSystem('ns-game', {
     // your Priest sent to your Altar (or to the captive chained on it) performs the sacrifice
     const altar = target?.kind === 'building' && target.owner === ME && defs.get(target.type)?.cls === 'Altar' ? target
       : target?.kind === 'priest' && target.state === 'chained' ? G.view.entities.get(target.chainedAt) : null;
-    if (sel.kind === 'priest' && altar?.owner === ME) { this.priestToAltar(altar); return true; }
+    if (sel.kind === 'priest' && altar?.owner === ME) { G.afterDelivery.delete(sel.id); this.priestToAltar(altar); return true; }
     if (own(target)) return false;
+    G.afterDelivery.delete(sel.id); // a new order replaces one that waited
     if ((sel.kind === 'transport' || sel.kind === 'priest') && target) {
-      if (target.kind === 'geyser') {
-        submit({ t: 'collect', transport: sel.id, geyser: target.id });
-        this.hud.toast('Off to the geyser', 'good');
+      if (target.kind === 'geyser' || target.kind === 'crystal') {
+        const cmd = target.kind === 'geyser' ? { t: 'collect', transport: sel.id, geyser: target.id }
+          : { t: 'pickupCrystal', transport: sel.id, crystal: target.id };
+        if (this.carrierFree(sel)) {
+          submit(cmd);
+          this.hud.toast(target.kind === 'geyser' ? 'Off to the geyser' : 'Off to fetch the crystal', 'good');
+        } else this.afterCargo(sel, cmd);
         return true;
       }
-      if (target.kind === 'crystal') { submit({ t: 'pickupCrystal', transport: sel.id, crystal: target.id }); return true; }
       if (sel.kind === 'transport' && target.kind === 'priest') {
         if (target.state === 'down') {
           submit({ t: 'capturePriest', transport: sel.id, target: target.id });
@@ -275,6 +287,57 @@ AFRAME.registerSystem('ns-game', {
     }
     if (sel.kind === 'priest' && target?.kind !== 'building') { submit({ t: 'movePriest', x, y }); return true; }
     return false;
+  },
+
+  /**
+   * Whether a carrier can take an errand now: one that holds something (a Bulf, one crystal of
+   * two) or a Priest who is down or carried off cannot, and the simulation would answer "Wrong
+   * target" (rules/movement.ts, ownCarrier).
+   */
+  carrierFree(t) {
+    if (t.kind === 'priest' && t.state !== 'normal') return false;
+    if (t.carrying === null || t.carrying === undefined) return true;
+    const held = G.view.entities.get(t.carrying);
+    return t.kind === 'transport' && t.type === 'bulf' && held?.kind === 'crystal' && held.value <= (NS.CRYSTAL_VALUE ?? 200);
+  },
+
+  /**
+   * An errand for a carrier still holding a crystal: it banks the crystal at the Temple first,
+   * then sets off (the order waits for its 'delivered' event). A Priest is walked there; a carrier
+   * already on its way home just goes on.
+   */
+  afterCargo(t, cmd) {
+    const name = t.kind === 'priest' ? 'Your Priest' : `The ${defs.get(t.type)?.name ?? 'carrier'}`;
+    if (t.kind === 'priest' && t.state !== 'normal') { this.hud.toast(errorText('priest unavailable'), 'bad'); return; }
+    const held = G.view.entities.get(t.carrying);
+    if (held?.kind !== 'crystal') { this.hud.toast(`${name} is carrying a captive`, 'bad'); return; }
+    const next = cmd.t === 'collect' ? 'goes to the geyser' : 'fetches the crystal';
+    if (t.goal === 'home' && t.path?.length) {
+      G.afterDelivery.set(t.id, cmd);
+      this.hud.toast(`${name} banks the crystal it carries at the Temple, then ${next}`, 'good');
+    } else if (t.kind === 'priest' && this.bankCargo(t, false)) {
+      G.afterDelivery.set(t.id, cmd);
+      this.hud.toast(`${name} first takes the crystal he carries to the Temple, then ${next}`, 'good');
+    } else {
+      this.hud.toast(`${name} still holds a crystal and can't reach the Temple: drop it first`, 'bad');
+    }
+  },
+
+  /** Walk the player's Priest beside his Temple (or an Outpost), where the crystal he holds is banked. */
+  bankCargo(p, tell = true) {
+    const depots = G.view.depotsOf(ME);
+    const path = depots.length && G.view.findPath(ME, p.x, p.y, ([x, y]) => depots.some((d) => G.view.adjacentTo(x, y, d)), true);
+    if (!path?.length) {
+      if (tell) this.hud.toast(errorText('no path'), 'bad');
+      return false;
+    }
+    const [x, y] = path[path.length - 1];
+    submit({ t: 'movePriest', x, y });
+    if (tell) {
+      G.afterDelivery.delete(p.id);
+      this.hud.toast('Your Priest takes his crystal to the Temple', 'good');
+    }
+    return true;
   },
 
   /** Walk the player's Priest to a free cell beside the Altar, where he performs the sacrifice. */

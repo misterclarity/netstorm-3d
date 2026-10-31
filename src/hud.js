@@ -336,8 +336,14 @@ export class Hud {
       }
     }
     if (e.kind === 'priest') {
-      lines.push({ normal: e.goal === 'build' ? 'Building' : 'Standing', down: 'Knocked out', carried: 'Being carried off', chained: `Chained to an Altar: ${e.runes}/5 runes` }[e.state] ?? e.state);
-      if (e.owner === ME && e.state === 'normal') lines.push('Click ground to walk, or your Altar to perform a sacrifice. “Priest builds” below has Workshops and the Altar.');
+      const doing = { build: 'Building', collect: 'Collecting Storm Power', home: 'Carrying Storm Power home', pickup: 'Fetching a crystal' }[e.goal] ?? 'Standing';
+      lines.push({ normal: doing, down: 'Knocked out', carried: 'Being carried off', chained: `Chained to an Altar: ${e.runes}/5 runes` }[e.state] ?? e.state);
+      const held = e.carrying === null || e.carrying === undefined ? null : G.view.entities.get(e.carrying);
+      if (e.owner === ME && e.state === 'normal' && held?.kind === 'crystal' && e.goal !== 'home') {
+        lines.push(`He holds a storm crystal (⚡${held.value}): it is banked when he reaches your Temple.`);
+        acts.push('<button data-sel="bank">Bank it at the Temple</button>', '<button data-sel="drop">Drop it</button>');
+      }
+      if (e.owner === ME && e.state === 'normal') lines.push('Click ground to walk, a geyser to collect, or your Altar to perform a sacrifice. “Priest builds” below has Workshops and the Altar.');
       if (e.owner !== ME && e.state !== 'down') lines.push('Knock him out (below half health) with cannons, then send a Golem.');
     }
     const hp = e.hp !== undefined && e.hpMax ? `<div class="hp"><i style="width:${Math.max(0, 100 * e.hp / e.hpMax)}%"></i></div>` : '';
@@ -356,6 +362,10 @@ export class Hud {
     if (b.dataset.sel === 'produce') submit({ t: 'produce', workshop: id, type: b.dataset.type });
     if (b.dataset.sel === 'upgrade') submit({ t: 'upgradeWorkshop', workshop: id });
     if (b.dataset.sel === 'drop') submit({ t: 'dropCargo', transport: id });
+    if (b.dataset.sel === 'bank') {
+      const p = G.view.entities.get(id);
+      if (p?.kind === 'priest') this.game.bankCargo(p);
+    }
     if (b.dataset.sel === 'salvage') this.salvage();
     if (b.dataset.sel === 'ritual') {
       const altar = G.view.entities.get(id);

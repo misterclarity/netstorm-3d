@@ -192,6 +192,52 @@ const SCENARIOS = {
   },
 };
 
+/**
+ * A Priest who holds a crystal (sent for a walk while carrying one home) and is sent to a geyser:
+ * he banks it at the Temple first and then collects, instead of the order being refused.
+ */
+SCENARIOS.carrier = async () => {
+  const { page, errors } = await open({ width: 800, height: 500 });
+  await startMission(page);
+  const r = await page.evaluate(() => {
+    const { G, game, stepWorld, flushPendingAi } = window.NS3D;
+    G.worker?.terminate();
+    G.worker = null;
+    const step = (n, until) => {
+      for (let i = 0; i < n; i++) {
+        if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+        game.handleEvents();
+        if (until?.()) return true;
+      }
+      return false;
+    };
+    const toasts = [], show = game.hud.toast.bind(game.hud);
+    game.hud.toast = (text, kind) => { toasts.push(text); show(text, kind); };
+    const p = () => G.view.priestOf(1), t = G.world.templeOf(1);
+    const geyser = [...G.view.entities.values()].filter((e) => e.kind === 'geyser' && e.stock > 0 && G.view.owner[G.view.at(e.x, e.y)] === 1)
+      .sort((a, b) => Math.hypot(a.x - p().x, a.y - p().y) - Math.hypot(b.x - p().x, b.y - p().y))[0];
+    G.selected = p().id;
+    game.primary(geyser.x, geyser.y);
+    if (!step(600, () => p().carrying !== null)) return { fail: 'the Priest never picked up a crystal' };
+    let spot = null;
+    for (let d = 6; d < 14 && !spot; d++) for (let dx = -d; dx <= d && !spot; dx++) {
+      const x = t.x + dx, y = t.y + t.fy + d;
+      if (G.view.terrain[G.view.at(x, y)] === 1 && !G.view.occupant[G.view.at(x, y)]) spot = [x, y];
+    }
+    game.primary(...spot);
+    if (!step(400, () => !p().path.length && p().goal === 'idle')) return { fail: 'the Priest did not stop' };
+    if (p().carrying === null) return { fail: 'the Priest banked his crystal on a walk away from the Temple' };
+    toasts.length = 0;
+    game.primary(geyser.x, geyser.y);
+    const collecting = step(600, () => p().carrying === null && p().goal === 'collect');
+    return { collecting, toasts };
+  });
+  if (r.fail) throw new Error(r.fail);
+  if (!r.collecting) throw new Error(`the Priest holding a crystal did not go on to the geyser: ${r.toasts.join(' / ')}`);
+  if (r.toasts.some((t) => /wrong target/i.test(t))) throw new Error(`the order was refused: ${r.toasts.join(' / ')}`);
+  return errors;
+};
+
 SCENARIOS.skirmish = async () => {
   const { page, errors } = await open();
   // a skirmish from the menu: Thunder against Wind on four islands, a fixed map
