@@ -53,7 +53,10 @@ Two art styles can be switched in the top bar:
 
 - **3D**: low-poly models made for this project.
 - **Sprites**: the original game's sprites as cards standing in the 3D world, with its grass
-  tiles on the islands. They are not part of this repository. The page loads them at run time
+  tiles on the islands. Units are animated as netstorm-web animates them: its `slotOf()` picks
+  each unit's frame on each tick (walking and turning, guns turning and firing, buildings rising,
+  geysers spouting, the Priest chanting), and each frame stands on its hot spot. A unit type's
+  frames load the first time one appears; its still sprite stands in meanwhile. They are not part of this repository. The page loads them at run time
   from netstorm-web's repository on GitHub, at the commit the submodule pins. Where the page may
   not load images from other sites, the button stays off and the models are used.
 
@@ -94,7 +97,7 @@ systems and components they use.
 | Piece | Kind | Role |
 | --- | --- | --- |
 | `ns-game` | system | Runs the match each frame (netstorm-web's `World`, its AI in a Web Worker), turns clicks and keys into the game's commands, passes events to the HUD and effects. |
-| `ns-art` | system | Loads the original sprites and switches between the two art styles. |
+| `ns-art` | system | Loads the original sprites and animation frames (by type, as needed) and switches between the two art styles. |
 | `ns-sound` | system | Sound effects and music with the Web Audio API, after netstorm-web's `sound.ts`: what plays on which event, the construction loop, the guns, the music cycle. |
 | `ns-sky` | shader | The gradient sky on `<a-sky>`. |
 | `orbit-rig` | component | The orbiting camera; emits `ns-tap` and `ns-hover` for the game. |
@@ -131,7 +134,8 @@ from GitHub Actions once (*Settings → Pages → Source: GitHub Actions*).
 
 - Only the first mission of the campaign; the engine has the other fifteen. Skirmish has no
   spells or Obelisks yet.
-- In "Sprites" mode each unit is one still frame, not the original's animation.
+- In "Sprites" mode the overlays the original lays over some units (a Temple's whirl, a
+  cannon's charge) and the units' shadows are not drawn yet.
 - Tested in desktop Chromium; phones and other browsers are less tried.
 
 ## Credits and legal

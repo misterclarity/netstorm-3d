@@ -3,13 +3,14 @@
  *  - build/game-data.json: the units, the maps and the missions this client plays, trimmed by
  *    netstorm-web's own game-data.ts as its client trims them;
  *  - build/art.json: where the original sprites and grass tiles chosen for "Sprites" mode lie in
- *    netstorm-web's repository, at the commit the submodule pins. They are not copied here;
+ *    netstorm-web's repository, at the commit the submodule pins, and the frames of every unit's
+ *    animation with their hot spots (the pixel that stands on the unit's place). Not copied here;
  *  - build/sounds.json: netstorm-web's sound index (each sound's file and volume, the sounds of
  *    each unit) and its music tracks, read from the same place at run time.
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { slimUnits, slimMaps, slimMissions, mapsOf } from 'ns-client/game-data.ts';
+import { slimUnits, slimMaps, slimMissions, mapsOf, hotFeet } from 'ns-client/game-data.ts';
 
 const VENDOR = 'vendor/netstorm-web';
 const MISSIONS = ['thewarbegins'];
@@ -67,7 +68,24 @@ const commit = git('rev-parse', 'HEAD');
 const remote = git('config', '--get', 'remote.origin.url').replace(/\.git$/, '');
 const repo = remote.match(/github\.com[/:]([^/]+\/[^/]+)$/)?.[1] ?? 'x-ror/netstorm-web';
 const base = `https://raw.githubusercontent.com/${repo}/${commit}/packages/client/public/`;
-writeFileSync('build/art.json', JSON.stringify({ base, sprites, tiles }, null, 2));
+// Every animation frame ("slot") by unit type: "file,x,y" with the picture's offset from its hot
+// spot, the file under sprites/<type>/ without .png; and where each type's hot spot lies in its
+// footprint (hotFootRatioX/Y of its .type file).
+const slots = {};
+for (const [type, sets] of Object.entries(manifest)) {
+  const table = sets['@'];
+  if (!table) continue;
+  const frames = [];
+  for (const [n, entry] of Object.entries(table)) {
+    const [file, offset = '0,0'] = entry.split('#');
+    const prefix = `sprites/${type}/`;
+    if (!file.startsWith(prefix)) continue;
+    frames[Number(n)] = `${file.slice(prefix.length, -'.png'.length)},${offset}`;
+  }
+  slots[type] = frames;
+}
+const feet = Object.fromEntries(hotFeet(read('data/units.json')));
+writeFileSync('build/art.json', JSON.stringify({ base, sprites, tiles, slots, hotFeet: feet }));
 
 const sounds = read('packages/client/public/data/sounds.json');
 const music = readdirSync(`${VENDOR}/packages/client/public/music`).filter((f) => f.endsWith('.mp3')).map((f) => f.replace(/\.mp3$/, ''));

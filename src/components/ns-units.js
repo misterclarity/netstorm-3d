@@ -4,7 +4,7 @@
  * crystals, geysers) and one <a-entity ns-residence> for each Residence; `ns-unit` draws its entity
  * as a model or a sprite card, moves it smoothly from cell to cell and shows its health.
  */
-import { G, NS, TPS, PX, FACING_YAW, wx, wz, playerTheme } from '../state.js';
+import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, playerTheme } from '../state.js';
 import { MODELS, HEIGHT, modelKind, spriteKey, cargoModel, part, ico, glow } from '../models.js';
 
 const { THREE } = AFRAME;
@@ -92,10 +92,10 @@ AFRAME.registerComponent('ns-unit', {
   /** Where the entity stands now, in world cells, a mover part-way to its next cell. */
   cellPos(e) {
     if (e.kind === 'building') return [e.x + e.fx / 2, e.y + e.fy / 2];
-    if (e.kind === 'flyer') return [e.px / 100, e.py / 100];
+    if (e.kind === 'flyer') return [e.px / NS.FLYER_SCALE, e.py / NS.FLYER_SCALE];
     let x = e.x + 0.5, y = e.y + 0.5;
     if (e.path?.length && e.move > 0) {
-      const f = Math.min(1, e.move / 100), [nx, ny] = e.path[0];
+      const f = NS.stepShare(e), [nx, ny] = e.path[0];
       x += (nx + 0.5 - x) * f;
       y += (ny + 0.5 - y) * f;
     }
@@ -148,7 +148,17 @@ AFRAME.registerComponent('ns-unit', {
     if (rep.cargo) this.cargo(e);
     for (const f of rep.anim) f(s);
 
-    // a sprite card in "Sprites" mode where the original has a picture for it, else the model
+    // in "Sprites" mode: the frame of its animation where it has one, else its still sprite, else
+    // the model
+    const frame = this.art.frameOf(e);
+    if (frame) {
+      this.showFrame(e, frame, visible, t, s);
+      this.model.visible = false;
+      if (this.card) this.card.visible = false;
+      this.healthBar(e, t);
+      return;
+    }
+    if (this.anim) this.anim.visible = false;
     const key = spriteKey(e), img = this.art.sprite(key);
     if (img) {
       if (this.cardKey !== key) this.setCard(e, key, img);
@@ -161,6 +171,37 @@ AFRAME.registerComponent('ns-unit', {
       this.model.visible = visible;
     }
     this.healthBar(e, t);
+  },
+
+  /**
+   * An animation frame as a card facing the camera, standing where the original draws it: its hot
+   * spot on the unit's place (for a building, the hot foot of its footprint), and the card's
+   * bottom on the ground below the picture's lowest row, read as a ¾ view (11 rows to a cell).
+   */
+  showFrame(e, f, visible, t, s) {
+    if (!this.anim) {
+      this.anim = new THREE.Group();
+      this.animMesh = new THREE.Mesh(f.geo, new THREE.MeshBasicMaterial({ map: f.tex, alphaTest: 0.5, side: THREE.DoubleSide }));
+      this.anim.add(this.animMesh);
+      this.el.object3D.add(this.anim);
+    }
+    this.animMesh.geometry = f.geo;
+    this.animMesh.material.map = f.tex;
+    this.animMesh.position.y = f.h / PX / 2;
+    let hx = 0, hy = 0; // the hot spot, from the unit's middle, in cells
+    if (e.kind === 'building' || e.kind === 'geyser') {
+      const [fx, fy] = ART.hotFeet[e.kind === 'geyser' ? 'geyser' : e.type] ?? [0, 0];
+      const foot = e.kind === 'geyser' ? { x: e.x - 1, y: e.y - 1, w: 3, h: 3 } : { x: e.x, y: e.y, w: e.fx, h: e.fy };
+      const [mx, my] = this.cellPos(e);
+      hx = foot.x + foot.w - fx - mx;
+      hy = foot.y + foot.h - fy - my;
+    }
+    const across = (f.w / 2 - f.hx) / PX;
+    if (e.kind === 'flyer') this.anim.position.set(across, 3.6 + Math.sin(s * 2 + this.rep.id) * 0.15, 0);
+    else this.anim.position.set(hx + across, 0.06, hy + (f.h - f.hy) / 11);
+    this.anim.scale.y = e.kind === 'building' && e.rising > 0 ? Math.max(0.06, 1 - e.rising / (NS.BUILD_SECONDS * TPS)) : 1;
+    this.anim.visible = visible;
+    this.anim.quaternion.copy(cameraTurn(this.el.sceneEl, t));
   },
 
   setCard(e, key, img) {
