@@ -60,6 +60,18 @@ const path = (type, set, frame) => {
   return entry.split('#')[0];
 };
 const sprites = Object.fromEntries(Object.entries(PICKS).map(([key, pick]) => [key, path(...pick)]));
+// Every other unit a side can build, or that flies from an aviary, gets the first frame of its
+// animation ('@'), else of its first picture set: the cards of the bottom bar and "Sprites" mode
+// need a picture of each, whichever Fury a skirmish is played with.
+const BUILT = new Set(['Shooter', 'Defense', 'Anti-Air', 'Source of Energy', 'Air Attack Base', 'Production', 'Energy', 'Altar',
+  'Ground Transport', 'Aerial Transport', 'Aerial Attack']);
+for (const unit of units) {
+  const id = unit.id.toLowerCase(), sets = manifest[id];
+  if (id in sprites || !BUILT.has(unit.class) || !sets) continue;
+  const set = sets['@'] ? '@' : Object.keys(sets).find((k) => !/^[bs]_/.test(k)) ?? Object.keys(sets)[0];
+  const first = Object.keys(sets[set]).map(Number).sort((a, b) => a - b)[0];
+  sprites[id] = path(id, set, first);
+}
 const tiles = Object.fromEntries(['wigrass', 'ragrass', 'rgrass', 'thgrass'].map((set) =>
   [set, GROUND_FRAMES.filter((f) => manifest.isle[set]?.[String(f)]).map((f) => path('isle', set, f))]));
 

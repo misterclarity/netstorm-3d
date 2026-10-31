@@ -8,6 +8,18 @@ import { NS, DATA, G, MISSION, TPS, ME, WORLD, defs, origin } from './state.js';
 export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, seed: 42 };
 
 /**
+ * What the player knows in a skirmish beyond a multiplayer battle's start (the Sun's Golem, Disc
+ * Thrower, Cannon, Stone Tower and Generator): the units of the Fury chosen in the menu, as the
+ * original's alignment of that name lists them; the computer is dealt one of these alignments too.
+ * netstorm-web adds what the Furies granted in a campaign instead, but this client keeps no
+ * campaign record, so without this a Wind player's Wind Workshop would have nothing to make.
+ */
+export function furyKnowledge(theme) {
+  const name = { wind: 'Wind', rain: 'Rain', thunder: 'Thunder', sun: 'Sun' }[theme] ?? 'Sun';
+  return [...(NS.AI_ALIGNMENTS.find((a) => a.name === name)?.tech ?? [])];
+}
+
+/**
  * Start a match afresh: the mission, or a skirmish on a map generated from its seed, set up as
  * netstorm-web's setup.ts sets them up.
  */
@@ -22,7 +34,8 @@ export function newGame(setup = G.setup) {
       difficulty: setup.difficulty, storm: setup.storm, seed: setup.seed,
     };
   G.options = options;
-  G.world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+  const known = G.mission ? [] : furyKnowledge(setup.theme);
+  G.world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known, altarLevel: 1 });
   G.view = G.world.view();
   G.schedule = new NS.AiSchedule(TPS);
   G.pending.clear();

@@ -239,7 +239,7 @@ export class Hud {
   drawIcon(cv, id) {
     const g = cv.getContext('2d'), d = defs.get(id);
     g.clearRect(0, 0, 46, 40);
-    const img = this.art.sprite(d.group === 'cannon' ? `${id}:2` : id);
+    const img = (d.group === 'cannon' && this.art.sprite(`${id}:2`)) || this.art.sprite(id);
     if (img) {
       const s = Math.min(46 / img.width, 40 / img.height, 2);
       g.imageSmoothingEnabled = false;
@@ -382,8 +382,14 @@ export class Hud {
     const foe = foes.map((p) => v.priestOf(p.id)).find(Boolean);
     const known = [...me.tech].map((id) => defs.get(id)).filter(Boolean);
     const gunTypes = known.filter((d) => d.cls === 'Shooter');
-    const gunName = gunTypes.find((d) => d.group === 'cannon')?.name ?? gunTypes[0]?.name ?? 'guns';
-    const sunShop = mine.find((e) => e.type === 'sunfactory');
+    // the Workshop to build: the Sun's in the mission (it makes the Sun Cannon), else your Fury's;
+    // one you have counts if it can make something you know
+    const furyOf = (d) => d?.theme ?? 'sun';
+    const shopType = G.mission ? 'sunfactory' : `${playerTheme(ME)}factory`, shopName = defs.get(shopType)?.name ?? 'Workshop';
+    const useful = mine.filter((e) => def(e)?.cls === 'Production' && known.some((d) => NS.takesSlot(d) && furyOf(d) === furyOf(def(e))));
+    const sunShop = useful.find((e) => !e.rising) ?? useful[0];
+    const shopGuns = gunTypes.filter((d) => furyOf(d) === furyOf(sunShop ? def(sunShop) : defs.get(shopType)));
+    const gunName = (shopGuns.find((d) => d.group === 'cannon') ?? shopGuns[0] ?? gunTypes.find((d) => d.group === 'cannon') ?? gunTypes[0])?.name ?? 'guns';
     const guns = mine.filter((e) => def(e)?.cls === 'Shooter' && !e.rising);
     const reaches = foe && guns.some((g) => Math.hypot(g.x + g.fx / 2 - foe.x, g.y + g.fy / 2 - foe.y) <= def(g).range + 1);
     const toward = this.direction();
@@ -400,10 +406,10 @@ export class Hud {
         ? 'The enemy Priest is down! Select a Golem and click him to carry him to your Altar.'
         : 'The enemy Priest is down, but you need an Altar first: pick “Altar” under Priest builds.';
     } else if (!sunShop) {
-      goal = 'Your Priest builds Workshops. Pick “Sun Workshop” under Priest builds, then click a free spot on your island.';
+      goal = `Your Priest builds Workshops. Pick “${shopName}” under Priest builds, then click a free spot on your island.`;
       sub = 'Everything costs Storm Power (⚡). You start with some; Golems bring more from geysers.';
-    } else if (sunShop.rising > 0) goal = 'Your Priest is building the Sun Workshop…';
-    else if (!sunShop.slots.length) goal = `Select the Sun Workshop and add “${gunName}” to its production slots.`;
+    } else if (sunShop.rising > 0) goal = `Your Priest is building the ${def(sunShop).name}…`;
+    else if (!sunShop.slots.length) goal = `Select the ${def(sunShop).name} and add “${gunName}” to its production slots.`;
     else if (!has((e) => e.kind === 'transport')) {
       goal = 'Build a Golem: it carries Storm Power from geysers to your Temple.';
       sub = 'Golems are made at your Temple and appear on your island.';
@@ -534,9 +540,15 @@ export class Hud {
     this.modal(`<h2>Skirmish</h2>
       <p class="text">You are ${cap(s.theme)}; ${escapeHtml(enemy?.name ?? 'the computer')} is ${cap(s.enemyTheme)} and plays at ${s.difficulty} level. ${s.islands} islands, map ${s.seed}.</p>
       <ol><li>Win by capturing the enemy’s Priest and sacrificing him at your Altar; lose if he does it to you.</li>
-      <li>You know the Sun’s units. Your Priest builds the Workshops that make them, and an Altar.</li>
+      <li>You know the ${cap(s.theme)} units (${escapeHtml(this.furyUnits(s.theme))}) and the Sun’s first ones. Your Priest builds the Workshops that make them (a ${cap(s.theme)} Workshop for the ${cap(s.theme)} units), and an Altar.</li>
       <li>New geysers appear during the battle. Golems carry their Storm Power home.</li></ol>`,
     [{ label: 'Main menu', act: () => this.menu() }, { label: 'Controls', act: () => this.help(true) }, { label: 'Start', main: true, act: () => this.begin() }]);
+  }
+
+  /** The names of the units of `theme` the player knows, for the briefing. */
+  furyUnits(theme) {
+    return [...G.world.players.get(ME).tech].map((id) => defs.get(id)).filter((d) => d?.theme === theme && BUILDABLE.has(d.cls))
+      .map((d) => d.name).join(', ');
   }
 
   /** The end of a skirmish. */

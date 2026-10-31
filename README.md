@@ -16,8 +16,9 @@ The main menu offers two kinds of battle against netstorm-web's computer opponen
 - **Mission 1, *The War Begins!***, guided step by step (below).
 - **Skirmish**: a random map from a seed, with your Fury and the enemy's (Wind, Rain or Thunder),
   2 to 9 islands, the opponent's level (easy, normal, hard) and the starting Storm Power. You know
-  the Sun's units; the computer plays an alignment drawn from the seed. New geysers rise during
-  the battle. The same seed gives the same map, so a map can be replayed or shared.
+  your Fury's units (the original's alignment of that name) and the Sun's first ones; the
+  computer plays an alignment drawn from the seed. New geysers rise during the battle. The same
+  seed gives the same map, so a map can be replayed or shared.
 
 In the mission:
 

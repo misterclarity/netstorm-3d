@@ -208,6 +208,22 @@ SCENARIOS.skirmish = async () => {
     return { mission: G.mission, theme: G.world.players.get(1).theme, enemy: G.world.players.get(2).theme, buildings: [...G.view.entities.values()].filter((e) => e.kind === 'building' && e.owner === 2).length };
   });
   if (start.mission !== null || start.theme !== 'thunder' || start.enemy !== 'wind') throw new Error(`not the skirmish asked for: ${JSON.stringify(start)}`);
+  // the player knows the Thunder units, and a Thunder Workshop has them to make
+  const thunder = await page.evaluate(() => {
+    const { G, NS } = window.NS3D, w = G.world, t = w.templeOf(1), def = w.def('thunderfactory');
+    let at;
+    for (let y = t.y - 14; y < t.y + 18 && !at; y++) for (let x = t.x - 14; x < t.x + 22 && !at; x++) {
+      const a = NS.anchorFor(def, x, y);
+      if (!G.view.canBuild({ player: 1, type: 'thunderfactory', ...a })) at = a;
+    }
+    const shop = w.spawnBuilding('thunderfactory', 1, at.x, at.y, 0);
+    shop.rising = 0;
+    const offers = [...w.players.get(1).tech].filter((id) => w.def(id)?.theme === 'thunder' && NS.takesSlot(w.def(id))
+      && NS.canProduce(G.view, { player: 1, workshop: shop.id, type: id }) === null);
+    window.NS3D.submit({ t: 'salvage', target: shop.id }); // and gone again
+    return offers;
+  });
+  if (thunder.length < 2) throw new Error(`a Thunder Workshop has nothing to make: ${JSON.stringify(thunder)}`);
   // the computer plays its side for five minutes of game time
   await fastForward(page, 3000);
   await page.waitForTimeout(1500);
