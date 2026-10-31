@@ -22,7 +22,8 @@
   .sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
 
   /* goal card */
-  #goal { position: fixed; top: 10px; right: 10px; width: 300px; padding: 12px 14px; z-index: 10; font-size: 13px; line-height: 1.45; }
+  #right { position: fixed; top: 10px; right: 10px; width: 300px; z-index: 10; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 170px); }
+  #goal { padding: 12px 14px; font-size: 13px; line-height: 1.45; }
   #goal h3 { margin: 0 0 4px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
   #goal p { margin: 0; }
   #goal .sub { color: var(--muted); font-size: 12px; margin-top: 6px; }
@@ -79,12 +80,14 @@
 
   #loading { position: fixed; inset: 0; display: grid; place-items: center; background: linear-gradient(#5b86c2, #c9dbef); z-index: 40; font-size: 15px; transition: opacity 0.6s; }
   #loading.gone { opacity: 0; pointer-events: none; }
-  @media (max-width: 1180px) and (min-width: 761px) { #goal { top: 66px; } }
+  @media (max-width: 1180px) and (min-width: 761px) { #right { top: 66px; } }
   @media (max-width: 760px) {
     #top { padding: 3px; gap: 0; flex-wrap: nowrap; }
     #top .stat { padding: 4px 6px; } #top .stat b { font-size: 14px; }
     .tb { padding: 6px 7px; } .sep, .tb.wide { display: none; }
-    #goal { top: 60px; right: 10px; left: 10px; width: auto; padding: 8px 12px; font-size: 12px; }
+    #right { top: 60px; right: 10px; left: 10px; width: auto; }
+    #goal { padding: 8px 12px; font-size: 12px; }
+    #mini { display: none; }
     #goal .sub { display: none; }
     #sel { bottom: 126px; left: 10px; width: calc(100vw - 20px); padding: 9px 12px; }
     #bar { left: 10px; right: 10px; transform: none; padding: 6px; }
@@ -117,3 +120,19 @@
 #modal .seed { display: flex; gap: 4px; }
 #modal .seed button { border: 1px solid var(--line); border-radius: 7px; padding: 0 8px; }
 @media (max-width: 560px) { #modal .modes { grid-template-columns: 1fr; } }
+
+/* the event log, under the next step */
+#log { padding: 10px 12px; font-size: 12px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+#log[hidden] { display: none; }
+#log h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+#log ol { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 260px; }
+#log li { padding: 3px 0; border-top: 1px solid rgba(255,255,255,0.06); line-height: 1.35; color: #dbe4f0; }
+#log li time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
+#log li.good { color: #b6ecc4; } #log li.bad { color: #ffc2b8; }
+
+/* the minimap, under the top bar */
+#mini { position: fixed; top: 66px; left: 10px; z-index: 10; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+#miniCanvas { width: 190px; height: 190px; border-radius: 8px; background: rgba(20, 40, 70, 0.55); cursor: crosshair; touch-action: none; }
+#mini .row { display: flex; gap: 4px; }
+#mini .tb { flex: 1; padding: 5px 4px; font-size: 11.5px; border: 1px solid var(--line); }
+@media (max-height: 700px) and (min-width: 761px) { #miniCanvas { width: 150px; height: 150px; } }

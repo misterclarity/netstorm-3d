@@ -37,6 +37,18 @@ A *Next step* card reads the state of the battle and tells you what to do next. 
 top bar lists the controls: orbit by dragging, pan with right-drag or Shift-drag, zoom with the
 wheel or a pinch, `R` rotates pieces and cannons, `Esc` cancels, `Space` pauses.
 
+To see where you stand:
+
+- **Reach as the game measures it.** A building in hand shows where it will fire: a cannon's
+  straight line, a Disc Thrower's square, the Crossbow's arc, an air base's hunting ground.
+  Enemy guns' reach shows in red while you hold a piece or a building, for the gun under the
+  cursor, or all the time with `G` (*Enemy range*).
+- **Bridge ends.** A piece in hand marks the ends it joins by, bright where they meet ground or
+  bridge.
+- **Minimap** in the top-left corner: click or drag to look there. `H` looks at your Temple, `P`
+  at your Priest, `F` keeps the camera on the selected unit.
+- **Event log** (`L`): what happened and when, including what was built, lost and destroyed.
+
 Two art styles can be switched in the top bar:
 
 - **3D**: low-poly models made for this project.
@@ -92,9 +104,9 @@ systems and components they use.
 | `ns-units` / `ns-unit` | components | One `<a-entity ns-unit="id: N">` per thing in the world: model or sprite card, smooth movement, health bar. |
 | `ns-residence` | component | The map's Residences. |
 | `ns-effects` | component | Shells in flight, impacts, explosions, falling bridges and islets. |
-| `ns-placement` | component | Bridge and building previews with the reason a spot is refused, Energy and range rings, selection. |
+| `ns-placement` | component | Bridge and building previews with the reason a spot is refused and the ends a piece joins by; the reach of guns (yours and the enemy's, `src/reach.js`), Energy rings, selection. |
 
-The HUD (`src/hud.js`) is plain DOM over the scene. `src/models.js` holds the low-poly models.
+The HUD (`src/hud.js`) and the minimap (`src/minimap.js`) are plain DOM over the scene. `src/models.js` holds the low-poly models.
 
 **netstorm-web** sits in `vendor/netstorm-web` as a git submodule pinned to one commit. The build
 bundles its TypeScript straight from there (`src/engine.js` lists what is used: the simulation,

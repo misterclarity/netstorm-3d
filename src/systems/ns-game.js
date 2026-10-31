@@ -7,6 +7,7 @@ import { NS, THREE, G, ME, defs, origin, wx, wz, errorText } from '../state.js';
 import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
+import { Minimap } from '../minimap.js';
 
 AFRAME.registerSystem('ns-game', {
   init() {
@@ -17,6 +18,8 @@ AFRAME.registerSystem('ns-game', {
     window.NS3D = { G, NS, origin, game: this, stepWorld, flushPendingAi, submit };
     this.el.addEventListener('loaded', () => {
       this.hud = new Hud(this);
+      this.minimap = new Minimap(this);
+      document.getElementById('camera').addEventListener('orbit-pan', () => { G.follow = null; });
       watchForUpdates((version) => this.hud.newVersion(version));
       this.el.systems.shadow?.setShadowMapEnabled(true);
       this.el.addEventListener('ns-tap', (e) => this.onTap(e.detail));
@@ -35,6 +38,7 @@ AFRAME.registerSystem('ns-game', {
     newGame(setup);
     this.sound().newGame();
     this.destroyed.clear();
+    this.rising = new Set();
     this.el.emit('ns-new-game');
     this.frameView();
     this.hud.reset();
@@ -60,7 +64,20 @@ AFRAME.registerSystem('ns-game', {
       G.terrainRevision = G.view.terrainRevision;
       this.el.emit('ns-terrain');
     }
+    this.watchBuildings();
+    this.minimap.follow();
+    this.miniAcc = (this.miniAcc ?? 0) + dt;
+    if (this.miniAcc > 200) { this.miniAcc = 0; this.minimap.draw(); }
     this.hud.frame(dt);
+  },
+
+  /** Note in the log when one of the player's buildings is up. */
+  watchBuildings() {
+    for (const e of G.view.entities.values()) {
+      if (e.kind !== 'building' || e.owner !== ME) continue;
+      if (e.rising > 0) this.rising.add(e.id);
+      else if (this.rising.delete(e.id)) this.hud.log(`${defs.get(e.type)?.name ?? e.type} is ready`, 'good');
+    }
   },
 
   effects() { return this.el.querySelector('[ns-effects]')?.components['ns-effects']; },
@@ -75,7 +92,16 @@ AFRAME.registerSystem('ns-game', {
       sound.hear(ev, positionOf);
       switch (ev.what) {
         case 'rejected': if (mine) hud.toast(errorText(ev.data.err), 'bad'); break;
-        case 'destroyed': this.destroyed.add(ev.data.id); break;
+        case 'destroyed': {
+          this.destroyed.add(ev.data.id);
+          const lost = this.units()?.byId.get(ev.data.id)?.components['ns-unit']?.rep;
+          const name = ev.data.type === 'priest' ? 'Priest' : defs.get(ev.data.type)?.name ?? ev.data.type;
+          if (lost?.owner === ME) hud.log(`Your ${name} was destroyed`, 'bad');
+          else if (lost?.owner && G.world.hostile(ME, lost.owner)) hud.log(`Enemy ${name} destroyed`, 'good');
+          break;
+        }
+        case 'geyser': hud.log('A new geyser has risen'); break;
+        case 'upgrade': if (mine) hud.log(`Workshop upgraded to level ${ev.data.level + 1}`, 'good'); break;
         case 'salvaged': {
           const el = this.units()?.byId.get(ev.data.id);
           if (el) fx?.puff(el.object3D.position.clone().setY(1), '#cfe8ff', 2, 0.6);

@@ -30,6 +30,11 @@ export class Hud {
     }
     $('restart').onclick = () => this.confirmRestart();
     $('bar').addEventListener('click', (e) => this.barClick(e));
+    $('logToggle').onclick = () => this.toggleLog();
+    $('rangesToggle').onclick = () => game.el.querySelector('[ns-placement]').components['ns-placement'].toggleEnemyReach();
+    window.addEventListener('keydown', (e) => {
+      if (e.key.toLowerCase() === 'l' && !e.target.closest?.('input,textarea,select') && !this.modalOpen()) this.toggleLog();
+    });
     $('sel').addEventListener('click', (e) => this.selClick(e));
     this.scene.addEventListener('ns-art-mode', ({ detail }) => {
       $('artSprites').classList.toggle('on', detail.mode === 'sprites');
@@ -50,6 +55,8 @@ export class Hud {
   reset() {
     this.dirty = true;
     this.sig = '';
+    this.entries = [];
+    if ($('logList')) $('logList').innerHTML = '';
     this.closeModal();
     this.updateTop();
   }
@@ -81,7 +88,26 @@ export class Hud {
     $('speed').textContent = `${G.speed}×`;
   }
 
+  /** A line in the event log, with the battle's time. */
+  log(text, tone = '') {
+    const secs = Math.floor((G.world?.tick ?? 0) / TPS);
+    this.entries = [{ time: `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`, text, tone }, ...(this.entries ?? [])].slice(0, 120);
+    const list = $('logList');
+    if (!list) return;
+    const li = document.createElement('li');
+    li.className = tone;
+    li.innerHTML = `<time>${this.entries[0].time}</time> ${escapeHtml(text)}`;
+    list.prepend(li);
+    while (list.children.length > 120) list.lastChild.remove();
+  }
+
+  toggleLog(show = $('log').hidden) {
+    $('log').hidden = !show;
+    $('logToggle').classList.toggle('on', show);
+  }
+
   toast(text, kind = '') {
+    if (G.started) this.log(text, kind);
     const box = $('toasts');
     if ([...box.children].some((c) => c.textContent === text)) return;
     const el = document.createElement('div');
@@ -529,6 +555,8 @@ export class Hud {
       <li><b>Bridges:</b> click a piece (or <kbd>1</kbd>–<kbd>6</kbd>), then the map. <kbd>R</kbd> rotates. Pieces join only by their ends; the yellow dot marks the cell under the cursor.</li>
       <li><b>Build:</b> click a card, then the map. <kbd>R</kbd> turns cannons. Hold <kbd>Shift</kbd> to build several. Blue rings show your Energy; yellow, the gun’s range.</li>
       <li><b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <b>Salvage:</b> <kbd>Delete</kbd></li>
+      <li><b>Look:</b> <kbd>H</kbd> your Temple · <kbd>P</kbd> your Priest · <kbd>F</kbd> follow the selected unit · click or drag on the minimap</li>
+      <li><b>Danger:</b> <kbd>G</kbd> shows where enemy guns reach (red); they show by themselves while you hold a piece or a building · <kbd>L</kbd> the event log</li>
       <li><b>Touch:</b> tap to select; with a piece or building chosen, tap once to preview and again to place.</li></ol>
       <p class="note">Build ${escapeHtml(describeBuild())} · <a href="https://github.com/misterclarity/netstorm-3d" target="_blank" rel="noopener">source on GitHub</a></p>`,
     [{ label: fromBriefing ? 'Back' : 'Resume', main: true, act: () => { if (fromBriefing) this.briefing(); else { this.closeModal(); G.paused = was; G.clock.reset(); } } }]);

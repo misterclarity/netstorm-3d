@@ -31,7 +31,7 @@ export function newGame(setup = G.setup) {
   G.raised = new Set();
   G.clock.reset();
   Object.assign(G, {
-    paused: true, started: false, ended: false, tool: { kind: 'select' }, rot: 0, facing: 1, selected: null,
+    paused: true, started: false, ended: false, tool: { kind: 'select' }, rot: 0, facing: 1, selected: null, follow: null,
     terrainRevision: -1, lastStorm: G.world.players.get(ME).storm,
   });
   G.worker?.terminate();

@@ -43,6 +43,16 @@ AFRAME.registerComponent('orbit-rig', {
     this.reset();
   },
 
+  /** Glide to look at scene point (x, z), and optionally to a distance. */
+  focus(x, z, radius) {
+    this.goal.t.set(x, 0, z);
+    if (radius) this.zoomTo(radius);
+  },
+
+  zoomTo(radius) {
+    this.goal.r = THREE.MathUtils.clamp(radius, this.data.minRadius, this.data.maxRadius);
+  },
+
   /** Jump straight to a view, without the glide. */
   snap(view) {
     Object.assign(this.goal, view);
@@ -112,6 +122,7 @@ AFRAME.registerComponent('orbit-rig', {
   },
 
   pan(dx, dy) {
+    this.el.emit('orbit-pan', null, false);
     const s = this.goal.r * 0.0016, th = this.goal.th, b = this.data.bounds;
     this.goal.t.x = THREE.MathUtils.clamp(this.goal.t.x - (Math.cos(th) * dx + Math.sin(th) * dy) * s, -b, b);
     this.goal.t.z = THREE.MathUtils.clamp(this.goal.t.z - (-Math.sin(th) * dx + Math.cos(th) * dy) * s, -b, b);

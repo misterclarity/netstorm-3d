@@ -37,6 +37,8 @@ export const G = {
   rot: 0,
   facing: 1,
   selected: null,
+  /** The unit the camera keeps to, or null. */
+  follow: null,
   hover: null,
   mouse: null,
   lastStorm: 0,

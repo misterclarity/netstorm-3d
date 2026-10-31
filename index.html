@@ -32,7 +32,22 @@
   <button class="tb" id="restart">Restart</button>
 </div>
 
-<div id="goal" class="panel"><h3>Next step</h3><p id="goalText"></p><p class="sub" id="goalSub"></p></div>
+<div id="right">
+  <div id="goal" class="panel"><h3>Next step</h3><p id="goalText"></p><p class="sub" id="goalSub"></p></div>
+  <div id="log" class="panel" hidden><h3>Event log</h3><ol id="logList"></ol></div>
+</div>
+<div id="mini" class="panel">
+  <canvas id="miniCanvas" width="190" height="190" title="Click or drag to look there"></canvas>
+  <div class="row">
+    <button class="tb" id="camTemple" title="Look at your Temple (H)">Temple</button>
+    <button class="tb" id="camPriest" title="Look at your Priest (P)">Priest</button>
+    <button class="tb" id="camFollow" title="Keep the camera on the selected unit (F)">Follow</button>
+  </div>
+  <div class="row">
+    <button class="tb" id="rangesToggle" title="Show where enemy guns reach (G)">Enemy range</button>
+    <button class="tb" id="logToggle" title="Event log (L)">Log</button>
+  </div>
+</div>
 <div id="sel" class="panel"></div>
 <div id="bar" class="panel">
   <div class="group"><span>Bridge pieces</span><div class="cards" id="hand"></div></div>
