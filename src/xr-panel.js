@@ -8,7 +8,7 @@ import { G } from './state.js';
 
 const { THREE } = AFRAME;
 const W = 1280, H = 800; // canvas pixels
-export const PANEL_SIZE = { w: 0.5, h: 0.3125 }; // metres
+const PANEL_SIZE = { w: 0.5, h: 0.3125 }; // metres
 const FONT = 'system-ui, "Segoe UI", Roboto, Arial, sans-serif';
 const C = {
   bg: '#0e1522', edge: 'rgba(255, 255, 255, 0.16)', text: '#eef3fa', muted: '#a3b1c5',
@@ -140,12 +140,12 @@ export class Panel {
       }
     }
     // bridge pieces, then the builds
-    const row = (sel, y, label) => {
+    const row = (selector, y, label) => {
       T(28, y - 8, 300, label, { size: 20, color: C.muted, bold: true });
-      return [...document.querySelectorAll(sel)];
+      return [...document.querySelectorAll(selector)];
     };
     let cx = 28;
-    for (const [i, el] of row('#bar #hand > *', 342, 'BRIDGE PIECES').entries()) {
+    for (const [i, el] of row('#hand > *', 342, 'BRIDGE PIECES').entries()) {
       if (el.matches('[data-act]')) {
         out.cards.push({ key: `piece${i}`, x: cx, y: 344, w: 100, h: 136, icon: el.querySelector('canvas'), keyLabel: txt(el.querySelector('.key')),
           label: txt(el.querySelector('span:last-child')), on: el.classList.contains('on'), act: () => el.click() });
@@ -162,7 +162,7 @@ export class Panel {
       ['zoomOut', 'Zoom −', () => xr.zoomBy(1 / 1.25)], ['zoomIn', 'Zoom +', () => xr.zoomBy(1.25)]];
     view.forEach(([key, label, act], i) => B(key, cx + 332 + (i % 2) * 124, 350 + Math.floor(i / 2) * 68, 116, 58, label, act, { size: 22 }));
     cx = 28;
-    const builds = [...row('#bar #units > *', 532, 'BUILD').map((el) => ['u', el]), ...row('#bar #priestBuilds > *', 532, '').map((el) => ['p', el])];
+    const builds = [...row('#unitCards > *', 532, 'BUILD').map((el) => ['u', el]), ...row('#priestBuilds > *', 532, '').map((el) => ['p', el])];
     T(28 + 108 * Math.max(1, builds.filter(([k]) => k === 'u').length) + 12, 524, 300, builds.some(([k]) => k === 'p') ? 'PRIEST BUILDS' : '', { size: 20, color: C.muted, bold: true });
     let gap = false;
     for (const [i, [k, el]] of builds.entries()) {

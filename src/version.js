@@ -6,7 +6,7 @@
 export const BUILD = window.NS3D_BUILD ?? { version: 'dev', commit: '', date: '' };
 
 export function describeBuild() {
-  return `${BUILD.version}${BUILD.date ? ` · built ${BUILD.date.slice(0, 10)}` : ''}`;
+  return `${BUILD.version}${BUILD.date ? ` of ${BUILD.date.slice(0, 10)}` : ''}`;
 }
 
 export function watchForUpdates(onNewer) {

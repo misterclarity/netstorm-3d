@@ -35,7 +35,9 @@ build you are playing, and a notice offers to reload when a newer one has been p
 
 A *Next step* card reads the state of the battle and tells you what to do next. **Help** in the
 top bar lists the controls: orbit by dragging, pan with right-drag or Shift-drag, zoom with the
-wheel or a pinch, `R` rotates pieces and cannons, `Esc` cancels, `Space` pauses.
+wheel or a pinch, `R` rotates pieces and cannons, `Esc` cancels, `Space` pauses. On a phone the
+less-used buttons (the art style, Sound, Music, Tabletop, the minimap, Help, Restart) are under
+**⋯** in the top bar.
 
 To see where you stand:
 
@@ -104,7 +106,7 @@ places it.
 
 ## Running it
 
-You need Node.js 20 or newer.
+You need Node.js 22 or newer.
 
 ```sh
 git clone --recurse-submodules https://github.com/misterclarity/netstorm-3d
@@ -120,7 +122,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run dev` | Builds in watch mode and serves the page on port 8080 (set `PORT` to change it). |
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error. CI runs it. |
-| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the mission's opening, a staged endgame, five minutes of a skirmish, and the tabletop (with the mouse, then with faked VR controllers), failing on any page error. Needs `npx playwright install chromium` once. CI runs it. |
+| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the mission's opening, a staged endgame, five minutes of a skirmish, and the tabletop (with the mouse, then with faked VR controllers), failing on any page error. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
 
 ## How it is built
 
@@ -152,7 +154,10 @@ battlefield, so that clicks, the minimap, sound and the sprite cards work the sa
 
 The HUD (`src/hud.js`) and the minimap (`src/minimap.js`) are plain DOM over the scene. The
 tabletop's panel draws the same HUD on a canvas texture: it reads the HUD's elements, and a press
-on one of its buttons clicks the HUD's own. `src/models.js` holds the low-poly models.
+on one of its buttons clicks the HUD's own. `src/models.js` holds the low-poly models. Each is
+baked once built: the parts that never move are merged into a mesh per finish (their colours kept
+per vertex), and models of the same kind share their shapes and merged meshes, so a battle of
+fifty units is about a hundred draw calls and nothing piles up on the GPU as units come and go.
 
 **netstorm-web** sits in `vendor/netstorm-web` as a git submodule pinned to one commit. The build
 bundles its TypeScript straight from there (`src/engine.js` lists what is used: the simulation,

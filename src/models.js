@@ -2,6 +2,12 @@
  * Low-poly stand-ins for every kind of thing on the battlefield, built from three.js primitives.
  * Each builder fills a group whose origin is the middle of the thing's footprint on the ground;
  * `rep` collects what moves (rep.anim) and the parts the unit component needs to reach.
+ *
+ * Shapes and materials are shared: one geometry per shape and size, one material per colour and
+ * finish. Once built, a model is baked (bake()): the parts that never move are merged into a mesh
+ * per finish, their colours kept per vertex, and that merged geometry is shared by every model
+ * with the same key. A Temple is then a handful of draw calls instead of thirty, and nothing a
+ * unit's model holds on the GPU has to be freed when the unit is gone.
  */
 import { THREE, defs, ART, OWNER_COLOR, FURY_COLOR, FACING_YAW, hash } from './state.js';
 
@@ -9,7 +15,10 @@ const matCache = new Map();
 export function mat(color, extra = {}) {
   const key = color + JSON.stringify(extra);
   if (!matCache.has(key)) {
-    matCache.set(key, new THREE.MeshStandardMaterial({ color, roughness: 0.8, flatShading: true, ...extra }));
+    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.8, flatShading: true, ...extra });
+    // a plain finish (no glow of its own) can be merged with others of the same finish
+    m.userData = { finish: 'emissive' in extra ? null : JSON.stringify(extra) };
+    matCache.set(key, m);
   }
   return matCache.get(key);
 }
@@ -24,16 +33,114 @@ export function part(group, geo, material, x = 0, y = 0, z = 0) {
   group.add(m);
   return m;
 }
-export const box = (x, y, z) => new THREE.BoxGeometry(x, y, z);
-export const cyl = (a, b, h, n = 8) => new THREE.CylinderGeometry(a, b, h, n);
-export const cone = (r, h, n = 6) => new THREE.ConeGeometry(r, h, n);
-export const sph = (r, w = 10, h = 8) => new THREE.SphereGeometry(r, w, h);
-export const dome = (r) => new THREE.SphereGeometry(r, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-export const ico = (r, d = 0) => new THREE.IcosahedronGeometry(r, d);
+
+/** A part that moves on its own (turns, bobs, pulses): bake() leaves it as it is. */
+function moving(mesh) {
+  mesh.userData.moves = true;
+  return mesh;
+}
+
+const geoCache = new Map();
+/** One geometry per shape and size, shared by every model; never disposed. */
+function shape(key, make) {
+  let g = geoCache.get(key);
+  if (!g) { g = make(); geoCache.set(key, g); }
+  return g;
+}
+export const box = (x, y, z) => shape(`box${x},${y},${z}`, () => new THREE.BoxGeometry(x, y, z));
+const cyl = (a, b, h, n = 8) => shape(`cyl${a},${b},${h},${n}`, () => new THREE.CylinderGeometry(a, b, h, n));
+const cone = (r, h, n = 6) => shape(`cone${r},${h},${n}`, () => new THREE.ConeGeometry(r, h, n));
+const sph = (r, w = 10, h = 8) => shape(`sph${r},${w},${h}`, () => new THREE.SphereGeometry(r, w, h));
+const dome = (r) => shape(`dome${r}`, () => new THREE.SphereGeometry(r, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2));
+export const ico = (r, d = 0) => shape(`ico${r},${d}`, () => new THREE.IcosahedronGeometry(r, d));
+const octa = (r) => shape(`octa${r}`, () => new THREE.OctahedronGeometry(r, 0));
+const dodeca = (r) => shape(`dodeca${r}`, () => new THREE.DodecahedronGeometry(r, 0));
+const plane = (w, h) => shape(`plane${w},${h}`, () => new THREE.PlaneGeometry(w, h));
+const arc = (r, t) => shape(`arc${r},${t}`, () => new THREE.TorusGeometry(r, t, 4, 12, Math.PI));
+
+/**
+ * The geysers' steam: white, see-through, each instance as opaque as its instance colour's red
+ * (instanced meshes have a colour per instance but no opacity per instance).
+ */
+let steamMat = null;
+function steamMaterial() {
+  if (!steamMat) {
+    steamMat = new THREE.MeshLambertMaterial({ color: '#ffffff', transparent: true, depthWrite: false, flatShading: true });
+    steamMat.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', '#ifdef USE_COLOR\n  diffuseColor.a *= vColor.r;\n#endif');
+    };
+    steamMat.customProgramCacheKey = () => 'ns-steam';
+  }
+  return steamMat;
+}
+
+/* ------------------------------------------ baking ------------------------------------------ */
+const bakeCache = new Map();
+
+/** `meshes` as one geometry in their group's space; with `colors`, each one's colour per vertex. */
+function merge(meshes, colors) {
+  const parts = meshes.map((m) => {
+    m.updateMatrix();
+    const g = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(m.matrix);
+    return { g, c: m.material.color };
+  });
+  const count = parts.reduce((n, p) => n + p.g.attributes.position.count, 0);
+  const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3), col = colors ? new Float32Array(count * 3) : null;
+  let o = 0;
+  for (const { g, c } of parts) {
+    const k = g.attributes.position.count;
+    pos.set(g.attributes.position.array, o * 3);
+    nor.set(g.attributes.normal.array, o * 3);
+    if (col) for (let i = o; i < o + k; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+    o += k;
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  if (col) out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  out.computeBoundingSphere();
+  return out;
+}
+
+/**
+ * Merge the parts of a built model that do not move: in each of its groups, one mesh per finish
+ * (plain parts of any colour together, coloured per vertex; each glow on its own). Models with the
+ * same `key` are built the same, so the merged geometries are made once and shared.
+ */
+export function bake(root, key) {
+  let n = 0;
+  const visit = (group) => {
+    const id = `${key}#${n++}`, kids = [...group.children];
+    const still = kids.filter((c) => c.isMesh && !c.userData.moves);
+    if (still.length > 1) {
+      let merged = bakeCache.get(id);
+      if (!merged) {
+        const sets = new Map();
+        for (const m of still) {
+          const finish = m.material.userData?.finish;
+          const k = finish != null ? `plain${finish}` : m.material.uuid;
+          if (!sets.has(k)) {
+            const material = finish != null ? mat('#ffffff', { ...JSON.parse(finish), vertexColors: true }) : m.material;
+            sets.set(k, { material, meshes: [], colors: finish != null });
+          }
+          sets.get(k).meshes.push(m);
+        }
+        merged = [...sets.values()].map((set) => ({ material: set.material, geometry: merge(set.meshes, set.colors) }));
+        bakeCache.set(id, merged);
+      }
+      for (const m of still) group.remove(m);
+      for (const { material, geometry } of merged) part(group, geometry, material);
+    }
+    for (const c of kids) if (!c.isMesh && c.isObject3D) visit(c);
+  };
+  visit(root);
+  return root;
+}
 
 function flag(rep, g, x, z, h) {
   part(g, cyl(0.05, 0.06, h, 6), mat('#e8e4da'), x, h / 2, z);
-  const cloth = part(g, new THREE.PlaneGeometry(1.1, 0.65), mat(OWNER_COLOR[rep.owner] ?? '#ccc', { side: THREE.DoubleSide }), x + 0.55, h - 0.38, z);
+  const cloth = moving(part(g, plane(1.1, 0.65), mat(OWNER_COLOR[rep.owner] ?? '#ccc', { side: THREE.DoubleSide }), x + 0.55, h - 0.38, z));
   rep.anim.push((s) => { cloth.rotation.y = Math.sin(s * 2.2 + rep.id) * 0.25; });
 }
 
@@ -51,7 +158,7 @@ export const MODELS = {
       part(g, cyl(0.2, 0.27, 1.7, 6), mat('#cbc6ba'), px, 1.5, pz);
       part(g, ico(0.27), glow('#a8ecff', rain ? '#38b6e0' : c, 0.9), px, 2.5, pz);
     }
-    const spout = part(g, cone(0.35, 1.8), glow('#d8f6ff', '#5bc9ec', 0.6), 0, 1.6, 0);
+    const spout = moving(part(g, cone(0.35, 1.8), glow('#d8f6ff', '#5bc9ec', 0.6), 0, 1.6, 0));
     rep.anim.push((s) => { spout.rotation.y = s * 0.6; });
     flag(rep, g, -3.2, -1.6, 4.2);
   },
@@ -99,7 +206,7 @@ export const MODELS = {
       s.rotation.z = Math.cos(a) * 0.35;
       s.rotation.x = -Math.sin(a) * 0.35;
     }
-    const fire = part(g, ico(0.5), glow('#ffb347', '#ff7a1a', 1.2), 0, 0.9, 0);
+    const fire = moving(part(g, ico(0.5), glow('#ffb347', '#ff7a1a', 1.2), 0, 0.9, 0));
     rep.anim.push((s) => { fire.scale.setScalar(0.85 + Math.sin(s * 5) * 0.12); fire.rotation.y = s; });
   },
   generator(rep, g, e) {
@@ -107,7 +214,7 @@ export const MODELS = {
     const [c, em] = { rain: ['#8fe0ff', '#1f9fe0'], wind: ['#ffd76a', '#ffae00'], sun: ['#ffe48a', '#ffc000'], thunder: ['#d6b8ff', '#8a5cff'] }[theme];
     part(g, cyl(1.0, 1.15, 0.5, 6), mat('#8c8f97'), 0, 0.25, 0);
     part(g, cyl(0.45, 0.7, 0.7, 6), mat('#a3a7b0'), 0, 0.85, 0);
-    const crystal = part(g, new THREE.OctahedronGeometry(0.6, 0), glow(c, em, 0.9), 0, 2.0, 0);
+    const crystal = moving(part(g, octa(0.6), glow(c, em, 0.9), 0, 2.0, 0));
     crystal.scale.y = 1.6;
     rep.anim.push((s) => { crystal.rotation.y = s * 0.9; crystal.position.y = 2 + Math.sin(s * 1.7 + rep.id) * 0.12; });
   },
@@ -118,7 +225,7 @@ export const MODELS = {
     g.add(turret);
     part(turret, cyl(0.75, 0.85, 0.6, 10), mat('#4a4744'), 0, 0.3, 0);
     part(turret, sph(0.55), mat('#2f2d2b', { metalness: 0.5, roughness: 0.4 }), 0, 0.7, 0);
-    const barrel = part(turret, cyl(0.2, 0.26, 1.9, 10), mat('#2a2928', { metalness: 0.5, roughness: 0.4 }), 0, 0.8, 0.95);
+    const barrel = moving(part(turret, cyl(0.2, 0.26, 1.9, 10), mat('#2a2928', { metalness: 0.5, roughness: 0.4 }), 0, 0.8, 0.95));
     barrel.rotation.x = Math.PI / 2 - 0.25;
     rep.turret = turret;
     rep.barrel = barrel;
@@ -131,8 +238,7 @@ export const MODELS = {
     const bow = new THREE.Group();
     bow.position.y = 1.35;
     part(bow, box(0.18, 0.14, 1.5), mat('#6b4a2c'));
-    const arc = part(bow, new THREE.TorusGeometry(0.6, 0.06, 4, 12, Math.PI), gold(), 0, 0, 0.55);
-    arc.rotation.set(Math.PI / 2, 0, 0);
+    part(bow, arc(0.6, 0.06), gold(), 0, 0, 0.55).rotation.set(Math.PI / 2, 0, 0);
     g.add(bow);
     bow.rotation.y = FACING_YAW[e.facing ?? 2];
     rep.turret = bow;
@@ -149,7 +255,7 @@ export const MODELS = {
     part(g, cyl(1.0, 1.0, 0.7, 12), mat('#e2dccd'), 0, 0.7, 0);
     part(g, dome(0.95), mat('#c8a560', { metalness: 0.3, roughness: 0.5 }), 0, 1.05, 0);
     part(g, cyl(1.02, 1.02, 0.1, 16), gold(), 0, 1.06, 0);
-    const vane = part(g, box(1.4, 0.05, 0.14), mat('#6b4a2c'), 0, 2.15, 0);
+    const vane = moving(part(g, box(1.4, 0.05, 0.14), mat('#6b4a2c'), 0, 2.15, 0));
     rep.anim.push((s) => { vane.rotation.y = s * 4; });
   },
   golem(rep, g, e) {
@@ -161,8 +267,8 @@ export const MODELS = {
     part(body, box(0.5, 0.55, 0.36), mat(skin), 0, 0.72, 0);
     part(body, box(0.3, 0.26, 0.28), mat(theme === 'sun' ? '#c9b99a' : skin), 0, 1.15, 0);
     part(body, box(0.52, 0.08, 0.38), mat(OWNER_COLOR[rep.owner]), 0, 0.84, 0);
-    const legs = [part(body, box(0.16, 0.45, 0.18), mat('#9c8d70'), -0.13, 0.22, 0), part(body, box(0.16, 0.45, 0.18), mat('#9c8d70'), 0.13, 0.22, 0)];
-    const arms = [part(body, box(0.12, 0.45, 0.14), mat('#a99a7c'), -0.33, 0.72, 0), part(body, box(0.12, 0.45, 0.14), mat('#a99a7c'), 0.33, 0.72, 0)];
+    const legs = [-0.13, 0.13].map((x) => moving(part(body, box(0.16, 0.45, 0.18), mat('#9c8d70'), x, 0.22, 0)));
+    const arms = [-0.33, 0.33].map((x) => moving(part(body, box(0.12, 0.45, 0.14), mat('#a99a7c'), x, 0.72, 0)));
     part(body, box(0.05, 0.05, 0.02), glow('#ffe39a', '#ffb43a', 1), -0.07, 1.17, 0.15);
     part(body, box(0.05, 0.05, 0.02), glow('#ffe39a', '#ffb43a', 1), 0.07, 1.17, 0.15);
     body.scale.setScalar(1.25);
@@ -192,7 +298,7 @@ export const MODELS = {
     const theme = defs.get(e.type)?.theme ?? 'sun', c = theme === 'sun' ? '#e8b04a' : FURY_COLOR[theme];
     part(g, cyl(0.35, 0.45, 0.3, 8), mat('#8a7a66'), 0, 0.15, 0);
     part(g, cyl(0.16, 0.2, 1.6, 8), mat('#9c8d70'), 0, 1.0, 0);
-    const orb = part(g, ico(0.3, 1), glow(c, c, 0.9), 0, 2.0, 0);
+    const orb = moving(part(g, ico(0.3, 1), glow(c, c, 0.9), 0, 2.0, 0));
     rep.anim.push((s) => { orb.scale.setScalar(0.9 + Math.sin(s * 3 + rep.id) * 0.1); });
   },
   antiair(rep, g, e) {
@@ -205,7 +311,9 @@ export const MODELS = {
       rod.rotation.z = Math.cos(a) * 0.3;
       rod.rotation.x = -Math.sin(a) * 0.3;
     }
-    const orb = part(g, ico(0.35, 1), glow(c, c, 1.0), 0, 2.85, 0);
+    // it pulses with a glow of its own: a material of its own, freed with the unit
+    const orb = moving(part(g, ico(0.35, 1), glow(c, c, 1.0).clone(), 0, 2.85, 0));
+    rep.own.push(orb.material);
     rep.anim.push((s) => { orb.material.emissiveIntensity = 0.7 + Math.abs(Math.sin(s * 4 + rep.id)) * 0.6; });
   },
   flyer(rep, g) {
@@ -232,7 +340,7 @@ export const MODELS = {
     rep.body = body;
   },
   crystal(rep, g) {
-    const c = part(g, new THREE.OctahedronGeometry(0.28, 0), glow('#bff4ff', '#39c6ff', 1.1), 0, 0.45, 0);
+    const c = moving(part(g, octa(0.28), glow('#bff4ff', '#39c6ff', 1.1), 0, 0.45, 0));
     c.scale.y = 1.5;
     rep.anim.push((s) => { c.rotation.y = s * 2; c.position.y = 0.45 + Math.sin(s * 3 + rep.id) * 0.08; });
   },
@@ -240,15 +348,17 @@ export const MODELS = {
     part(g, cyl(0.55, 0.7, 0.12, 10), mat('#3a3330'), 0, 0.06, 0);
     for (let i = 0; i < 7; i++) {
       const a = (i / 7) * Math.PI * 2 + 0.3, r = 0.25 + hash(i, 7, 70) * 0.22;
-      part(g, new THREE.DodecahedronGeometry(r, 0), mat('#857766'), Math.cos(a) * 0.95, r * 0.6, Math.sin(a) * 0.95);
+      part(g, dodeca(r), mat('#857766'), Math.cos(a) * 0.95, r * 0.6, Math.sin(a) * 0.95);
     }
-    rep.steam = [];
-    const puff = ico(1, 1);
-    for (let i = 0; i < 10; i++) {
-      const m = new THREE.Mesh(puff, new THREE.MeshLambertMaterial({ color: '#ffffff', transparent: true, depthWrite: false, flatShading: true }));
-      g.add(m);
-      rep.steam.push({ mesh: m, phase: i / 10, seed: hash(i, rep.id, 71) });
-    }
+    // ten puffs of steam in one draw: an instanced mesh whose instances fade one by one
+    const steam = moving(new THREE.InstancedMesh(ico(1, 1), steamMaterial(), 10));
+    steam.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    steam.setColorAt(0, new THREE.Color(1, 1, 1));
+    // where the puffs can be, so that a geyser off screen is not drawn
+    steam.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 3, 0), 4);
+    g.add(steam);
+    rep.own.push(steam);
+    rep.steam = { mesh: steam, puffs: Array.from({ length: 10 }, (_, i) => ({ phase: i / 10, seed: hash(i, rep.id, 71) })) };
   },
   obelisk(rep, g) {
     part(g, box(0.7, 3.2, 0.7), mat('#7d7a84'), 0, 1.6, 0);
@@ -308,12 +418,13 @@ export function spriteKey(e) {
 export function cargoModel(thing) {
   const g = new THREE.Group();
   if (thing?.kind === 'priest') {
-    MODELS.priest({ owner: thing.owner, anim: [] }, g);
+    MODELS.priest({ owner: thing.owner, anim: [], own: [] }, g);
+    bake(g, `cargo|priest|${thing.owner}`);
     g.rotation.z = Math.PI / 2;
     g.position.y = -0.2;
     g.scale.setScalar(0.8);
   } else {
-    part(g, new THREE.OctahedronGeometry(0.25, 0), glow('#bff4ff', '#39c6ff', 1.1)).scale.y = 1.5;
+    part(g, octa(0.25), glow('#bff4ff', '#39c6ff', 1.1)).scale.y = 1.5;
   }
   return g;
 }

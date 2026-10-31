@@ -106,6 +106,7 @@ AFRAME.registerComponent('ns-terrain', {
     for (const c of [...this.islands.children]) {
       this.islands.remove(c);
       c.geometry?.dispose();
+      if (c.isInstancedMesh) c.dispose(); // its instances' buffers too
     }
     const L = (x, y) => this.land(x, y);
     let x0 = WORLD, y0 = WORLD, x1 = -1, y1 = -1;

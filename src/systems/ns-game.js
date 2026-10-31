@@ -3,7 +3,7 @@
  * commands, and passes the simulation's events on to the HUD and the effects. The scene's
  * components draw what it holds in `G`.
  */
-import { NS, THREE, G, ME, defs, origin, wx, wz, errorText } from '../state.js';
+import { NS, THREE, G, ME, defs, origin, wx, wz, errorText, keysOff } from '../state.js';
 import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
@@ -88,6 +88,7 @@ AFRAME.registerSystem('ns-game', {
   units() { return this.el.querySelector('[ns-units]')?.components['ns-units']; },
   sound() { return this.el.systems['ns-sound']; },
   xr() { return this.el.systems['ns-xr']; },
+  placement() { return this.el.querySelector('[ns-placement]')?.components['ns-placement']; },
 
   handleEvents() {
     const hud = this.hud, fx = this.effects(), sound = this.sound();
@@ -269,17 +270,32 @@ AFRAME.registerSystem('ns-game', {
     this.sound().play('rotatepiece');
     this.hud.dirty = true;
   },
+  /** Every key of the game, but the camera's (held W A S D Q E and arrows, in orbit-rig). */
   onKey(e) {
-    if (e.target.closest?.('input,textarea') || this.hud.modalOpen()) return;
+    if (keysOff(e)) return;
     const k = e.key.toLowerCase();
-    if (k === 'escape') this.cancel();
-    else if (k === 'r') this.rotate();
-    else if (k === ' ') { e.preventDefault(); this.hud.togglePause(); }
-    else if (k >= '1' && k <= '6') {
+    if (k >= '1' && k <= '6') {
       const i = Number(k) - 1;
       if (G.world.players.get(ME).hand[i]) this.setTool({ kind: 'piece', hand: i });
-    } else if (k === '+' || k === '=') this.hud.setSpeed(1);
-    else if (k === '-') this.hud.setSpeed(-1);
-    else if (k === 'delete' && G.selected !== null) this.hud.salvage();
+      return;
+    }
+    const act = {
+      escape: () => this.cancel(),
+      r: () => this.rotate(),
+      ' ': () => this.hud.togglePause(),
+      '+': () => this.hud.setSpeed(1),
+      '=': () => this.hud.setSpeed(1),
+      '-': () => this.hud.setSpeed(-1),
+      delete: () => { if (G.selected !== null) this.hud.salvage(); },
+      l: () => this.hud.toggleLog(),
+      g: () => this.placement().toggleEnemyReach(),
+      h: () => this.minimap.toTemple(),
+      p: () => this.minimap.toPriest(),
+      f: () => this.minimap.toggleFollow(),
+      t: () => this.xr().toggle(),
+    }[k];
+    if (!act) return;
+    e.preventDefault();
+    act();
   },
 });

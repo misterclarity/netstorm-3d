@@ -3,7 +3,7 @@
  * destroyed and the debris of fallen bridges and islets.
  */
 import { G, defs, FURY_COLOR, wx, wz } from '../state.js';
-import { mat, part } from '../models.js';
+import { mat, part, box, ico } from '../models.js';
 
 const { THREE } = AFRAME;
 
@@ -15,7 +15,7 @@ AFRAME.registerComponent('ns-effects', {
     this.shells = [];
     this.inFlight = new Map();
     this.el.sceneEl.addEventListener('ns-new-game', () => {
-      for (const f of this.fx) this.root.remove(f.obj);
+      for (const f of this.fx) this.end(f);
       this.fx = [];
       this.inFlight.clear();
     });
@@ -30,9 +30,15 @@ AFRAME.registerComponent('ns-effects', {
       const k = Math.min(1, f.age / f.life);
       f.update(f, k, s);
       if (k < 1) return true;
-      this.root.remove(f.obj);
+      this.end(f);
       return false;
     });
+  },
+
+  /** An effect over: off the scene, and its own material (a puff's fade) freed. */
+  end(f) {
+    this.root.remove(f.obj);
+    if (f.own) f.obj.material.dispose();
   },
 
   /** Each shot arcs from its gun to where it lands; a puff where it came down. */
@@ -70,11 +76,11 @@ AFRAME.registerComponent('ns-effects', {
   },
 
   puff(at, color, size, life) {
-    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }));
+    const m = new THREE.Mesh(ico(1, 1), new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }));
     m.position.copy(at);
     m.scale.setScalar(size * 0.3);
     this.root.add(m);
-    this.fx.push({ obj: m, age: 0, life, update: (f, k) => { f.obj.scale.setScalar(size * (0.3 + k)); f.obj.material.opacity = 1 - k; } });
+    this.fx.push({ obj: m, own: true, age: 0, life, update: (f, k) => { f.obj.scale.setScalar(size * (0.3 + k)); f.obj.material.opacity = 1 - k; } });
   },
 
   explode(rep, position) {
@@ -83,7 +89,7 @@ AFRAME.registerComponent('ns-effects', {
     this.puff(at, '#ffb347', big * 1.6, 0.6);
     this.puff(at.clone().add(new THREE.Vector3(0, 0.6, 0)), '#666', big * 2.2, 1.4);
     for (let i = 0; i < 10 * big; i++) {
-      const d = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.25), mat(i % 2 ? '#5a4a3a' : '#8a7a66'));
+      const d = new THREE.Mesh(box(0.25, 0.25, 0.25), mat(i % 2 ? '#5a4a3a' : '#8a7a66'));
       d.position.copy(at);
       const vel = new THREE.Vector3((Math.random() - 0.5) * 6, 3 + Math.random() * 5, (Math.random() - 0.5) * 6).multiplyScalar(0.8 + big * 0.2);
       this.root.add(d);
@@ -97,7 +103,7 @@ AFRAME.registerComponent('ns-effects', {
   /** A bridge cell or an islet dropping out of the sky. */
   fall(x, y, w, h, bridge) {
     const g = new THREE.Group();
-    part(g, new THREE.BoxGeometry(w * 0.95, bridge ? 0.16 : 1.4, h * 0.95), mat(bridge ? '#8a5a34' : '#6b5a44'), 0, bridge ? 0 : -0.7, 0);
+    part(g, box(w * 0.95, bridge ? 0.16 : 1.4, h * 0.95), mat(bridge ? '#8a5a34' : '#6b5a44'), 0, bridge ? 0 : -0.7, 0);
     g.position.set(wx(x + w / 2), 0, wz(y + h / 2));
     this.root.add(g);
     let vy = 0;

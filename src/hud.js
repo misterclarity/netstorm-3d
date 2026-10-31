@@ -30,12 +30,15 @@ export class Hud {
       b.onclick = () => { sound.set(key, !sound.settings[key]); b.classList.toggle('on', sound.settings[key]); };
     }
     $('restart').onclick = () => this.confirmRestart();
+    // a phone's ⋯ menu: open and shut, shut by a choice in it or a tap elsewhere
+    const menu = (open) => { $('top').classList.toggle('open', open); $('moreBtn').setAttribute('aria-expanded', String(open)); };
+    $('moreBtn').onclick = () => menu(!$('top').classList.contains('open'));
+    $('more').addEventListener('click', (e) => { if (e.target.closest('button')) menu(false); });
+    document.addEventListener('pointerdown', (e) => { if (!e.target.closest?.('#top')) menu(false); });
+    $('mapToggle').onclick = () => $('mapToggle').classList.toggle('on', document.body.classList.toggle('show-map'));
     $('bar').addEventListener('click', (e) => this.barClick(e));
     $('logToggle').onclick = () => this.toggleLog();
-    $('rangesToggle').onclick = () => game.el.querySelector('[ns-placement]').components['ns-placement'].toggleEnemyReach();
-    window.addEventListener('keydown', (e) => {
-      if (e.key.toLowerCase() === 'l' && !e.target.closest?.('input,textarea,select') && !this.modalOpen()) this.toggleLog();
-    });
+    $('rangesToggle').onclick = () => game.placement().toggleEnemyReach();
     $('sel').addEventListener('click', (e) => this.selClick(e));
     this.scene.addEventListener('ns-art-mode', ({ detail }) => {
       $('artSprites').classList.toggle('on', detail.mode === 'sprites');
@@ -198,7 +201,7 @@ export class Hud {
         if (err === 'not in production') return `${d.name}: select your ${fury} Workshop and add it to a slot${d.level > 1 ? ' (upgrade the Workshop for more slots)' : ''}`;
         return `${d.name}: ${errorText(err)}`;
       };
-      $('units').innerHTML = units.map(card).join('')
+      $('unitCards').innerHTML = units.map(card).join('')
         + (locked.length ? `<div class="card off" title="${escapeHtml(locked.map(why).join('\n'))}"><span style="margin:auto;color:var(--muted)">${locked.length} locked<br><small>hover for why</small></span></div>` : '');
       $('priestBuilds').innerHTML = priest.map(card).join('');
       for (const cv of document.querySelectorAll('#bar canvas[data-piece]')) this.drawPiece(cv, Number(cv.dataset.piece), cv.dataset.hard === '1');
@@ -514,13 +517,13 @@ export class Hud {
 
   briefing() {
     if (!G.mission) return this.skirmishBriefing();
-    const MISSION = G.mission;
-    const text = (MISSION.pages['a.']?.text ?? MISSION.briefing).replace(/^The War Begins!\s*/, '');
-    this.modal(`<h2>${escapeHtml(MISSION.title)}</h2><div class="text">${escapeHtml(text)}</div>
+    const mission = G.mission;
+    const text = (mission.pages['a.']?.text ?? mission.briefing).replace(/^The War Begins!\s*/, '');
+    this.modal(`<h2>${escapeHtml(mission.title)}</h2><div class="text">${escapeHtml(text)}</div>
       <ol><li>Have your <b>Priest</b> build a <b>Sun Workshop</b>, then put the <b>Sun Cannon</b> in its production slots.</li>
       <li>Build <b>Golems</b> and send them to geysers for Storm Power. Lay <b>bridge pieces</b> to reach islets and the enemy.</li>
       <li>Knock out the enemy Priest with cannons, carry him to your <b>Altar</b> with a Golem, and have your Priest perform the sacrifice.</li></ol>
-      <p class="note">Your enemy, ${escapeHtml(MISSION.enemy)}, is played by netstorm-web’s own computer opponent.</p>`,
+      <p class="note">Your enemy, ${escapeHtml(mission.enemy)}, is played by netstorm-web’s own computer opponent.</p>`,
     [{ label: 'Controls', act: () => this.help(true) },
       { label: 'Play mission', main: true, act: () => this.begin() }]);
   }

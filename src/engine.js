@@ -8,7 +8,7 @@ export * from '@netstorm/sim';
 export { slimUnits, slimMaps, slimMissions, mapsOf, outcome, hotFeet } from 'ns-client/game-data.ts';
 export { slotOf } from 'ns-client/animations.ts';
 export { VisualStates } from 'ns-client/presentation.ts';
-export { createMatchWorld, ME, ENEMY } from 'ns-client/setup.ts';
+export { createMatchWorld, ME } from 'ns-client/setup.ts';
 export { DEFAULT_OPTIONS } from 'ns-client/options.ts';
 export { nextEvent } from 'ns-client/mission-events.ts';
 export { anchorFor, hasFacing, entityAt } from 'ns-client/ui-state.ts';

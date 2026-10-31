@@ -61,12 +61,16 @@ const minify = !args.has('--watch');
 const app = { ...common, entryPoints: ['src/main.js'], outfile: 'build/app.js', format: 'iife', platform: 'browser', minify };
 const worker = { ...common, entryPoints: ['src/ai-worker.js'], outfile: 'build/ai-worker.js', format: 'iife', platform: 'browser', minify };
 
-/** Which build this is: the package version and the commit, marked when the tree has changes. */
+/**
+ * Which build this is: the package version and the commit, marked when the tree has changes, and
+ * the commit's date, so that building the same commit twice gives the same page.
+ */
 function buildInfo() {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-  let commit = '';
-  try { commit = execFileSync('git', ['describe', '--always', '--dirty=+'], { encoding: 'utf8' }).trim(); } catch { /* not a git checkout */ }
-  return { version: args.has('--watch') ? 'dev' : `${pkg.version}${commit ? `-${commit}` : ''}`, commit, date: new Date().toISOString() };
+  const git = (...a) => { try { return execFileSync('git', a, { encoding: 'utf8' }).trim(); } catch { return ''; } };
+  const commit = git('describe', '--always', '--dirty=+');
+  const date = git('log', '-1', '--format=%cI') || new Date().toISOString();
+  return { version: args.has('--watch') ? 'dev' : `${pkg.version}${commit ? `-${commit}` : ''}`, commit, date };
 }
 
 /** Put the stylesheet, the build's identity, the app and the worker's source into the page. */

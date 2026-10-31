@@ -30,7 +30,9 @@ const server = createServer((req, res) => {
 }).listen(0);
 const url = `http://localhost:${server.address().port}/`;
 
+// CHROMIUM=/path/to/chrome plays in that browser instead of the one Playwright installed
 const browser = await chromium.launch({
+  executablePath: process.env.CHROMIUM || undefined,
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
 });
 
@@ -67,10 +69,10 @@ async function startMission(page) {
 }
 
 /** Run n ticks at once, the computer's moves worked out in place. */
-const fastForward = (page, n) => page.evaluate((n) => {
+const fastForward = (page, n) => page.evaluate((ticks) => {
   const { G, stepWorld, flushPendingAi } = window.NS3D;
   G.worker = null;
-  for (let i = 0; i < n; i++) if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+  for (let i = 0; i < ticks; i++) if (!stepWorld()) { flushPendingAi(); stepWorld(); }
   return G.world.tick;
 }, n);
 
@@ -237,16 +239,16 @@ SCENARIOS.tabletop = async () => {
   // the orbiting camera a little back, so that the panel at the table's near edge is in view
   await page.evaluate(() => { const r = document.getElementById('camera').components['orbit-rig']; r.snap({ r: 1.6, ph: 0.75, th: 0, t: r.goal.t.clone().setZ(r.goal.t.z + 0.25) }); });
   await page.waitForTimeout(800);
-  const onScreen = (what) => page.evaluate((what) => {
+  const onScreen = (what) => page.evaluate((target) => {
     const scene = document.querySelector('a-scene'), xr = scene.systems['ns-xr'], T = AFRAME.THREE, { origin } = window.NS3D;
     let p;
-    if (typeof what === 'string') {
+    if (typeof target === 'string') {
       xr.panel.acc = 1e9;
       xr.panel.update(16);
-      const it = xr.panel.items.find((b) => b.label === what);
-      if (!it) throw new Error(`no "${what}" on the panel: ${xr.panel.items.map((b) => b.label).join(', ')}`);
+      const it = xr.panel.items.find((b) => b.label === target);
+      if (!it) throw new Error(`no "${target}" on the panel: ${xr.panel.items.map((b) => b.label).join(', ')}`);
       p = xr.panel.mesh.localToWorld(new T.Vector3(((it.x + it.w / 2) / 1280 - 0.5) * 0.5, (0.5 - (it.y + it.h / 2) / 800) * 0.3125, 0));
-    } else p = new T.Vector3(what[0] + 0.5 - origin.x, 0, what[1] + 0.5 - origin.z).applyMatrix4(document.getElementById('world').object3D.matrixWorld);
+    } else p = new T.Vector3(target[0] + 0.5 - origin.x, 0, target[1] + 0.5 - origin.z).applyMatrix4(document.getElementById('world').object3D.matrixWorld);
     p.project(scene.camera);
     const r = scene.canvas.getBoundingClientRect();
     return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height };
@@ -259,12 +261,12 @@ SCENARIOS.tabletop = async () => {
     await page.mouse.up();
     await page.waitForTimeout(200);
   };
-  const site = (type) => page.evaluate((type) => {
+  const site = (type) => page.evaluate((kind) => {
     const { G, NS } = window.NS3D, t = G.world.templeOf(1);
     for (let y = t.y - 14; y < t.y + 18; y++) for (let x = t.x - 14; x < t.x + 22; x++) {
-      if (!G.view.canBuild({ player: 1, type, ...NS.anchorFor(G.world.def(type), x, y) })) return [x, y];
+      if (!G.view.canBuild({ player: 1, type: kind, ...NS.anchorFor(G.world.def(kind), x, y) })) return [x, y];
     }
-    throw new Error(`no place for ${type}`);
+    throw new Error(`no place for ${kind}`);
   }, type);
   await click('Sun Workshop');
   const tool = await page.evaluate(() => window.NS3D.G.tool);

@@ -3,6 +3,8 @@
  * pinch to zoom, W A S D / arrows to pan, Q E to turn. A press that hardly moves is a click: it is
  * emitted on the scene as `ns-tap`; pointer movement without a press as `ns-hover`.
  */
+import { keysOff } from '../state.js';
+
 const { THREE } = AFRAME;
 
 AFRAME.registerComponent('orbit-rig', {
@@ -29,7 +31,7 @@ AFRAME.registerComponent('orbit-rig', {
     const scene = this.el.sceneEl;
     if (scene.canvas) this.bind(scene.canvas);
     else scene.addEventListener('render-target-loaded', () => this.bind(scene.canvas));
-    window.addEventListener('keydown', (e) => { if (!e.target.closest?.('input,textarea')) this.keys.add(e.key.toLowerCase()); });
+    window.addEventListener('keydown', (e) => { if (!keysOff(e)) this.keys.add(e.key.toLowerCase()); });
     window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
     window.addEventListener('blur', () => this.keys.clear());
   },

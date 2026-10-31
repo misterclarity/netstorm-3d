@@ -36,9 +36,6 @@ AFRAME.registerComponent('ns-placement', {
     this.root.add(this.arrow, this.selRing, this.hoverRing);
     this.tip = document.getElementById('tip');
     this.showEnemyReach = false;
-    window.addEventListener('keydown', (e) => {
-      if (e.key.toLowerCase() === 'g' && !e.target.closest?.('input,textarea,select')) this.toggleEnemyReach();
-    });
   },
 
   toggleEnemyReach() {

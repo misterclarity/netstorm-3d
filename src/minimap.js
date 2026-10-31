@@ -32,13 +32,6 @@ export class Minimap {
     document.getElementById('camTemple').onclick = () => this.toTemple();
     document.getElementById('camPriest').onclick = () => this.toPriest();
     document.getElementById('camFollow').onclick = () => this.toggleFollow();
-    window.addEventListener('keydown', (e) => {
-      if (e.target.closest?.('input,textarea,select') || document.getElementById('modal').style.display === 'grid') return;
-      const k = e.key.toLowerCase();
-      if (k === 'h') this.toTemple();
-      else if (k === 'p') this.toPriest();
-      else if (k === 'f') this.toggleFollow();
-    });
   }
 
   rig() {

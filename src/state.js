@@ -90,6 +90,12 @@ export function errorText(err) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** A key press that is not for the game: typing in a field, with Ctrl, Alt or ⌘ held, or under a dialog. */
+export function keysOff(e) {
+  return !!e.target?.closest?.('input,textarea,select') || e.ctrlKey || e.metaKey || e.altKey
+    || document.getElementById('modal')?.style.display === 'grid';
+}
+
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }

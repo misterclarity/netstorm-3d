@@ -21,19 +21,24 @@
   <div class="sep"></div>
   <button class="tb" id="pause" title="Pause (Space)">Pause</button>
   <button class="tb" id="speed" title="Game speed (+ / −)">1×</button>
-  <div class="sep"></div>
-  <button class="tb wide" id="artSprites" title="The original pixel-art sprites" disabled>Sprites</button>
-  <button class="tb wide on" id="artModels" title="Simple 3D models">3D</button>
-  <div class="sep"></div>
-  <button class="tb" id="sfxToggle" title="Sound effects on or off">Sound</button>
-  <button class="tb wide" id="musicToggle" title="Music on or off">Music</button>
-  <div class="sep"></div>
-  <button class="tb" id="xrTable" title="Play on a table, as a VR headset shows it (T)">Tabletop</button>
+  <!-- in the bar on a wide screen; on a phone, in the ⋯ menu -->
+  <div id="more">
+    <div class="sep"></div>
+    <button class="tb" id="artSprites" title="The original pixel-art sprites" disabled>Sprites</button>
+    <button class="tb on" id="artModels" title="Simple 3D models">3D</button>
+    <div class="sep"></div>
+    <button class="tb" id="sfxToggle" title="Sound effects on or off">Sound</button>
+    <button class="tb" id="musicToggle" title="Music on or off">Music</button>
+    <div class="sep"></div>
+    <button class="tb" id="xrTable" title="Play on a table, as a VR headset shows it (T)">Tabletop</button>
+    <button class="tb phone" id="mapToggle" title="The minimap">Map</button>
+    <div class="sep tail"></div>
+    <button class="tb tail" id="help">Help</button>
+    <button class="tb tail" id="restart">Restart</button>
+  </div>
   <button class="tb" id="xrVR" title="Play on a table in your VR headset" hidden>VR</button>
   <button class="tb" id="xrAR" title="Put the battle on a real table, through your headset or phone" hidden>AR</button>
-  <div class="sep wide"></div>
-  <button class="tb" id="help">Help</button>
-  <button class="tb" id="restart">Restart</button>
+  <button class="tb" id="moreBtn" title="More" aria-haspopup="true" aria-expanded="false">⋯</button>
 </div>
 
 <div id="right">
@@ -55,7 +60,7 @@
 <div id="sel" class="panel"></div>
 <div id="bar" class="panel">
   <div class="group"><span>Bridge pieces</span><div class="cards" id="hand"></div></div>
-  <div class="group"><span>Build</span><div class="cards" id="units"></div></div>
+  <div class="group"><span>Build</span><div class="cards" id="unitCards"></div></div>
   <div class="group"><span>Priest builds</span><div class="cards" id="priestBuilds"></div></div>
 </div>
 <div id="toasts"></div>

@@ -33,7 +33,7 @@ window.addEventListener('error', (e) => report(e.error ?? e.message, 'page'));
 window.addEventListener('unhandledrejection', (e) => report(e.reason, 'promise'));
 
 /** Show an error once per message (counting repeats) and keep the game running. */
-export function report(error, where = '') {
+function report(error, where = '') {
   const message = String(error?.message ?? error);
   const entry = seen.get(message);
   if (entry) {

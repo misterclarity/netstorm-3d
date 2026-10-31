@@ -178,10 +178,6 @@ AFRAME.registerSystem('ns-xr', {
     this.el.addEventListener('exit-vr', () => this.onExit());
     this.el.addEventListener('ar-hit-test-select', (e) => this.placed(e.detail));
     this.el.addEventListener('ns-new-game', () => { this.measured = null; this.resetView(); });
-    window.addEventListener('keydown', (e) => {
-      if (e.key.toLowerCase() !== 't' || e.target.closest?.('input,textarea,select') || this.game().hud?.modalOpen()) return;
-      this.toggle();
-    });
     if (new URLSearchParams(location.search).has('tabletop')) this.setMode('preview');
   },
 

@@ -6,7 +6,6 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #7fa6d6; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); }
-  .a-enter-vr, .a-enter-ar { display: none !important; }
   #artSprites:disabled { opacity: 0.45; cursor: not-allowed; }
   button { font: inherit; color: var(--text); background: transparent; border: 0; cursor: pointer; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
@@ -84,10 +83,9 @@
   @media (max-width: 760px) {
     #top { padding: 3px; gap: 0; flex-wrap: nowrap; }
     #top .stat { padding: 4px 6px; } #top .stat b { font-size: 14px; }
-    .tb { padding: 6px 7px; } .sep, .tb.wide { display: none; }
+    .tb { padding: 6px 7px; } .sep { display: none; }
     #right { top: 60px; right: 10px; left: 10px; width: auto; }
     #goal { padding: 8px 12px; font-size: 12px; }
-    #mini { display: none; }
     #goal .sub { display: none; }
     #sel { bottom: 126px; left: 10px; width: calc(100vw - 20px); padding: 9px 12px; }
     #bar { left: 10px; right: 10px; transform: none; padding: 6px; }
@@ -138,3 +136,23 @@
 @media (max-height: 700px) and (min-width: 761px) { #miniCanvas { width: 150px; height: 150px; } }
 /* the tabletop preview: the table's own panel has the bottom bar, the selection and the next step */
 body.tabletop #bar, body.tabletop #sel, body.tabletop #goal { display: none !important; }
+
+/* the top bar's ⋯ menu: on a wide screen its buttons stand in the bar (Help and Restart last) */
+#more { display: contents; }
+.tail { order: 2; }
+#moreBtn, .tb.phone { display: none; }
+@media (max-width: 760px) {
+  #moreBtn { display: inline-block; order: 3; font-size: 17px; line-height: 1; padding: 5px 11px; }
+  #more { display: none; position: absolute; top: calc(100% + 6px); right: 0; flex-direction: column; align-items: stretch; gap: 2px;
+    min-width: 160px; padding: 6px; background: rgba(16, 24, 38, 0.96); border: 1px solid var(--line); border-radius: 12px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #top.open { z-index: 20; } /* over the next step and the minimap */
+  #top.open #more { display: flex; }
+  #top.open #moreBtn { background: rgba(255,255,255,0.12); }
+  #more .tb { text-align: left; padding: 10px 12px; font-size: 14px; }
+  #more .tb.phone { display: block; }
+  /* the minimap only when asked for (Map), smaller */
+  #mini { display: none; top: 60px; padding: 6px; }
+  body.show-map #mini { display: flex; }
+  #miniCanvas { width: 150px; height: 150px; }
+}

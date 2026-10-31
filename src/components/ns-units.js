@@ -5,7 +5,7 @@
  * as a model or a sprite card, moves it smoothly from cell to cell and shows its health.
  */
 import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, playerTheme } from '../state.js';
-import { MODELS, HEIGHT, modelKind, spriteKey, cargoModel, part, ico, glow } from '../models.js';
+import { MODELS, HEIGHT, modelKind, spriteKey, cargoModel, part, ico, glow, bake } from '../models.js';
 
 const { THREE } = AFRAME;
 
@@ -24,19 +24,46 @@ function cameraTurn(scene, t) {
   return facing.q;
 }
 
+const PUFF = new THREE.Object3D(), FADE = new THREE.Color();
+const cards = new WeakMap();
+/** A sprite's texture, plane and material, made once per picture and shared by every card of it. */
+function cardParts(img) {
+  let c = cards.get(img);
+  if (!c) {
+    const tex = new THREE.Texture(img);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.magFilter = THREE.NearestFilter;
+    tex.needsUpdate = true;
+    const w = img.width / PX, h = img.height / PX;
+    c = { geo: new THREE.PlaneGeometry(w, h), mat: new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide }), h };
+    cards.set(img, c);
+  }
+  return c;
+}
+
 /** A sprite as a card standing on the ground at (ox, oz), its bottom edge there, facing the camera. */
-export function makeCard(img, ox, oz) {
-  const tex = new THREE.Texture(img);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.magFilter = THREE.NearestFilter;
-  tex.needsUpdate = true;
-  const w = img.width / PX, h = img.height / PX;
-  const card = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide }));
+function makeCard(img, ox, oz) {
+  const { geo, mat, h } = cardParts(img);
+  const card = new THREE.Mesh(geo, mat);
   card.position.y = h / 2;
   const holder = new THREE.Group();
   holder.position.set(ox, 0.06, oz);
   holder.add(card);
   return holder;
+}
+
+/** The health bar's shapes and colours, shared by every bar. */
+let BAR = null;
+function barParts() {
+  BAR ??= {
+    back: new THREE.PlaneGeometry(1.4, 0.16),
+    fill: new THREE.PlaneGeometry(1.36, 0.11),
+    dark: new THREE.MeshBasicMaterial({ color: '#1a1a1a', depthTest: false, transparent: true, opacity: 0.8 }),
+    good: new THREE.MeshBasicMaterial({ color: '#6fd08c', depthTest: false }),
+    hurt: new THREE.MeshBasicMaterial({ color: '#f2c14e', depthTest: false }),
+    low: new THREE.MeshBasicMaterial({ color: '#ff6b5b', depthTest: false }),
+  };
+  return BAR;
 }
 
 AFRAME.registerComponent('ns-units', {
@@ -85,13 +112,23 @@ AFRAME.registerComponent('ns-unit', {
     this.rep = {
       id: this.data.id, kind: e?.kind, type: e?.type, owner: e?.owner ?? 0, anim: [], yaw: 0, phase: 0,
       foot: e?.kind === 'building' ? [e.fx, e.fy] : null, height: HEIGHT[kind] ?? (e?.kind === 'building' ? 2.5 : 1.6),
+      own: [], // what this unit alone holds on the GPU, freed with it
     };
     this.model = new THREE.Group();
-    if (e) (MODELS[kind] ?? MODELS.generic)(this.rep, this.model, e);
+    if (e) {
+      (MODELS[kind] ?? MODELS.generic)(this.rep, this.model, e);
+      bake(this.model, `${kind}|${e.type ?? ''}|${e.owner ?? 0}`);
+    }
     this.el.setObject3D('model', this.model);
     this.pos = null;
     this.art = this.el.sceneEl.systems['ns-art'];
     if (e) this.place(e, 16, true);
+  },
+
+  /** Everything else it uses is shared (bake(), cardParts(), barParts(), ns-art's frames). */
+  remove() {
+    for (const m of this.rep.own) m.dispose();
+    this.animMesh?.material.dispose();
   },
 
   /** Where the entity stands now, in world cells, a mover part-way to its next cell. */
@@ -219,15 +256,20 @@ AFRAME.registerComponent('ns-unit', {
   },
 
   steam(e, s) {
-    const on = e.stock > 0 && this.art.mode !== 'sprites';
-    for (const p of this.rep.steam) {
-      p.mesh.visible = on;
-      if (!on) continue;
+    const { mesh, puffs } = this.rep.steam, on = e.stock > 0 && this.art.mode !== 'sprites';
+    mesh.visible = on;
+    if (!on) return;
+    puffs.forEach((p, i) => {
       const k = (s * 0.32 + p.phase) % 1;
-      p.mesh.position.set(Math.sin(k * 6 + p.seed * 9) * 0.25 * k, 0.3 + k * 4.8, Math.cos(k * 5 + p.seed * 7) * 0.2 * k);
-      p.mesh.scale.setScalar(0.25 + k * 1.05);
-      p.mesh.material.opacity = Math.min(1, k * 6) * (1 - k) * 0.6;
-    }
+      PUFF.position.set(Math.sin(k * 6 + p.seed * 9) * 0.25 * k, 0.3 + k * 4.8, Math.cos(k * 5 + p.seed * 7) * 0.2 * k);
+      PUFF.scale.setScalar(0.25 + k * 1.05);
+      PUFF.updateMatrix();
+      mesh.setMatrixAt(i, PUFF.matrix);
+      const a = Math.min(1, k * 6) * (1 - k) * 0.6; // its opacity, carried by the colour's red
+      mesh.setColorAt(i, FADE.setRGB(a, a, a));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor.needsUpdate = true;
   },
 
   cargo(e) {
@@ -253,10 +295,11 @@ AFRAME.registerComponent('ns-unit', {
     const seen = this.model.visible || !!this.card?.visible;
     const show = e.hp !== undefined && e.hpMax > 0 && seen && (e.hp < e.hpMax || G.selected === e.id);
     if (!show) { if (this.bar) this.bar.visible = false; return; }
+    const parts = barParts();
     if (!this.bar) {
       this.bar = new THREE.Group();
-      const bg = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.16), new THREE.MeshBasicMaterial({ color: '#1a1a1a', depthTest: false, transparent: true, opacity: 0.8 }));
-      this.barFg = new THREE.Mesh(new THREE.PlaneGeometry(1.36, 0.11), new THREE.MeshBasicMaterial({ color: '#6fd08c', depthTest: false }));
+      const bg = new THREE.Mesh(parts.back, parts.dark);
+      this.barFg = new THREE.Mesh(parts.fill, parts.good);
       this.barFg.position.z = 0.001;
       bg.renderOrder = 10;
       this.barFg.renderOrder = 11;
@@ -267,7 +310,7 @@ AFRAME.registerComponent('ns-unit', {
     this.bar.visible = true;
     this.barFg.scale.x = Math.max(0.001, f);
     this.barFg.position.x = -0.68 * (1 - f);
-    this.barFg.material.color.set(f > 0.6 ? '#6fd08c' : f > 0.3 ? '#f2c14e' : '#ff6b5b');
+    this.barFg.material = f > 0.6 ? parts.good : f > 0.3 ? parts.hurt : parts.low;
     this.bar.position.y = this.rep.height + 0.6;
     this.bar.scale.setScalar(e.kind === 'building' ? 1.6 : 0.8);
     this.bar.quaternion.copy(cameraTurn(this.el.sceneEl, t));
@@ -281,7 +324,8 @@ AFRAME.registerComponent('ns-residence', {
   init() {
     const { x, y } = this.data, foot = NS.RESIDENCE_FOOT;
     this.model = new THREE.Group();
-    MODELS.residence({ anim: [] }, this.model);
+    MODELS.residence({ anim: [], own: [] }, this.model);
+    bake(this.model, 'residence');
     this.el.setObject3D('model', this.model);
     this.el.object3D.position.set(wx(x + foot / 2), 0, wz(y + foot / 2));
     this.art = this.el.sceneEl.systems['ns-art'];
