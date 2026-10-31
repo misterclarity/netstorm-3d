@@ -28,6 +28,7 @@ AFRAME.registerSystem('ns-game', {
   /** A new match: the components rebuild from it on `ns-new-game`. */
   start() {
     newGame();
+    this.sound().newGame();
     this.destroyed.clear();
     this.el.emit('ns-new-game');
     this.hud.reset();
@@ -48,11 +49,14 @@ AFRAME.registerSystem('ns-game', {
 
   effects() { return this.el.querySelector('[ns-effects]')?.components['ns-effects']; },
   units() { return this.el.querySelector('[ns-units]')?.components['ns-units']; },
+  sound() { return this.el.systems['ns-sound']; },
 
   handleEvents() {
-    const hud = this.hud, fx = this.effects();
+    const hud = this.hud, fx = this.effects(), sound = this.sound();
+    const positionOf = (id) => this.units()?.byId.get(id)?.object3D.position.clone();
     for (const ev of G.world.drainEvents()) {
       const mine = ev.who === ME;
+      sound.hear(ev, positionOf);
       switch (ev.what) {
         case 'rejected': if (mine) hud.toast(errorText(ev.data.err), 'bad'); break;
         case 'destroyed': this.destroyed.add(ev.data.id); break;
@@ -135,8 +139,13 @@ AFRAME.registerSystem('ns-game', {
       return;
     }
     const target = NS.entityAt(G.view, x, y);
-    if (this.order(x, y, target)) return;
+    if (this.order(x, y, target)) {
+      // the unit answers its order: a carrier sent for something with its pickup sound
+      this.sound().voice(G.view.entities.get(G.selected), target && target.owner !== ME ? 'pickup' : 'move');
+      return;
+    }
     G.selected = target?.id ?? null;
+    this.sound().voice(target, 'move');
     this.hud.dirty = true;
   },
 
@@ -198,6 +207,7 @@ AFRAME.registerSystem('ns-game', {
     else if (k === 'r') {
       if (G.tool.kind === 'build') G.facing = (G.facing + 1) % 4;
       else G.rot = (G.rot + 1) % 4;
+      this.sound().play('rotatepiece');
       this.hud.dirty = true;
     } else if (k === ' ') { e.preventDefault(); this.hud.togglePause(); }
     else if (k >= '1' && k <= '6') {

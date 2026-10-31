@@ -4,6 +4,7 @@
  */
 import './shaders/ns-sky.js';
 import './systems/ns-art.js';
+import './systems/ns-sound.js';
 import './systems/ns-game.js';
 import './components/orbit-rig.js';
 import './components/ns-sun.js';

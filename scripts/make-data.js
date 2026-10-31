@@ -3,9 +3,11 @@
  *  - build/game-data.json: the units, the maps and the missions this client plays, trimmed by
  *    netstorm-web's own game-data.ts as its client trims them;
  *  - build/art.json: where the original sprites and grass tiles chosen for "Sprites" mode lie in
- *    netstorm-web's repository, at the commit the submodule pins. They are not copied here.
+ *    netstorm-web's repository, at the commit the submodule pins. They are not copied here;
+ *  - build/sounds.json: netstorm-web's sound index (each sound's file and volume, the sounds of
+ *    each unit) and its music tracks, read from the same place at run time.
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { slimUnits, slimMaps, slimMissions, mapsOf } from 'ns-client/game-data.ts';
 
@@ -67,4 +69,8 @@ const repo = remote.match(/github\.com[/:]([^/]+\/[^/]+)$/)?.[1] ?? 'x-ror/netst
 const base = `https://raw.githubusercontent.com/${repo}/${commit}/packages/client/public/`;
 writeFileSync('build/art.json', JSON.stringify({ base, sprites, tiles }, null, 2));
 
-console.log(`data: ${units.length} units, ${missions.length} mission(s); art from ${repo}@${commit.slice(0, 7)}`);
+const sounds = read('packages/client/public/data/sounds.json');
+const music = readdirSync(`${VENDOR}/packages/client/public/music`).filter((f) => f.endsWith('.mp3')).map((f) => f.replace(/\.mp3$/, ''));
+writeFileSync('build/sounds.json', JSON.stringify({ base, files: sounds.files, units: sounds.units, music }));
+
+console.log(`data: ${units.length} units, ${missions.length} mission(s), ${Object.keys(sounds.files).length} sounds, ${music.length} tracks; art and sound from ${repo}@${commit.slice(0, 7)}`);

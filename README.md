@@ -34,6 +34,14 @@ Two art styles can be switched in the top bar:
   from netstorm-web's repository on GitHub, at the commit the submodule pins. Where the page may
   not load images from other sites, the button stays off and the models are used.
 
+**Sound and music** come from netstorm-web too, read at run time in the same way: the battle's
+events (bridges laid, buildings rising and done, guns firing and shells landing, explosions, a
+Priest captured, the sacrifice), units answering when you pick or order them, the wind with
+far-off cries, and the original's music, the Fury tracks in turn, with a fanfare or a dirge at
+the end. Sounds are louder the nearer they are to what the camera looks at, and panned to their
+side of the screen. **Sound** and **Music** in the top bar turn them off; the choice is
+remembered in the browser.
+
 ## Running it
 
 You need Node.js 20 or newer.
@@ -63,6 +71,7 @@ systems and components they use.
 | --- | --- | --- |
 | `ns-game` | system | Runs the match each frame (netstorm-web's `World`, its AI in a Web Worker), turns clicks and keys into the game's commands, passes events to the HUD and effects. |
 | `ns-art` | system | Loads the original sprites and switches between the two art styles. |
+| `ns-sound` | system | Sound effects and music with the Web Audio API, after netstorm-web's `sound.ts`: what plays on which event, the construction loop, the guns, the music cycle. |
 | `ns-sky` | shader | The gradient sky on `<a-sky>`. |
 | `orbit-rig` | component | The orbiting camera; emits `ns-tap` and `ns-hover` for the game. |
 | `ns-sun` | component | Shadow settings the `light` component does not cover. |
@@ -87,8 +96,8 @@ npm run check && npm run build
 git add vendor/netstorm-web && git commit -m "Update netstorm-web"
 ```
 
-Moving the pinned commit also moves the URLs the original sprites are read from
-(`scripts/make-data.js` writes them to `build/art.json`).
+Moving the pinned commit also moves the URLs the original sprites, sounds and music are read
+from (`scripts/make-data.js` writes them to `build/art.json` and `build/sounds.json`).
 
 **Deploying:** [`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs the check, builds
 `dist/` and publishes it to GitHub Pages on every push to `main`. Pages has to be set to deploy
@@ -98,16 +107,16 @@ from GitHub Actions once (*Settings → Pages → Source: GitHub Actions*).
 
 - Only the first mission. The engine has the rest of the campaign and random skirmish maps; the
   next-step hints and some models are written for mission 1.
-- No sound or music.
 - In "Sprites" mode each unit is one still frame, not the original's animation.
 - Tested in desktop Chromium; phones and other browsers are less tried.
 
 ## Credits and legal
 
 - *NetStorm: Islands At War* © 1997 Titanic Entertainment / Activision. This is a non-commercial
-  fan project, not affiliated with them.
-- [netstorm-web](https://github.com/x-ror/netstorm-web) by x-ror: the simulation, the missions and
-  the computer opponent. It is included as a submodule under its own terms; it has no LICENSE
+  fan project, not affiliated with them. The original sprites, sounds and music are not in this
+  repository; the page reads them from netstorm-web's repository when it runs.
+- [netstorm-web](https://github.com/x-ror/netstorm-web) by x-ror: the simulation, the missions,
+  the computer opponent and the sound design this client follows. It is included as a submodule under its own terms; it has no LICENSE
   file, and its `package.json` declares ISC. The built page (`dist/index.html`) contains its code.
 - The code in this repository is licensed under the GNU General Public License v3.0
   (see [LICENSE](LICENSE)).

@@ -21,6 +21,12 @@ export class Hud {
     $('artSprites').onclick = () => this.art.setMode('sprites');
     $('artModels').onclick = () => this.art.setMode('models');
     $('help').onclick = () => this.help();
+    const sound = this.sound = game.el.systems['ns-sound'];
+    for (const key of ['sound', 'music']) {
+      const b = $(key === 'sound' ? 'sfxToggle' : 'musicToggle');
+      b.classList.toggle('on', sound.settings[key]);
+      b.onclick = () => { sound.set(key, !sound.settings[key]); b.classList.toggle('on', sound.settings[key]); };
+    }
     $('restart').onclick = () => this.confirmRestart();
     $('bar').addEventListener('click', (e) => this.barClick(e));
     $('sel').addEventListener('click', (e) => this.selClick(e));
@@ -407,7 +413,7 @@ export class Hud {
       <li>Knock out the enemy Priest with cannons, carry him to your <b>Altar</b> with a Golem, and have your Priest perform the sacrifice.</li></ol>
       <p class="note">Your enemy, ${escapeHtml(MISSION.enemy)}, is played by netstorm-web’s own computer opponent.</p>`,
     [{ label: 'Controls', act: () => this.help(true) },
-      { label: 'Play mission', main: true, act: () => { this.closeModal(); G.started = true; G.paused = false; G.clock.reset(); this.updateTop(); } }]);
+      { label: 'Play mission', main: true, act: () => { this.closeModal(); G.started = true; G.paused = false; G.clock.reset(); this.updateTop(); this.sound.begin(); } }]);
   }
 
   help(fromBriefing = false) {
@@ -438,6 +444,7 @@ export class Hud {
     if (!won && !lost) { this.toast(page.text.split('\n')[0]); return; }
     G.ended = true;
     G.paused = true;
+    this.sound.end(won);
     this.modal(`<h2>${won ? 'Victory!' : 'Defeat'}</h2><div class="text">${escapeHtml(page.text.replace(/^(Success!|Failure!)\s*/, ''))}</div>`,
       [{ label: 'Keep looking', act: () => this.closeModal() }, { label: 'Play again', main: true, act: () => this.game.start() }]);
   }
