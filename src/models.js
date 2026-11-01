@@ -701,10 +701,19 @@ export const MODELS = {
     const body = holder(g, 0, 4.2, 0);
     rep.anim.push((s) => { body.position.y = 4.2 + Math.sin(s * 2 + rep.id) * 0.15; });
     if (f === 'wind') {
-      // the Dust Devil: a little whirlwind
+      // the Dust Devil: a little whirlwind of dark grit, so it stands out against a bright sky
       const whirl = spin(rep, holder(body), 'y', 6, rep.id);
-      for (let i = 0; i < 4; i++) part(whirl, cone(0.55 - i * 0.1, 0.5, 7), see('#e2c79a', 0.55 - i * 0.05), 0, 0.3 - i * 0.35, 0).rotation.x = Math.PI;
-      part(body, sph(0.1, 6, 4), team(rep), 0, 0.65, 0);
+      const dust = ['#6b5236', '#5c4630', '#4e3b29', '#413123'];
+      for (let i = 0; i < 4; i++) part(whirl, cone(0.55 - i * 0.1, 0.5, 7), see(dust[i], 0.9 - i * 0.04), 0, 0.3 - i * 0.35, 0).rotation.x = Math.PI;
+      part(whirl, cone(0.14, 1.5, 6), mat('#2b2119'), 0, -0.2, 0).rotation.x = Math.PI;
+      // grit and pebbles caught up in it, whirling faster than the funnel
+      const grit = spin(rep, holder(body), 'y', 9, rep.id * 2);
+      for (let i = 0; i < 5; i++) {
+        const a = i * 2.4, r = 0.5 - i * 0.07;
+        part(grit, box(0.09, 0.07, 0.09), mat(i % 2 ? '#3a2d21' : '#5a5048'), Math.cos(a) * r, 0.35 - i * 0.28, Math.sin(a) * r).rotation.set(a, a * 2, 0);
+      }
+      part(body, sph(0.12, 6, 4), team(rep), 0, 0.65, 0);
+      band(rep, body, 0.56, 0.56);
     } else if (f === 'rain') {
       // the Man o'War: a jellyfish of the air, its tentacles swaying
       part(body, dome(0.45), see('#d7a8ff', 0.8, { emissive: '#8a5cff', emissiveIntensity: 0.35 }));
