@@ -161,13 +161,20 @@ AFRAME.registerSystem('ns-game', {
         case 'bridge fell': fx?.fall(ev.data.x, ev.data.y, 1, 1, true); break;
         case 'islet fell': fx?.fall(ev.data.x, ev.data.y, ev.data.w, ev.data.h, false); break;
         case 'build': if (mine && ev.data.type === 'sunwalker') hud.toast('A Golem is ready. Select it, then click a geyser.', 'good'); break;
-        case 'captured': hud.toast(mine ? 'Your Golem has the enemy Priest! It carries him to your Altar.' : 'Your Priest has been captured!', mine ? 'good' : 'bad'); break;
+        case 'captured': {
+          if (!mine) { hud.toast('Your Priest has been captured!', 'bad'); break; }
+          const p = G.world.entities.get(ev.data.priest), t = p && G.world.entities.get(p.carriedBy);
+          const name = defs.get(t?.type)?.name ?? 'carrier';
+          hud.toast(t?.goal === 'altar' ? `Your ${name} has the enemy Priest! It carries him to your Altar.`
+            : `Your ${name} holds the enemy Priest. Build an Altar, then send it there with “Carry to the Altar”.`, 'good');
+          break;
+        }
         case 'chained': hud.toast(mine ? 'The enemy Priest is chained to your Altar. Send your Priest there to begin the sacrifice.' : 'Your Priest is chained to an enemy Altar!', mine ? 'good' : 'bad'); break;
         case 'rune': hud.toast(`Rune ${ev.data.runes} of 5 is warded`, mine ? 'good' : 'bad'); break;
         case 'released': hud.toast('A captive Priest is free again'); break;
         case 'priest down': hud.toast(mine ? 'Your Priest is down!' : 'The enemy Priest is down! Send a Golem to capture him.', mine ? 'bad' : 'good'); break;
         case 'sacrifice': hud.toast(mine ? 'The sacrifice is complete!' : 'Your Priest was sacrificed', mine ? 'good' : 'bad'); break;
-        case 'too early': if (mine) hud.toast('Too early for a sacrifice: wait, then send the Golem again', 'bad'); break;
+        case 'too early': if (mine) hud.toast('Too early for a sacrifice: wait, then press “Carry to the Altar” again', 'bad'); break;
         default: break;
       }
     }
@@ -278,10 +285,16 @@ AFRAME.registerSystem('ns-game', {
         return true;
       }
       if (sel.kind === 'transport' && target.kind === 'priest') {
-        if (target.state === 'down') {
+        if (target.state !== 'down') this.hud.toast(errorText('target not incapacitated'), 'bad');
+        else if (G.view.entities.get(sel.carrying)?.kind === 'priest') this.hud.toast(`The ${defs.get(sel.type)?.name ?? 'carrier'} already holds a captive`, 'bad');
+        else {
+          // a carrier cannot hold a crystal and a Priest: the crystal is set down where it stands,
+          // for the Priest gets up again if he is left too long
+          const crystal = sel.carrying !== null && sel.carrying !== undefined;
+          if (crystal) submit({ t: 'dropCargo', transport: sel.id });
           submit({ t: 'capturePriest', transport: sel.id, target: target.id });
-          this.hud.toast('Capturing the enemy Priest!', 'good');
-        } else this.hud.toast(errorText('target not incapacitated'), 'bad');
+          this.hud.toast(crystal ? 'Crystal set down: off to capture the enemy Priest!' : 'Capturing the enemy Priest!', 'good');
+        }
         return true;
       }
     }

@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mkdirSync } from 'node:fs';
 import { aiMemo } from './ai-memo.mjs';
+import { houseRules } from './house-rules.mjs';
 
 const VENDOR = resolve('vendor/netstorm-web');
 const minutes = Number(process.argv[2] ?? 8);
@@ -58,7 +59,7 @@ const messages = { name: 'messages', setup(b) { b.onResolve({ filter: /paraglide
 mkdirSync('build', { recursive: true });
 const load = async (name, plugins) => {
   const out = resolve(`build/ai-check-${name}.mjs`);
-  await esbuild.build({ ...common, outfile: out, plugins: [messages, ...plugins] });
+  await esbuild.build({ ...common, outfile: out, plugins: [messages, houseRules(), ...plugins] });
   return import(`${pathToFileURL(out).href}?${Date.now()}`);
 };
 const plain = await load('plain', []);

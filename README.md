@@ -185,6 +185,12 @@ instead of several hundred, and seconds at worst before. `npm run ai-check` show
 the same. A worker that stops answering is replaced; the moves never move to the page's own thread
 for good.
 
+**Where the rules differ from netstorm-web.** `scripts/house-rules.mjs` changes the simulation's
+source as it is bundled, and the build fails if netstorm-web's code there has changed. A downed
+enemy Priest can be picked up before you have an Altar, as the original's help describes it. The
+carrier then holds him where it stands, and **Carry to the Altar** on its card sends it on once an
+Altar is built.
+
 **netstorm-web** sits in `vendor/netstorm-web` as a git submodule pinned to one commit. The build
 bundles its TypeScript straight from there (`src/engine.js` lists what is used: the simulation,
 the mission set-up, the mission script's events, the AI schedule and worker). Its client's

@@ -329,10 +329,16 @@ export class Hud {
       if (e.owner === ME && d.cls !== 'Energy') acts.push('<button data-sel="salvage" title="Delete">Salvage</button>');
     }
     if (e.kind === 'transport') {
-      lines.push({ idle: 'Waiting for orders', collect: 'Collecting Storm Power', pickup: 'Fetching a crystal', home: 'Carrying Storm Power home', capture: 'Going for the enemy Priest', altar: 'Carrying the captive to the Altar', obelisk: 'Fetching a spell' }[e.goal] ?? e.goal);
+      const captive = G.view.entities.get(e.carrying)?.kind === 'priest' ? G.view.entities.get(e.carrying) : null;
+      lines.push(captive && e.goal === 'idle' ? 'Holding the enemy Priest'
+        : { idle: 'Waiting for orders', collect: 'Collecting Storm Power', pickup: 'Fetching a crystal', home: 'Carrying Storm Power home', capture: 'Going for the enemy Priest', altar: 'Carrying the captive to the Altar', obelisk: 'Fetching a spell' }[e.goal] ?? e.goal);
       if (e.owner === ME) {
         lines.push('Click a geyser to collect from it, or a downed enemy Priest to capture him.');
-        if (e.carrying !== null) acts.push('<button data-sel="drop">Drop cargo</button>');
+        if (captive && e.goal !== 'altar') {
+          const altar = [...G.view.entities.values()].some((b) => b.kind === 'building' && b.owner === ME && defs.get(b.type)?.cls === 'Altar' && !b.rising);
+          acts.push(`<button data-sel="toAltar" ${altar ? '' : 'disabled title="Build an Altar first: your Priest builds it"'}>Carry to the Altar</button>`);
+        }
+        if (e.carrying !== null) acts.push(`<button data-sel="drop">${captive ? 'Let the captive go' : 'Drop cargo'}</button>`);
         acts.push('<button data-sel="salvage">Salvage</button>');
       }
     }
@@ -363,6 +369,10 @@ export class Hud {
     if (b.dataset.sel === 'produce') submit({ t: 'produce', workshop: id, type: b.dataset.type });
     if (b.dataset.sel === 'upgrade') submit({ t: 'upgradeWorkshop', workshop: id });
     if (b.dataset.sel === 'drop') submit({ t: 'dropCargo', transport: id });
+    if (b.dataset.sel === 'toAltar') {
+      const t = G.view.entities.get(id);
+      if (t?.carrying !== null && t?.carrying !== undefined) submit({ t: 'capturePriest', transport: id, target: t.carrying });
+    }
     if (b.dataset.sel === 'bank') {
       const p = G.view.entities.get(id);
       if (p?.kind === 'priest') this.game.bankCargo(p);
@@ -411,11 +421,15 @@ export class Hud {
       goal = at ? `The sacrifice is under way: ${foe.runes}/5 runes. Keep your Priest and Altar safe!`
         : 'The enemy Priest is chained to your Altar. Select your Priest and click the Altar to begin the sacrifice.';
     } else if (foe?.state === 'carried' && v.entities.get(foe.carriedBy)?.owner === ME) {
-      goal = 'Your Golem is carrying the enemy Priest to your Altar. Protect it on the way.';
+      const carrier = v.entities.get(foe.carriedBy), name = def(carrier)?.name ?? 'carrier';
+      goal = carrier.goal === 'altar' ? `Your ${name} is carrying the enemy Priest to your Altar. Protect it on the way.`
+        : has((e) => def(e)?.cls === 'Altar' && !e.rising)
+          ? `Your ${name} holds the enemy Priest. Select it and press “Carry to the Altar”.`
+          : `Your ${name} holds the enemy Priest. Build an Altar with your Priest (“Altar” under Priest builds), then send the ${name} there.`;
     } else if (foe?.state === 'down') {
       goal = has((e) => def(e)?.cls === 'Altar' && !e.rising)
         ? 'The enemy Priest is down! Select a Golem and click him to carry him to your Altar.'
-        : 'The enemy Priest is down, but you need an Altar first: pick “Altar” under Priest builds.';
+        : 'The enemy Priest is down! Select a Golem and click him to take him before he gets up. Then build an Altar to sacrifice him.';
     } else if (!sunShop) {
       goal = `Your Priest builds Workshops. Pick “${shopName}” under Priest builds, then click a free spot on your island.`;
       sub = 'Everything costs Storm Power (⚡). You start with some; Golems bring more from geysers.';

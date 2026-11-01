@@ -193,6 +193,66 @@ const SCENARIOS = {
 };
 
 /**
+ * A downed enemy Priest taken by a Golem before any Altar stands: the Golem picks him up and
+ * holds him, he stays a captive, and once an Altar is built "Carry to the Altar" chains him there.
+ */
+SCENARIOS.captive = async () => {
+  const { page, errors } = await open({ width: 1000, height: 640 });
+  await startMission(page);
+  const golem = await page.evaluate(() => {
+    const { G, game } = window.NS3D, w = G.world, foe = w.priestOf(2), t = w.templeOf(1);
+    const toasts = [], show = game.hud.toast.bind(game.hud);
+    window.toasts = toasts;
+    game.hud.toast = (text, kind) => { toasts.push(text); show(text, kind); };
+    if ([...w.entities.values()].some((e) => e.type === 'altar' && e.owner === 1)) throw new Error('the player has an Altar at the start');
+    const free = (x, y) => w.terrain[w.at(x, y)] === 1 && !w.occupant[w.at(x, y)] && !w.priestAt(x, y);
+    const near = (cx, cy) => {
+      for (let r = 1; r < 40; r++) for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) if (free(x, y)) return [x, y];
+      throw new Error('no free ground');
+    };
+    const p = near(t.x + 12, t.y + 2);
+    Object.assign(foe, { x: p[0], y: p[1], path: [], goal: 'idle', hp: Math.floor(foe.hpMax * 0.2), state: 'down' });
+    const g = near(p[0] - 3, p[1]);
+    const carrier = w.spawnTransport('sunwalker', 1, g[0], g[1]);
+    G.selected = carrier.id;
+    game.primary(foe.x, foe.y);
+    return carrier.id;
+  });
+  let held = null;
+  for (let i = 0; i < 20 && !held; i++) {
+    await fastForward(page, 30);
+    held = await page.evaluate((id) => {
+      const { G } = window.NS3D, foe = G.world.priestOf(2), t = G.world.entities.get(id);
+      return foe.state === 'carried' ? { by: foe.carriedBy, goal: t.goal, carrying: t.carrying === foe.id } : null;
+    }, golem);
+  }
+  if (!held) throw new Error(`the Golem did not pick up the downed Priest without an Altar: ${await page.evaluate(() => window.toasts.join(' / '))}`);
+  if (held.by !== golem || !held.carrying || held.goal !== 'idle') throw new Error(`the Golem does not hold the captive: ${JSON.stringify(held)}`);
+  await fastForward(page, 900);
+  const still = await page.evaluate(() => window.NS3D.G.world.priestOf(2).state);
+  if (still !== 'carried') throw new Error(`the captive did not stay held: ${still}`);
+  await page.evaluate(() => {
+    const { G } = window.NS3D, w = G.world, t = w.templeOf(1);
+    const free = (x0, y0) => {
+      for (let y = y0; y < y0 + 7; y++) for (let x = x0; x < x0 + 7; x++) if (w.terrain[w.at(x, y)] !== 1 || w.occupant[w.at(x, y)] || w.priestAt(x, y)) return false;
+      return true;
+    };
+    let a = null;
+    for (let r = 1; r < 40 && !a; r++) for (let y = t.y - 10 - r; y <= t.y - 10 + r && !a; y++) for (let x = t.x + 4 - r; x <= t.x + 4 + r && !a; x++) if (free(x, y)) a = [x, y];
+    w.spawnBuilding('altar', 1, a[0], a[1], 0).rising = 0;
+  });
+  await page.waitForSelector('[data-sel="toAltar"]:not([disabled])', { timeout: 10000 });
+  await page.click('[data-sel="toAltar"]');
+  let chained = false;
+  for (let i = 0; i < 30 && !chained; i++) {
+    await fastForward(page, 60);
+    chained = await page.evaluate(() => window.NS3D.G.world.priestOf(2).state === 'chained');
+  }
+  if (!chained) throw new Error(`"Carry to the Altar" did not chain the captive: ${await page.evaluate(() => window.toasts.join(' / '))}`);
+  return errors;
+};
+
+/**
  * A Priest who holds a crystal (sent for a walk while carrying one home) and is sent to a geyser:
  * he banks it at the Temple first and then collects, instead of the order being refused.
  */

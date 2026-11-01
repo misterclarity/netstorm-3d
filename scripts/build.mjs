@@ -15,6 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { aiMemo } from './ai-memo.mjs';
+import { houseRules } from './house-rules.mjs';
 
 const VENDOR = resolve('vendor/netstorm-web');
 const args = new Set(process.argv.slice(2));
@@ -39,7 +40,7 @@ const common = {
     setup(b) {
       b.onResolve({ filter: /paraglide\/messages\.js$/ }, () => ({ path: resolve('src/messages.js') }));
     },
-  }],
+  }, houseRules()],
 };
 
 /** Run a script that imports netstorm-web's TypeScript, bundled for Node first. */
