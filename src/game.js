@@ -46,6 +46,7 @@ export function newGame(setup = G.setup) {
   G.commands.length = 0;
   G.afterDelivery.clear();
   G.holdEnd = 0;
+  G.hoverPick = null; // what the cursor was over belongs to the last battle
   G.raised = new Set();
   G.clock.reset();
   Object.assign(G, {

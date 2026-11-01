@@ -77,6 +77,13 @@ const fastForward = (page, n) => page.evaluate((ticks) => {
   return G.world.tick;
 }, n);
 
+/** Wait until the camera has stopped gliding, so that a point aimed at stays where it was. */
+const cameraStill = (page) => page.waitForFunction(() => {
+  const c = document.querySelector('a-scene').camera.el.object3D.position, last = window.lastCam;
+  window.lastCam = c.clone();
+  return last && last.distanceTo(c) < 0.001;
+}, null, { polling: 250, timeout: 15000 });
+
 const SCENARIOS = {
   /** The opening: a Workshop (with the cursor resting on its new site), a Golem sent to a geyser,
    * the Sun Cannon in a production slot, a bridge piece. */
@@ -288,9 +295,10 @@ SCENARIOS.airship = async () => {
     return { id: s.id, at, to };
   });
   if (!ship.to) throw new Error('no ground to send the Air Ship to');
-  // its entity is made on a coming frame, and drawn on the one after
+  // its entity is made on a coming frame, and drawn on the one after; the camera glides to its
+  // first view, and the clicks are aimed once it stands still
   await page.waitForFunction((id) => !!window.NS3D.game.units()?.byId.get(id)?.components['ns-unit']?.rep, ship.id, { timeout: 15000 });
-  await page.waitForTimeout(500);
+  await cameraStill(page);
   const screen = (aim) => page.evaluate(({ what, unit }) => {
     const { wx, wz } = window.NS3D, T = AFRAME.THREE, scene = document.querySelector('a-scene');
     const r = scene.canvas.getBoundingClientRect();
@@ -353,11 +361,7 @@ SCENARIOS.gather = async () => {
     document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(g.x + 0.5), window.NS3D.wz(g.y + 0.5), 30);
   }, setup.geyser);
   // the camera glides there: aim once it stands still
-  await page.waitForFunction(() => {
-    const c = document.querySelector('a-scene').camera.el.object3D.position, last = window.lastCam;
-    window.lastCam = c.clone();
-    return last && last.distanceTo(c) < 0.001;
-  }, null, { polling: 250, timeout: 15000 });
+  await cameraStill(page);
   const aim = await page.evaluate((id) => {
     const T = AFRAME.THREE, scene = document.querySelector('a-scene'), el = window.NS3D.game.units().byId.get(id);
     const top = el.object3D.localToWorld(new T.Vector3(0, 2.8, 0)), v = top.clone().project(scene.camera), r = scene.canvas.getBoundingClientRect();

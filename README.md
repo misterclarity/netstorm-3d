@@ -151,9 +151,9 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | --- | --- |
 | `npm run dev` | Builds in watch mode and serves the page on port 8080 (set `PORT` to change it). |
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
-| `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error. CI runs it. |
+| `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error, then compares the HUD's account of Energy (`src/energy.js`) with the rules' own answer at every site of a map, with units and Generators of every Fury and level. CI runs it. |
 | `npm run ai-check` | Plays eight minutes of a skirmish at each level twice, with and without the AI worker's cache (below), and fails unless the computer makes the same moves both ways; prints how long a move takes. CI runs it. |
-| `npm run playtest` | Plays the built page in headless Chromium (Playwright): the mission's opening, a staged endgame, a Priest sent to a geyser while holding a crystal, five minutes of a skirmish, and the tabletop (with the mouse, then with faked VR controllers), failing on any page error. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
+| `npm run playtest` | Plays the built page in headless Chromium (Playwright), failing on any page error: the mission's opening; a staged endgame, whose Victory waits for the Sacrifice to be heard out; a downed Priest captured with no Altar yet and carried there once one stands; an air ship clicked by its body and sent across the island; a Golem sent to a geyser by a click on its steam; a Priest sent to a geyser while holding a crystal; five minutes of a skirmish (with its Residences and greenery); and the tabletop (with the mouse, then with faked VR controllers). Run one with `node scripts/playtest.mjs <name>`. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
 
 ## How it is built
 

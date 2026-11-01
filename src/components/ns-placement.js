@@ -12,7 +12,7 @@ import { energyAt, sourceOf, energyTip } from '../energy.js';
 import { reachOf, reachOfBuilding, isGun } from '../reach.js';
 
 const { THREE } = AFRAME;
-const KIND_COLOR = { mine: '#ffd27a', foe: '#ff5a4a', energy: '#7fd6ff' };
+const KIND_COLOR = { mine: '#ffd27a', foe: '#ff5a4a' };
 // Energy rings in their Fury's colour ('energy:w' ...), brighter where they count for the site
 const ENERGY_LETTERS = { w: 'wind', r: 'rain', t: 'thunder', s: 'sun' };
 
