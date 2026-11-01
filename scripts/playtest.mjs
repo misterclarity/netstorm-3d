@@ -170,10 +170,16 @@ const SCENARIOS = {
     });
     await page.waitForTimeout(500);
     await page.evaluate(() => { const { G, game } = window.NS3D, f = G.world.priestOf(2); game.primary(f.x, f.y); });
-    let sent = false;
+    let sent = false, early = null;
     for (let i = 0; i < 40; i++) {
       await fastForward(page, 60);
-      const s = await page.evaluate(() => ({ state: window.NS3D.G.world.priestOf(2)?.state, ended: window.NS3D.G.ended }));
+      const s = await page.evaluate(() => {
+        const { G, game } = window.NS3D;
+        game.handleEvents();
+        return { state: G.world.priestOf(2)?.state, ended: G.ended, holding: performance.now() < G.holdEnd };
+      });
+      // the moment the Sacrifice is complete the battle is not over yet on screen: it is heard out
+      if (sent && s.state !== 'chained' && early === null) early = { ended: s.ended, holding: s.holding };
       if (s.state === 'chained' && !sent) {
         sent = true;
         await page.evaluate(() => {
@@ -183,8 +189,11 @@ const SCENARIOS = {
           game.primary(altar.x + 3, altar.y + 3);
         });
       }
-      if (s.ended) break;
+      if (s.ended || early) break;
     }
+    if (!early) throw new Error('the Sacrifice was not completed');
+    if (early.ended || !early.holding) throw new Error(`the battle ended without waiting for the Sacrifice to be heard out: ${JSON.stringify(early)}`);
+    await page.waitForFunction(() => window.NS3D.G.ended, null, { timeout: 20000 }).catch(() => {});
     await page.waitForTimeout(500);
     const title = await page.evaluate(() => document.querySelector('#modal h2')?.textContent);
     if (title !== 'Victory!') throw new Error(`the mission ended with "${title}", not Victory`);
@@ -249,6 +258,70 @@ SCENARIOS.captive = async () => {
     chained = await page.evaluate(() => window.NS3D.G.world.priestOf(2).state === 'chained');
   }
   if (!chained) throw new Error(`"Carry to the Altar" did not chain the captive: ${await page.evaluate(() => window.toasts.join(' / '))}`);
+  return errors;
+};
+
+/**
+ * An Air Ship clicked by its body, high above its cell, is selected; a click on ground of the
+ * player's island then sends it there, where it lands.
+ */
+SCENARIOS.airship = async () => {
+  const { page, errors } = await open({ width: 1000, height: 640 });
+  await page.selectOption('#skTheme', 'wind');
+  await page.fill('#skSeed', '3');
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  await page.click('#modal button.main');
+  const ship = await page.evaluate(() => {
+    const { G } = window.NS3D, w = G.world, t = w.templeOf(1);
+    const free = (x, y) => w.walkable(1, x, y) && w.terrain[w.at(x, y)] === 1 && !w.occupant[w.at(x, y)] && !w.priestAt(x, y);
+    const near = (cx, cy) => {
+      for (let r = 1; r < 30; r++) for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) if (free(x, y)) return [x, y];
+      throw new Error('no free ground');
+    };
+    const at = near(t.x + t.fx + 3, t.y + t.fy + 2);
+    const s = w.spawnTransport('windballoon', 1, at[0], at[1]);
+    // somewhere else on the island, a few cells off
+    let to = null;
+    for (let r = 5; r < 14 && !to; r++) for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r]]) if (!to && free(at[0] + dx, at[1] + dy)) to = [at[0] + dx, at[1] + dy];
+    G.paused = true; // the battle waits while the clicks are aimed
+    return { id: s.id, at, to };
+  });
+  if (!ship.to) throw new Error('no ground to send the Air Ship to');
+  // its entity is made on a coming frame, and drawn on the one after
+  await page.waitForFunction((id) => !!window.NS3D.game.units()?.byId.get(id)?.components['ns-unit']?.rep, ship.id, { timeout: 15000 });
+  await page.waitForTimeout(500);
+  const screen = (aim) => page.evaluate(({ what, unit }) => {
+    const { wx, wz } = window.NS3D, T = AFRAME.THREE, scene = document.querySelector('a-scene');
+    const r = scene.canvas.getBoundingClientRect();
+    let p;
+    if (what === 'body') {
+      // the middle of the ship's body: the top quarter of the unit, far above its cell
+      const box = new T.Box3().setFromObject(window.NS3D.game.units().byId.get(unit.id).object3D);
+      p = new T.Vector3((box.min.x + box.max.x) / 2, box.max.y - (box.max.y - box.min.y) * 0.3, (box.min.z + box.max.z) / 2);
+    } else p = document.getElementById('world').object3D.localToWorld(new T.Vector3(wx(unit.to[0] + 0.5), 0, wz(unit.to[1] + 0.5)));
+    const v = p.clone().project(scene.camera);
+    return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
+  }, { what: aim, unit: ship });
+  const body = await screen('body');
+  await page.mouse.click(body.x, body.y);
+  const selected = await page.evaluate(() => window.NS3D.G.selected);
+  if (selected !== ship.id) throw new Error(`a click on the Air Ship's body did not select it (selected ${selected})`);
+  const ground = await screen('ground');
+  await page.mouse.click(ground.x, ground.y);
+  await page.evaluate(() => { window.NS3D.G.paused = false; });
+  let landed = null;
+  for (let i = 0; i < 20 && !landed; i++) {
+    await fastForward(page, 30);
+    landed = await page.evaluate(({ id, to }) => {
+      const s = window.NS3D.G.world.entities.get(id);
+      return s && s.x === to[0] && s.y === to[1] && !s.path.length && !s.aloft && !s.climbing ? { x: s.x, y: s.y } : null;
+    }, ship);
+  }
+  if (!landed) {
+    const s = await page.evaluate((id) => { const e = window.NS3D.G.world.entities.get(id); return e && { x: e.x, y: e.y, goal: e.goal, path: e.path.length, selected: window.NS3D.G.selected }; }, ship.id);
+    throw new Error(`the Air Ship was not sent to ${ship.to}: ${JSON.stringify(s)}`);
+  }
   return errors;
 };
 

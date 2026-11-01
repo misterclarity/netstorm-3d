@@ -8,15 +8,17 @@ import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
 import { Minimap } from '../minimap.js';
-import { groundCell } from '../space.js';
+import { groundCell, unit } from '../space.js';
 import * as models from '../models.js';
+
+const AIR_BOX = new THREE.Box3(), AIR_HIT = new THREE.Vector3();
 
 AFRAME.registerSystem('ns-game', {
   init() {
     this.destroyed = new Set();
     this.raycaster = new THREE.Raycaster();
     // handles for tests and the console
-    window.NS3D = { G, NS, origin, game: this, stepWorld, flushPendingAi, submit, models };
+    window.NS3D = { G, NS, origin, wx, wz, game: this, stepWorld, flushPendingAi, submit, models };
     this.el.addEventListener('loaded', () => {
       this.hud = new Hud(this);
       this.minimap = new Minimap(this);
@@ -173,12 +175,21 @@ AFRAME.registerSystem('ns-game', {
         case 'rune': hud.toast(`Rune ${ev.data.runes} of 5 is warded`, mine ? 'good' : 'bad'); break;
         case 'released': hud.toast('A captive Priest is free again'); break;
         case 'priest down': hud.toast(mine ? 'Your Priest is down!' : 'The enemy Priest is down! Send a Golem to capture him.', mine ? 'bad' : 'good'); break;
-        case 'sacrifice': hud.toast(mine ? 'The sacrifice is complete!' : 'Your Priest was sacrificed', mine ? 'good' : 'bad'); break;
+        case 'sacrifice': {
+          hud.toast(mine ? 'The sacrifice is complete!' : 'Your Priest was sacrificed', mine ? 'good' : 'bad');
+          // the end of the battle waits until the Priest has fallen through the Altar, as heard
+          const from = performance.now();
+          G.holdEnd = from + 8000;
+          sound.sacrificeLength(ev.data.gift === NS.GIFT_UPGRADE).then((s) => {
+            if (G.holdEnd > from) G.holdEnd = from + Math.max(1500, s * 1000 + 600);
+          });
+          break;
+        }
         case 'too early': if (mine) hud.toast('Too early for a sacrifice: wait, then press “Carry to the Altar” again', 'bad'); break;
         default: break;
       }
     }
-    if (G.ended) return;
+    if (G.ended || performance.now() < G.holdEnd) return;
     // a skirmish ends on the simulation's verdict; a mission on its script's pages
     if (!G.mission) {
       const result = NS.outcome(G.world, ME);
@@ -212,9 +223,10 @@ AFRAME.registerSystem('ns-game', {
   onHover(d) {
     const ray = d && this.rayAt(d.x, d.y);
     // over the tabletop's own panel there is no cell to point at
-    if (ray && this.xr().panelHover(ray)) { G.mouse = null; G.hover = null; return; }
+    if (ray && this.xr().panelHover(ray)) { G.mouse = null; G.hover = null; G.hoverPick = null; return; }
     G.mouse = d;
     G.hover = ray ? groundCell(ray) : null;
+    G.hoverPick = this.airAt(ray);
   },
   onTap(d) {
     const ray = this.rayAt(d.x, d.y);
@@ -230,11 +242,33 @@ AFRAME.registerSystem('ns-game', {
       G.mouse = d;
       if (!same) return;
     }
-    this.primary(cell.x, cell.y, d.shift);
+    this.primary(cell.x, cell.y, d.shift, this.airAt(ray));
   },
 
-  /** A click on map cell (x, y), as netstorm-web's controls.ts reads it. */
-  primary(x, y, shift = false) {
+  /**
+   * The Aerial Transport whose body a scene ray passes through, nearest first, or null. They float
+   * high above their cell, so the cell under the cursor is behind them; their bodies are what is
+   * clicked.
+   */
+  airAt(ray) {
+    if (!ray || G.tool.kind !== 'select') return null;
+    const units = this.units();
+    let best = null, near = Infinity;
+    for (const e of G.view.entities.values()) {
+      if (e.kind !== 'transport' || !NS.flies(defs.get(e.type))) continue;
+      const el = units?.byId.get(e.id);
+      if (!el) continue;
+      AIR_BOX.setFromObject(el.object3D).expandByScalar(0.25 * unit());
+      const hit = ray.intersectBox(AIR_BOX, AIR_HIT);
+      const d = hit ? hit.distanceTo(ray.origin) : Infinity;
+      if (d < near) { near = d; best = e; }
+    }
+    return best;
+  },
+
+  /** A click on map cell (x, y), as netstorm-web's controls.ts reads it; `picked` is a unit hit
+   * above the ground (an Aerial Transport), which counts before what stands on the cell. */
+  primary(x, y, shift = false, picked = null) {
     const tool = G.tool;
     if (tool.kind === 'piece') {
       if (!G.world.players.get(ME).hand[tool.hand]) return;
@@ -252,7 +286,7 @@ AFRAME.registerSystem('ns-game', {
       if (!shift) this.setTool({ kind: 'select' });
       return;
     }
-    const target = NS.entityAt(G.view, x, y);
+    const target = picked ?? NS.entityAt(G.view, x, y);
     if (this.order(x, y, target)) {
       // the unit answers its order: a carrier sent for something with its pickup sound
       this.sound().voice(G.view.entities.get(G.selected), target && target.owner !== ME ? 'pickup' : 'move');
@@ -299,6 +333,11 @@ AFRAME.registerSystem('ns-game', {
       }
     }
     if (sel.kind === 'priest' && target?.kind !== 'building') { submit({ t: 'movePriest', x, y }); return true; }
+    // a carrier sent to ground goes there (an Aerial Transport flies and lands); the sky deselects
+    if (sel.kind === 'transport' && !target && G.view.walkable(ME, x, y)) {
+      submit({ t: 'moveTransport', transport: sel.id, x, y });
+      return true;
+    }
     return false;
   },
 

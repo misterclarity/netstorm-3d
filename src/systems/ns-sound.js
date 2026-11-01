@@ -24,6 +24,7 @@ const FADE_REACH = 60; // cells more over which it fades
 const FAINTEST = 0.08;
 const PAN_REACH = 0.7;
 const SACRIFICE = { cry: 4, upgradeCry: 1.5, thunder: 2.8 }; // seconds after the last rune (match.ts)
+const SACRIFICE_SOUNDS = ['itisdone2', 'priestsacrifice2', 'priestsacrifice4', 'thundercrack'];
 const SETTINGS_KEY = 'netstorm-3d:sound';
 
 AFRAME.registerSystem('ns-sound', {
@@ -265,6 +266,7 @@ AFRAME.registerSystem('ns-sound', {
       case 'captured': this.play(mine ? 'enemypriestcaptured' : 'ourpriestcaptured'); break;
       case 'priest down': if (mine) this.play('ourpriestimmobile'); break;
       case 'released': this.play('priestfree'); break;
+      case 'chained': for (const name of SACRIFICE_SOUNDS) this.load(name); break; // ready for the end
       case 'sacrifice': {
         const upgrade = d.gift === NS.GIFT_UPGRADE;
         this.later(upgrade ? 'priestsacrifice4' : 'priestsacrifice2', upgrade ? SACRIFICE.upgradeCry : SACRIFICE.cry);
@@ -284,6 +286,19 @@ AFRAME.registerSystem('ns-sound', {
   },
 
   /** A sound due `seconds` of game time from now; it still comes if the battle has just ended. */
+  /**
+   * Seconds from the last rune until the Sacrifice has been heard out: the Priest's cry as he falls
+   * through the Altar and the thunder, after their delays at the battle's speed. The end of the
+   * battle waits for it. Nothing to wait for with the sound off.
+   */
+  async sacrificeLength(upgrade) {
+    if (!this.settings.sound || !this.audio()) return 0;
+    const cry = upgrade ? 'priestsacrifice4' : 'priestsacrifice2';
+    const [done, scream, thunder] = await Promise.all(['itisdone2', cry, 'thundercrack'].map((n) => this.load(n)));
+    return Math.max(done?.duration ?? 0, (upgrade ? SACRIFICE.upgradeCry : SACRIFICE.cry) / G.speed + (scream?.duration ?? 2),
+      SACRIFICE.thunder / G.speed + (thunder?.duration ?? 1));
+  },
+
   later(name, seconds) {
     this.echoes.push({ at: performance.now() + (seconds * 1000) / G.speed, name });
   },

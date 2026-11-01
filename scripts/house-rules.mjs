@@ -10,6 +10,8 @@
  * the Transport takes him and, with no Altar (or no way to one), holds him where it stands, as it
  * does when a sacrifice is refused as too early: the captive cannot get up and walk home, and
  * the carrier is sent on to the Altar later ("Carry to the Altar" on its card).
+ *
+ * A Transport can be sent to a place, not only for something: the command `moveTransport` (below).
  */
 import { readFile } from 'node:fs/promises';
 
@@ -83,6 +85,56 @@ const CHANGES = [
   world.emit({ what: 'captured', who: t.owner, data: { priest: p.id } });`,
   },
 ];
+
+// A Transport sent to a place: "Left-click on a Transport ... Left-click someplace legal, and the
+// Transport will move there" (the original's help). netstorm-web sends one only for something
+// (a geyser, a crystal, a Priest, an Obelisk). A legal place here is ground a Transport may stand
+// on: not the sky, not inside a building. An Aerial Transport flies there and lands; one on foot
+// walks there if it can. What it carries it keeps.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'a Transport is moved to a place (moveTransport)',
+  was: `      case 'dropCargo':
+        return unload(this, c);`,
+  now: `      case 'dropCargo':
+        return unload(this, c);
+      case 'moveTransport':
+        return moveTransportTo(this, c);`,
+}, {
+  file: 'world.ts',
+  why: 'a Transport is moved to a place (moveTransport)',
+  was: `/** Whether (x, y) lies inside the rim of a building's footprint: not on its outermost cells. */
+function withinRim(`,
+  now: `/** (netstorm-3d) A Transport sent to a place: see scripts/house-rules.mjs. */
+function moveTransportTo(
+  world: World,
+  c: { player: number; transport: number; x: number; y: number; },
+): CommandError | null {
+  const t = world.entities.get(c.transport);
+
+  if (!t || t.kind !== 'transport' || t.owner !== c.player || t.casting > 0) {
+    return 'bad target';
+  }
+
+  if (!world.walkable(c.player, c.x, c.y)) {
+    return 'no path';
+  }
+
+  const path = world.wayOf(t, (cell) => cell[0] === c.x && cell[1] === c.y);
+
+  if (!path) {
+    return 'no path';
+  }
+
+  t.path = path;
+  t.goal = 'idle';
+  t.target = null;
+  return null;
+}
+
+/** Whether (x, y) lies inside the rim of a building's footprint: not on its outermost cells. */
+function withinRim(`,
+});
 
 export function houseRules() {
   return {

@@ -484,7 +484,7 @@ AFRAME.registerSystem('ns-xr', {
       G.hover = cell;
       if (!same) return true;
     }
-    game.primary(cell.x, cell.y);
+    game.primary(cell.x, cell.y, false, game.airAt(ray));
     return true;
   },
 
@@ -526,10 +526,11 @@ AFRAME.registerSystem('ns-xr', {
     for (const [source, beam] of this.beams) {
       if (!seen.has(source)) { beam.removeFromParent(); this.beams.delete(source); }
     }
+    G.hoverPick = null;
     if (this.placing) { this.panel.hoverAt(hover); G.hover = null; return; }
     if (hover) {
       if (this.panel.hoverAt(hover)) G.hover = null;
-      else G.hover = groundCell(hover);
+      else { G.hover = groundCell(hover); G.hoverPick = this.game().airAt(hover); }
       G.mouse = null;
     } else if (pointers.length) {
       // a hand that points nowhere it can see

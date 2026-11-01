@@ -154,7 +154,7 @@ AFRAME.registerComponent('ns-placement', {
     }
 
     // the selected gun's reach, and the one under the cursor
-    const hov = at && tool.kind === 'select' ? NS.entityAt(G.view, at.x, at.y) : null;
+    const hov = tool.kind === 'select' ? G.hoverPick ?? (at ? NS.entityAt(G.view, at.x, at.y) : null) : null;
     for (const e of [G.selected !== null ? G.view.entities.get(G.selected) : null, hov]) {
       if (e?.kind !== 'building' || !isGun(defs.get(e.type)) || e.rising) continue;
       for (const s of reachOfBuilding(e)) if (s.kind !== 'energy') this.shape(s, e.owner === ME ? 'mine' : 'foe');
@@ -176,7 +176,8 @@ AFRAME.registerComponent('ns-placement', {
       const unit = id === null || id === undefined ? null : units?.byId.get(id)?.components['ns-unit'];
       mesh.visible = !!unit?.rep;
       if (!unit?.rep) return;
-      const el = unit.el, foot = unit.rep.foot, r = foot ? Math.max(...foot) * 0.62 : 0.72;
+      // an Aerial Transport's ring is as wide as the ship above it
+      const el = unit.el, foot = unit.rep.foot, r = foot ? Math.max(...foot) * 0.62 : unit.rep.kind === 'transport' && NS.flies(defs.get(unit.rep.type)) ? 2.2 : 0.72;
       mesh.position.set(el.object3D.position.x, 0.12, el.object3D.position.z);
       mesh.scale.setScalar(r * (pulse ? 1 + Math.sin(performance.now() / 200) * 0.04 : 1));
     };

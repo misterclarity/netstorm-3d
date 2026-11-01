@@ -189,7 +189,9 @@ for good.
 source as it is bundled, and the build fails if netstorm-web's code there has changed. A downed
 enemy Priest can be picked up before you have an Altar, as the original's help describes it. The
 carrier then holds him where it stands, and **Carry to the Altar** on its card sends it on once an
-Altar is built.
+Altar is built. And a Transport can be sent to a place, not only for something (`moveTransport`):
+"Left-click someplace legal, and the Transport will move there", as the original's help puts it.
+Golems walk there; air ships fly there and land.
 
 **netstorm-web** sits in `vendor/netstorm-web` as a git submodule pinned to one commit. The build
 bundles its TypeScript straight from there (`src/engine.js` lists what is used: the simulation,

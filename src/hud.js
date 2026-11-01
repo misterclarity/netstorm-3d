@@ -333,7 +333,7 @@ export class Hud {
       lines.push(captive && e.goal === 'idle' ? 'Holding the enemy Priest'
         : { idle: 'Waiting for orders', collect: 'Collecting Storm Power', pickup: 'Fetching a crystal', home: 'Carrying Storm Power home', capture: 'Going for the enemy Priest', altar: 'Carrying the captive to the Altar', obelisk: 'Fetching a spell' }[e.goal] ?? e.goal);
       if (e.owner === ME) {
-        lines.push('Click a geyser to collect from it, or a downed enemy Priest to capture him.');
+        lines.push('Click a geyser to collect from it, a downed enemy Priest to capture him, or ground to send it there.');
         if (captive && e.goal !== 'altar') {
           const altar = [...G.view.entities.values()].some((b) => b.kind === 'building' && b.owner === ME && defs.get(b.type)?.cls === 'Altar' && !b.rising);
           acts.push(`<button data-sel="toAltar" ${altar ? '' : 'disabled title="Build an Altar first: your Priest builds it"'}>Carry to the Altar</button>`);
@@ -592,7 +592,7 @@ export class Hud {
     if (G.started) G.paused = true;
     this.modal(`<h2>Controls</h2><ol style="list-style:none;padding:0">
       <li><b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>Q</kbd><kbd>E</kbd> turn</li>
-      <li><b>Select:</b> click a unit or building. With a Golem selected, click a geyser to collect or a downed enemy Priest to capture him. With your Priest selected, click ground to walk, or your Altar to perform a sacrifice.</li>
+      <li><b>Select:</b> click a unit or building. With a Golem or air ship selected, click a geyser to collect, a downed enemy Priest to capture him, or ground to send it there. With your Priest selected, click ground to walk, or your Altar to perform a sacrifice.</li>
       <li><b>Bridges:</b> click a piece (or <kbd>1</kbd>–<kbd>6</kbd>), then the map. <kbd>R</kbd> rotates. Pieces join only by their ends; the yellow dot marks the cell under the cursor.</li>
       <li><b>Build:</b> click a card, then the map. <kbd>R</kbd> turns cannons. Hold <kbd>Shift</kbd> to build several. Blue rings show your Energy; yellow, the gun’s range.</li>
       <li><b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <b>Salvage:</b> <kbd>Delete</kbd></li>
