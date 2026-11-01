@@ -44,6 +44,17 @@ compares the two over a whole map.
 ship or your Priest selected, geysers and loose crystals under the cursor come first, before a
 building or unit that stands in front of them.
 
+**The islands.** Trees, pines, bushes, rocks, flowers and grass grow on island ground, in the
+greens of the Fury that holds it (`ns-decor`). They are only to look at: clicks go through them,
+they keep clear of buildings, geysers, Temples and Residences, and they are cleared where something
+is built. A skirmish map also gets **Residences**, the Nimbians' houses, as the original's maps and
+the mission have them: one on each home island well away from its Temple, one or two on each larger
+unclaimed island (`src/residences.js`). As in the original, nothing is built on them and they take
+the colours of the Fury whose Temple stands on their island.
+
+**Air ships in Sprites mode** fly at the original's height, 44 pixels up, sink lower when they
+land, and cast a shadow on the ground beneath them.
+
 If something goes wrong, a small panel says so and the game keeps running. **Help** shows which
 build you are playing, and a notice offers to reload when a newer one has been published.
 

@@ -38,6 +38,13 @@ function cameraLook(scene, t) {
 }
 
 const PUFF = new THREE.Object3D(), FADE = new THREE.Color();
+/**
+ * An Aerial Transport's sprite in the air: the original draws one aloft 44 pixels up (an altitude
+ * of 4 cells at 11 rows a cell), here 44 / PX; landed, it still hovers a little, clear of what
+ * stands about. A soft shadow under it shows where it is.
+ */
+const AIR = { aloft: 44 / PX, landed: 1.3 };
+const AIR_SHADOW = { geo: new THREE.CircleGeometry(1, 24), mat: new THREE.MeshBasicMaterial({ color: '#0a1020', transparent: true, opacity: 0.3, depthWrite: false }) };
 const cards = new WeakMap();
 /** A sprite's texture, plane and material, made once per picture and shared by every card of it. */
 function cardParts(img) {
@@ -136,6 +143,14 @@ AFRAME.registerComponent('ns-unit', {
       if (e.kind === 'transport' && NS.flies(defs.get(e.type))) {
         const b = new THREE.Box3().setFromObject(this.model);
         this.rep.span = Math.max(b.max.x - b.min.x, b.max.z - b.min.z) / 2;
+        this.rep.flies = true;
+        this.rep.alt = e.aloft ? AIR.aloft : AIR.landed;
+        this.shadow = new THREE.Mesh(AIR_SHADOW.geo, AIR_SHADOW.mat);
+        this.shadow.rotation.x = -Math.PI / 2;
+        this.shadow.position.y = 0.07;
+        this.shadow.scale.set(1.5, 1, 1);
+        this.shadow.visible = false;
+        this.el.object3D.add(this.shadow);
       }
     }
     this.el.setObject3D('model', this.model);
@@ -209,9 +224,13 @@ AFRAME.registerComponent('ns-unit', {
     if (rep.cargo) this.cargo(e);
     for (const f of rep.anim) f(s);
 
+    // an air ship's sprite rises as it takes off and sinks as it lands
+    if (rep.flies) rep.alt += ((e.aloft || e.path?.length ? AIR.aloft : AIR.landed) - rep.alt) * (1 - Math.exp(-dt / 350));
+
     // in "Sprites" mode: the frame of its animation where it has one, else its still sprite, else
     // the model
     const frame = this.art.frameOf(e);
+    if (this.shadow) this.shadow.visible = false;
     if (frame) {
       this.showFrame(e, frame, visible, t, s);
       this.model.visible = false;
@@ -226,6 +245,7 @@ AFRAME.registerComponent('ns-unit', {
       this.card.visible = visible;
       this.model.visible = false;
       if (e.kind === 'flyer') this.card.position.y = 3.6 + Math.sin(s * 2 + rep.id) * 0.15;
+      if (rep.flies) this.card.position.y = this.airLift(visible, s);
       this.card.quaternion.copy(cameraTurn(this.el.sceneEl, t));
     } else {
       if (this.card) this.card.visible = false;
@@ -259,10 +279,18 @@ AFRAME.registerComponent('ns-unit', {
     }
     const across = (f.w / 2 - f.hx) / PX;
     if (e.kind === 'flyer') this.anim.position.set(across, 3.6 + Math.sin(s * 2 + this.rep.id) * 0.15, 0);
-    else this.anim.position.set(hx + across, 0.06, hy + (f.h - f.hy) / 11);
+    else this.anim.position.set(hx + across, this.rep.flies ? this.airLift(visible, s) : 0.06, hy + (f.h - f.hy) / 11);
     this.anim.scale.y = e.kind === 'building' && e.rising > 0 ? Math.max(0.06, 1 - e.rising / (NS.BUILD_SECONDS * TPS)) : 1;
     this.anim.visible = visible;
     this.anim.quaternion.copy(cameraTurn(this.el.sceneEl, t));
+  },
+
+  /** How high an air ship's sprite is drawn, gently bobbing; its shadow shown on the ground. */
+  airLift(visible, s) {
+    const rep = this.rep, up = rep.alt + Math.sin(s * 1.2 + rep.id) * 0.1 * (rep.alt / AIR.aloft);
+    this.shadow.visible = visible;
+    this.shadow.scale.set(1.5 - rep.alt * 0.12, 1 - rep.alt * 0.08, 1);
+    return 0.06 + up;
   },
 
   setCard(e, key, img) {

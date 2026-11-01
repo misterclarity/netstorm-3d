@@ -3,6 +3,7 @@
  * match.ts, without its drawing: one tick of the world is one `stepWorld()`.
  */
 import { NS, DATA, G, MISSION, TPS, ME, WORLD, defs, origin } from './state.js';
+import { settleResidences } from './residences.js';
 
 /** Skirmish settings the menu starts from. */
 export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, seed: 42 };
@@ -36,6 +37,8 @@ export function newGame(setup = G.setup) {
   G.options = options;
   const known = G.mission ? [] : furyKnowledge(setup.theme);
   G.world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known, altarLevel: 1 });
+  // a random map's islands get the Residences a mission's map has (src/residences.js)
+  if (!G.mission) settleResidences(G.world, options.seed);
   G.view = G.world.view();
   G.schedule = new NS.AiSchedule(TPS);
   G.pending.clear();

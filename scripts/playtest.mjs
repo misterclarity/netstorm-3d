@@ -437,6 +437,13 @@ SCENARIOS.skirmish = async () => {
     return { mission: G.mission, theme: G.world.players.get(1).theme, enemy: G.world.players.get(2).theme, buildings: [...G.view.entities.values()].filter((e) => e.kind === 'building' && e.owner === 2).length };
   });
   if (start.mission !== null || start.theme !== 'thunder' || start.enemy !== 'wind') throw new Error(`not the skirmish asked for: ${JSON.stringify(start)}`);
+  // the map has Residences, which the rules keep free of building, and greenery on its islands
+  const homes = await page.evaluate(() => {
+    const { G } = window.NS3D, [x, y] = G.world.residences[0] ?? [];
+    return { count: G.world.residences.length, onOne: x === undefined ? null : G.view.canBuild({ player: 1, type: 'altar', x, y }),
+      decor: document.getElementById('decor').object3D.children[0]?.children.length ?? 0 };
+  });
+  if (!homes.count || homes.onOne !== 'blocked' || !homes.decor) throw new Error(`no Residences, or one can be built on, or no greenery: ${JSON.stringify(homes)}`);
   // the player knows the Thunder units, and a Thunder Workshop has them to make
   const thunder = await page.evaluate(() => {
     const { G, NS } = window.NS3D, w = G.world, t = w.templeOf(1), def = w.def('thunderfactory');
