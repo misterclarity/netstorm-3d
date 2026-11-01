@@ -553,13 +553,19 @@ export const MODELS = {
   blocker(rep, g, e) {
     const f = furyOf(e), p = kit(e);
     if (f === 'wind') {
-      // the Wind Tower: a timber lattice under a fan that turns
+      // the Wind Tower: a timber lattice under a fan that turns, a curved shell on the side it was
+      // laid facing ("on its curved back it is utterly invulnerable"), open on the other
       part(g, box(2.2, 0.3, 2.2), p.dark, 0, 0.15, 0);
       for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) part(g, cyl(0.08, 0.12, 2.8, 5), mat('#8a6040'), x * 0.8, 1.6, z * 0.8).rotation.set(-z * 0.12, 0, x * 0.12);
       for (const y of [1.0, 2.0]) for (const r of [0, Math.PI / 2]) part(g, box(1.6, 0.08, 0.08), mat('#6f4e33'), 0, y, 0).rotation.y = r;
       part(g, box(1.3, 0.14, 1.3), mat('#a87a50'), 0, 2.95, 0);
       part(g, cone(0.95, 0.7, 4), p.roof, 0, 3.4, 0).rotation.y = Math.PI / 4;
-      const fan = spin(rep, holder(g, 0, 2.35, 0.75), 'z', 4, rep.id);
+      const turned = holder(g);
+      rep.turret = turned;
+      turned.rotation.y = FACING_YAW[e.facing ?? 2];
+      part(turned, shape('windshell', () => new THREE.CylinderGeometry(1.05, 1.45, 3.0, 9, 1, true, -1.8, 3.6)), mat('#a8834f', { side: THREE.DoubleSide }), 0, 1.75, 0);
+      for (const a of [-1.65, -0.82, 0, 0.82, 1.65]) part(turned, box(0.12, 3.05, 0.1), p.trim, Math.sin(a) * 1.28, 1.75, Math.cos(a) * 1.28).rotation.set(-0.133, a, 0, 'YXZ');
+      const fan = spin(rep, holder(turned, 0, 2.35, -0.75), 'z', 4, rep.id);
       for (let i = 0; i < 4; i++) {
         const b = part(fan, box(0.2, 0.75, 0.04), mat('#efe6cf'));
         b.rotation.z = (i / 4) * Math.PI * 2;
@@ -946,14 +952,19 @@ export function heightOf(model) {
   return box3.isEmpty() ? 1.6 : Math.max(1.2, box3.max.y);
 }
 
-/** The original sprite an entity is drawn with in "Sprites" mode, or null to keep its model. */
-export function spriteKey(e) {
+/**
+ * The original sprite an entity is drawn with in "Sprites" mode, or null to keep its model.
+ * `look` is the way the camera looks across the battlefield (0 north, as the original's view, 1
+ * east...): a unit laid facing a way shows the picture of its facing as seen from there.
+ */
+export function spriteKey(e, look = 0) {
   const has = (k) => k in ART.sprites;
   if (e.kind === 'priest') return e.state === 'down' ? 'priest:down' : 'priest';
   if (e.kind === 'crystal' || e.kind === 'geyser') return e.kind;
   if (e.kind === 'transport' || e.kind === 'flyer') return has(e.type) ? e.type : null;
   if (e.kind === 'building') {
-    if (has(`${e.type}:${e.facing}`)) return `${e.type}:${e.facing}`;
+    const seen = `${e.type}:${((e.facing ?? 0) - look + 4) % 4}`;
+    if (has(seen)) return seen;
     return has(e.type) ? e.type : null;
   }
   return null;

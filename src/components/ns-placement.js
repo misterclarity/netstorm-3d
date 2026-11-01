@@ -7,7 +7,7 @@
  * Enemy reach shows while a piece or a building is in hand, for an enemy gun under the cursor or
  * selected, and always when "show enemy ranges" is on (G key).
  */
-import { NS, G, ME, defs, FACING_NAMES, WORLD, wx, wz, errorText } from '../state.js';
+import { NS, G, ME, defs, facingText, WORLD, wx, wz, errorText } from '../state.js';
 import { reachOf, reachOfBuilding, isGun } from '../reach.js';
 
 const { THREE } = AFRAME;
@@ -148,7 +148,7 @@ AFRAME.registerComponent('ns-placement', {
         this.arrow.position.set(cx + dx * (def.footX / 2 + 1.2), 0.6, cz + dy * (def.footY / 2 + 1.2));
         this.arrow.rotation.set(dy * Math.PI / 2, 0, -dx * Math.PI / 2);
       }
-      tip = err ? errorText(err) : `Click to build ${def.name} (${def.cost})${aims ? ` · faces ${FACING_NAMES[G.facing]} · R to turn` : ''}`;
+      tip = err ? errorText(err) : `Click to build ${def.name} (${def.cost})${aims ? ` · ${facingText(def, G.facing)} · R to turn` : ''}`;
       bad = !!err;
       showEnemies = true;
     }

@@ -70,6 +70,8 @@ export const HARDEN = 60; // ticks a bridge piece takes to harden in the hand
 export const PX = 16; // sprite pixels per cell
 export const SPEEDS = [1, 2, 3];
 export const FACING_NAMES = ['north', 'east', 'south', 'west'];
+/** How the way a unit was laid reads: the Wind Tower's facing is the side its shield guards. */
+export const facingText = (def, f) => def.id === 'windblocker' ? `shielded on the ${FACING_NAMES[f]}` : `faces ${FACING_NAMES[f]}`;
 /** Turns a part pointing +Z (south) to face N, E, S, W. */
 export const FACING_YAW = [Math.PI, Math.PI / 2, 0, -Math.PI / 2];
 

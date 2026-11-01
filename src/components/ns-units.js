@@ -24,6 +24,19 @@ function cameraTurn(scene, t) {
   return facing.q;
 }
 
+/** Which way the camera looks across the battlefield this frame, as a facing: 0 north ... 3 west. */
+const look = { t: -1, way: 0, v: new THREE.Vector3() };
+function cameraLook(scene, t) {
+  if (look.t !== t) {
+    const q = cameraTurn(scene, t), v = look.v.set(0, 0, -1).applyQuaternion(q);
+    // looking straight down, the top of the view is the way it looks
+    if (Math.hypot(v.x, v.z) < 0.2) v.set(0, 1, 0).applyQuaternion(q);
+    look.way = Math.abs(v.x) > Math.abs(v.z) ? (v.x > 0 ? 1 : 3) : (v.z > 0 ? 2 : 0);
+    look.t = t;
+  }
+  return look.way;
+}
+
 const PUFF = new THREE.Object3D(), FADE = new THREE.Color();
 const cards = new WeakMap();
 /** A sprite's texture, plane and material, made once per picture and shared by every card of it. */
@@ -202,7 +215,7 @@ AFRAME.registerComponent('ns-unit', {
       return;
     }
     if (this.anim) this.anim.visible = false;
-    const key = spriteKey(e), img = this.art.sprite(key);
+    const key = spriteKey(e, cameraLook(this.el.sceneEl, t)), img = this.art.sprite(key);
     if (img) {
       if (this.cardKey !== key) this.setCard(e, key, img);
       this.card.visible = visible;

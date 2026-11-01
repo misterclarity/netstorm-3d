@@ -2,7 +2,7 @@
  * The HUD, in plain DOM over the scene: the top bar, the bottom bar of bridge pieces and buildings,
  * the card of the selected thing, the next-step card, toasts and the dialogs.
  */
-import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, FACING_NAMES, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml } from './state.js';
+import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, facingText, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml } from './state.js';
 import { submit, SKIRMISH_DEFAULTS } from './game.js';
 import { modelKind } from './models.js';
 import { describeBuild, loadNewer } from './version.js';
@@ -319,7 +319,8 @@ export class Hud {
           if (up !== 'bad target' && up !== 'fully upgraded') acts.push(`<button data-sel="upgrade" ${up ? `disabled title="${errorText(up)}"` : ''}>Upgrade (⚡${d.cost})</button>`);
         }
       }
-      if (d.range) lines.push(`Range ${d.range}${d.dps ? ` · damage ${d.dps}/s` : ''}${NS.hasFacing(d) ? ` · faces ${FACING_NAMES[e.facing]}` : ''}`);
+      if (d.range) lines.push(`Range ${d.range}${d.dps ? ` · damage ${d.dps}/s` : ''}${NS.hasFacing(d) ? ` · ${facingText(d, e.facing)}` : ''}`);
+      else if (NS.hasFacing(d)) lines.push(`${facingText(d, e.facing)[0].toUpperCase()}${facingText(d, e.facing).slice(1)}: guns on that side, but the Arc Spire, do it no harm`);
       if (d.cls === 'Altar') {
         const captive = [...G.view.entities.values()].find((c) => c.kind === 'priest' && c.chainedAt === e.id);
         lines.push(captive ? `A captive is chained here: ${captive.runes}/5 runes. Your Priest must stand beside the Altar.` : 'Captured Priests are sacrificed here');

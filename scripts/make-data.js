@@ -11,6 +11,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { slimUnits, slimMaps, slimMissions, mapsOf, hotFeet } from 'ns-client/game-data.ts';
+import { FACING_FRAMES } from 'ns-client/texture-selection.ts';
 
 const VENDOR = 'vendor/netstorm-web';
 const MISSIONS = ['thewarbegins'];
@@ -37,10 +38,10 @@ const PICKS = {
   altar: ['altar', 'altar01', 3],
   sunwalker: ['sunwalker', 'golem', 4],
   sunflyer: ['sunflyer', 'sflyer', 0],
-  'suncannon:0': ['suncannon', 'scannon', 10],
-  'suncannon:1': ['suncannon', 'scannon', 5],
-  'suncannon:2': ['suncannon', 'scannon', 0],
-  'suncannon:3': ['suncannon', 'scannon', 14],
+  // the picture of each facing (N, E, S, W) of the units laid facing a way, as netstorm-web draws
+  // them: 'windblocker:2' is the Wind Tower with its shielded back to the south
+  ...Object.fromEntries(Object.entries(FACING_FRAMES).flatMap(([type, frames]) =>
+    frames.map(([set, frame], facing) => [`${type}:${facing}`, [type, set, frame]]))),
   priest: ['priest', '@', 0],
   'priest:down': ['priest', 'pchant', 0],
   geyser: ['geyser', '@', 0],
