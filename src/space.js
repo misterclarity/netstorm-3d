@@ -39,16 +39,21 @@ export function toLocal(v) {
   return v.clone().applyMatrix4(inverse.copy(r.matrixWorld).invert());
 }
 
-/** Where a ray of the scene meets the battlefield's ground (its y = 0), in cell units; or null. */
-export function groundPoint(ray) {
+/** A ray of the scene on the battlefield, in cell units. */
+export function localRay(ray) {
   const r = root();
   const local = ray.clone();
   if (r) {
     r.updateWorldMatrix(true, false);
     local.applyMatrix4(inverse.copy(r.matrixWorld).invert());
   }
+  return local;
+}
+
+/** Where a ray of the scene meets the battlefield's ground (its y = 0), in cell units; or null. */
+export function groundPoint(ray) {
   const hit = new THREE.Vector3();
-  return local.intersectPlane(plane, hit) ? hit : null;
+  return localRay(ray).intersectPlane(plane, hit) ? hit : null;
 }
 
 /** The map cell a ray of the scene points at, or null. */

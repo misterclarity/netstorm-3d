@@ -7,11 +7,14 @@
  * Enemy reach shows while a piece or a building is in hand, for an enemy gun under the cursor or
  * selected, and always when "show enemy ranges" is on (G key).
  */
-import { NS, G, ME, defs, facingText, WORLD, wx, wz, errorText } from '../state.js';
+import { NS, G, ME, defs, facingText, WORLD, wx, wz, errorText, FURY_COLOR } from '../state.js';
+import { energyAt, sourceOf, energyTip } from '../energy.js';
 import { reachOf, reachOfBuilding, isGun } from '../reach.js';
 
 const { THREE } = AFRAME;
 const KIND_COLOR = { mine: '#ffd27a', foe: '#ff5a4a', energy: '#7fd6ff' };
+// Energy rings in their Fury's colour ('energy:w' ...), brighter where they count for the site
+const ENERGY_LETTERS = { w: 'wind', r: 'rain', t: 'thunder', s: 'sun' };
 
 AFRAME.registerComponent('ns-placement', {
   init() {
@@ -22,6 +25,10 @@ AFRAME.registerComponent('ns-placement', {
     this.bad = see('#ff6b5b', 0.45);
     this.mats = {};
     for (const [k, c] of Object.entries(KIND_COLOR)) this.mats[k] = { line: see(c, 0.85), fill: see(c, k === 'foe' ? 0.1 : 0.07) };
+    for (const [l, fury] of Object.entries(ENERGY_LETTERS)) {
+      this.mats[`energy:${l}`] = { line: see(FURY_COLOR[fury], 0.45), fill: see(FURY_COLOR[fury], 0.03) };
+      this.mats[`energy:${l}:on`] = { line: see(FURY_COLOR[fury], 0.95), fill: see(FURY_COLOR[fury], 0.12) };
+    }
     this.endOn = see('#f2c14e', 0.95);
     this.endOff = see('#ffffff', 0.55);
     this.cellGeo = new THREE.BoxGeometry(0.94, 0.12, 0.94);
@@ -110,7 +117,7 @@ AFRAME.registerComponent('ns-placement', {
     if (!G.view) return;
     const game = this.el.sceneEl.systems['ns-game'];
     const tool = G.tool, at = G.hover;
-    let cells = 0, ends = 0, tip = '', bad = false;
+    let cells = 0, ends = 0, tip = '', bad = false, power = null;
     for (const g of this.shapes.values()) g.userData.used = false;
     this.arrow.visible = false;
     const enemyGuns = () => [...G.view.entities.values()].filter((e) => e.kind === 'building' && e.owner && G.world.hostile(ME, e.owner) && !e.rising && isGun(defs.get(e.type)));
@@ -134,12 +141,15 @@ AFRAME.registerComponent('ns-placement', {
       const def = defs.get(tool.type), a = NS.anchorFor(def, at.x, at.y), aims = NS.hasFacing(def);
       const err = G.view.canBuild({ player: ME, type: def.id, ...a, ...(aims ? { facing: G.facing } : {}) });
       for (let i = 0; i < def.footX * def.footY; i++) this.cell(cells++, a.x + (i % def.footX), a.y + Math.floor(i / def.footX), !err);
-      for (const s of reachOf(def, a.x, a.y, G.facing)) this.shape(s, s.kind === 'energy' ? 'energy' : 'mine');
-      if (NS.energyNeed(def)) {
+      for (const s of reachOf(def, a.x, a.y, G.facing)) this.shape(s, s.kind === 'energy' ? `energy:${sourceOf({ kind: 'building', type: def.id, owner: ME })?.letter ?? 's'}:on` : 'mine');
+      power = energyAt(def, a.x, a.y);
+      if (power.need.length) {
+        // every ring of Energy the player has, in its Fury's colour; bright where it counts here
+        const counts = new Set(power.sources.filter((src) => src.used).map((src) => src.b.id));
         for (const b of G.view.entities.values()) {
-          if (b.kind !== 'building' || b.owner !== ME || b.rising > 0) continue;
-          const src = defs.get(b.type);
-          if (src.cls === 'Energy' || src.group === 'battery') this.shape({ circle: [b.x + b.fx / 2, b.y + b.fy / 2, G.view.energyRange] }, 'energy');
+          if (b.kind !== 'building' || b.rising > 0 || !b.owner || G.view.hostile(ME, b.owner)) continue;
+          const src = sourceOf(b);
+          if (src) this.shape({ circle: [b.x + b.fx / 2, b.y + b.fy / 2, G.view.energyRange] }, `energy:${src.letter}${counts.has(b.id) ? ':on' : ''}`);
         }
       }
       if (aims) {
@@ -148,7 +158,9 @@ AFRAME.registerComponent('ns-placement', {
         this.arrow.position.set(cx + dx * (def.footX / 2 + 1.2), 0.6, cz + dy * (def.footY / 2 + 1.2));
         this.arrow.rotation.set(dy * Math.PI / 2, 0, -dx * Math.PI / 2);
       }
-      tip = err ? errorText(err) : `Click to build ${def.name} (${def.cost})${aims ? ` · ${facingText(def, G.facing)} · R to turn` : ''}`;
+      tip = err === 'no energy' ? energyTip(power)
+        : err ? errorText(err)
+          : `Click to build ${def.name} (${def.cost})${aims ? ` · ${facingText(def, G.facing)} · R to turn` : ''}${power.need.length ? ` · ${energyTip(power)}` : ''}`;
       bad = !!err;
       showEnemies = true;
     }
@@ -156,6 +168,9 @@ AFRAME.registerComponent('ns-placement', {
     // the selected gun's reach, and the one under the cursor
     const hov = tool.kind === 'select' ? G.hoverPick ?? (at ? NS.entityAt(G.view, at.x, at.y) : null) : null;
     for (const e of [G.selected !== null ? G.view.entities.get(G.selected) : null, hov]) {
+      // a Temple's or Generator's ring of Energy, in its Fury's colour
+      const src = e?.kind === 'building' && !e.rising && tool.kind === 'select' ? sourceOf(e) : null;
+      if (src) this.shape({ circle: [e.x + e.fx / 2, e.y + e.fy / 2, G.view.energyRange] }, `energy:${src.letter}:on`);
       if (e?.kind !== 'building' || !isGun(defs.get(e.type)) || e.rising) continue;
       for (const s of reachOfBuilding(e)) if (s.kind !== 'energy') this.shape(s, e.owner === ME ? 'mine' : 'foe');
     }
@@ -177,7 +192,7 @@ AFRAME.registerComponent('ns-placement', {
       mesh.visible = !!unit?.rep;
       if (!unit?.rep) return;
       // an Aerial Transport's ring is as wide as the ship above it
-      const el = unit.el, foot = unit.rep.foot, r = foot ? Math.max(...foot) * 0.62 : unit.rep.kind === 'transport' && NS.flies(defs.get(unit.rep.type)) ? 2.2 : 0.72;
+      const el = unit.el, foot = unit.rep.foot, r = foot ? Math.max(...foot) * 0.62 : unit.rep.span ? Math.max(1.6, unit.rep.span * 1.05) : 0.72;
       mesh.position.set(el.object3D.position.x, 0.12, el.object3D.position.z);
       mesh.scale.setScalar(r * (pulse ? 1 + Math.sin(performance.now() / 200) * 0.04 : 1));
     };

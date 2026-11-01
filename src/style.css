@@ -52,6 +52,7 @@
   .card canvas { width: 46px; height: 40px; image-rendering: pixelated; }
   .card .cost { color: var(--accent); font-variant-numeric: tabular-nums; }
   .card .key { position: absolute; top: 3px; left: 5px; font-size: 10px; color: var(--muted); }
+  .card .needs { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; font-style: normal; }
   .card .fill { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--accent); }
   .piece { width: 58px; }
   .empty { opacity: 0.35; }
@@ -159,3 +160,7 @@ body.tabletop #bar, body.tabletop #sel, body.tabletop #goal { display: none !imp
   body.show-map #mini { display: flex; }
   #miniCanvas { width: 150px; height: 150px; }
 }
+
+/* Energy icons: one dot per icon a unit needs or a source gives, in its Fury's colour; "any" in all four */
+.mana { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 1px; vertical-align: -1px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); }
+.mana.gone { opacity: 0.3; box-shadow: 0 0 0 1.5px var(--bad); }

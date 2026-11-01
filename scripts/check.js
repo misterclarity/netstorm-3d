@@ -59,4 +59,57 @@ if (view.terrainRevision === before) fail('the bridge piece changed nothing');
 if (rejected.length) fail(`commands rejected: ${rejected.join(', ')}`);
 const shop = [...view.entities.values()].find((e) => e.type === 'sunfactory' && e.owner === NS.ME);
 if (!shop || shop.rising > 0) fail('the Workshop was not finished');
-console.log(`check passed: ${world.tick} ticks, Storm Power ${Math.round(me.storm)}, ${view.entities.size} entities`);
+const played = `${world.tick} ticks, Storm Power ${Math.round(me.storm)}, ${view.entities.size} entities`;
+
+// The HUD's account of Energy (src/energy.js) agrees with the rules everywhere: for every unit
+// that needs Energy, at every site where the rules have nothing else against it, `ok` is whether
+// the rules build it. Its own module reads A-Frame's THREE as it loads; a stand-in will do here.
+globalThis.AFRAME ??= { THREE: {} };
+const { energyAt } = await import('../src/energy.js');
+// every unit known and in production, Workshops of every Fury, and Generators of every Fury about
+// the island, so that units of every Fury and level meet sources of every kind
+const home = world.templeOf(NS.ME), taken = new Set();
+const freeAt = (x0, y0, w, h) => {
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+    const i = world.at(x, y);
+    if (!world.inside(x, y) || world.terrain[i] !== 1 || world.occupant[i] || taken.has(i) || world.priestAt(x, y)) return false;
+  }
+  return true;
+};
+const lay = (type, near, spread) => {
+  const d = world.def(type);
+  for (let tries = 0; tries < 400; tries++) {
+    const x = near.x + Math.round(Math.sin(tries * 2.4) * (4 + tries / 400 * spread)), y = near.y + Math.round(Math.cos(tries * 2.4) * (4 + tries / 400 * spread));
+    if (!freeAt(x, y, d.footX, d.footY)) continue;
+    const b = world.spawnBuilding(type, NS.ME, x, y, 0);
+    b.rising = 0;
+    for (let j = y; j < y + d.footY; j++) for (let i = x; i < x + d.footX; i++) taken.add(world.at(i, j));
+    return b;
+  }
+  return null;
+};
+for (const d of defs.values()) if (d.cost && NS.energyNeed(d)) me.tech.add(d.id);
+for (const fury of ['sun', 'wind', 'rain', 'thunder']) {
+  const maker = lay(`${fury}factory`, home, 30);
+  if (maker) maker.slots = [...defs.values()].filter((d) => d.theme === fury && NS.takesSlot(d)).map((d) => d.id);
+}
+for (let i = 0; i < 12; i++) lay(`${['wind', 'rain', 'thunder', 'sun'][i % 4]}battery`, home, 60);
+me.storm = 1e6;
+let sites = 0, short = 0;
+for (const def of defs.values()) {
+  if (!NS.energyNeed(def) || !def.cost) continue;
+  for (let y = 0; y < NS.H; y += 2) {
+    for (let x = 0; x < NS.W; x += 2) {
+      const err = view.canBuild({ player: NS.ME, type: def.id, x, y, ...(NS.hasFacing(def) ? { facing: 0 } : {}) });
+      if (err !== null && err !== 'no energy') continue;
+      const at = energyAt(def, x, y, NS.ME, view);
+      if (at.ok !== (err === null)) fail(`Energy for ${def.id} at ${x},${y}: the HUD says ${at.ok ? 'enough' : `missing ${at.missing}`}, the rules ${err ?? 'build it'}`);
+      sites++;
+      if (!at.ok) short++;
+    }
+  }
+}
+if (!sites || !short) fail(`the Energy check saw ${sites} sites, ${short} short of Energy`);
+console.log(`energy: ${sites} sites agree with the rules, ${short} of them short of Energy`);
+
+console.log(`check passed: ${played}`);

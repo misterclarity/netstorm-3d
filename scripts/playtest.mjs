@@ -326,6 +326,55 @@ SCENARIOS.airship = async () => {
 };
 
 /**
+ * With a Golem selected, a click high on a geyser's steam (the cell under the cursor lies behind
+ * the geyser) sends the Golem to the geyser; and the cards show the Energy their units need.
+ */
+SCENARIOS.gather = async () => {
+  const { page, errors } = await open({ width: 1000, height: 640 });
+  await startMission(page);
+  const setup = await page.evaluate(() => {
+    const { G } = window.NS3D, w = G.world, p = G.view.priestOf(1);
+    const geyser = [...G.view.entities.values()].filter((e) => e.kind === 'geyser' && e.stock > 0 && G.view.owner[G.view.at(e.x, e.y)] === 1)
+      .sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0];
+    let at = null;
+    for (let r = 2; r < 20 && !at; r++) for (let dx = -r; dx <= r && !at; dx++) {
+      const x = geyser.x + dx, y = geyser.y + r;
+      if (w.terrain[w.at(x, y)] === 1 && !w.occupant[w.at(x, y)] && !w.priestAt(x, y)) at = [x, y];
+    }
+    const golem = w.spawnTransport('sunwalker', 1, at[0], at[1]);
+    G.selected = golem.id;
+    G.paused = true;
+    return { geyser: geyser.id, golem: golem.id, dots: document.querySelectorAll('#unitCards .needs .mana, #priestBuilds .needs .mana').length };
+  });
+  if (!setup.dots) throw new Error('no build card shows the Energy its unit needs');
+  await page.waitForFunction((id) => !!window.NS3D.game.units()?.byId.get(id)?.components['ns-unit']?.rep, setup.golem, { timeout: 15000 });
+  await page.evaluate((id) => {
+    const { G } = window.NS3D, g = G.view.entities.get(id);
+    document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(g.x + 0.5), window.NS3D.wz(g.y + 0.5), 30);
+  }, setup.geyser);
+  // the camera glides there: aim once it stands still
+  await page.waitForFunction(() => {
+    const c = document.querySelector('a-scene').camera.el.object3D.position, last = window.lastCam;
+    window.lastCam = c.clone();
+    return last && last.distanceTo(c) < 0.001;
+  }, null, { polling: 250, timeout: 15000 });
+  const aim = await page.evaluate((id) => {
+    const T = AFRAME.THREE, scene = document.querySelector('a-scene'), el = window.NS3D.game.units().byId.get(id);
+    const top = el.object3D.localToWorld(new T.Vector3(0, 2.8, 0)), v = top.clone().project(scene.camera), r = scene.canvas.getBoundingClientRect();
+    const x = r.left + (v.x + 1) / 2 * r.width, y = r.top + (1 - v.y) / 2 * r.height;
+    const cell = window.NS3D.game.cellAt(x, y), g = window.NS3D.G.view.entities.get(id);
+    return { x, y, behind: cell.x !== g.x || cell.y !== g.y };
+  }, setup.geyser);
+  if (!aim.behind) throw new Error('the aim is on the geyser\'s own cell: no test of picking by its body');
+  await page.mouse.click(aim.x, aim.y);
+  await page.evaluate(() => { window.NS3D.G.paused = false; });
+  await fastForward(page, 5);
+  const golem = await page.evaluate((id) => { const t = window.NS3D.G.world.entities.get(id); return { goal: t.goal, target: t.target, selected: window.NS3D.G.selected }; }, setup.golem);
+  if (golem.goal !== 'collect' || golem.target !== setup.geyser) throw new Error(`a click on the geyser's steam did not send the Golem there: ${JSON.stringify(golem)}`);
+  return errors;
+};
+
+/**
  * A Priest who holds a crystal (sent for a walk while carrying one home) and is sent to a geyser:
  * he banks it at the Temple first and then collects, instead of the order being refused.
  */

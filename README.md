@@ -31,6 +31,19 @@ In the mission:
 5. Knock the enemy Priest out, have a Golem carry him to your **Altar**, then send your Priest to
    the Altar to perform the sacrifice.
 
+**Energy.** Every unit needs Energy where it is built, and its card shows how much: a dot per
+icon in its Fury's colour, a four-coloured dot for "any". A level-1 unit needs one icon of its own
+Fury; level 2 adds one of any Fury; level 3 needs two of its own and one of any. Your Temple gives
+two of its Fury, and each Generator one of its own (the Sun Generator's counts as any), to everything
+in its ring. Nothing is used up. While you place a unit, each ring is drawn in its Fury's colour, the
+ones that count for that spot light up, and the tip says what the spot lacks and which Generators
+would make it up. `src/energy.js` works this out the way netstorm-web's rules do, and `npm run check`
+compares the two over a whole map.
+
+**Picking.** Air ships are clicked by their bodies, high above the ground. With a Golem, an air
+ship or your Priest selected, geysers and loose crystals under the cursor come first, before a
+building or unit that stands in front of them.
+
 If something goes wrong, a small panel says so and the game keeps running. **Help** shows which
 build you are playing, and a notice offers to reload when a newer one has been published.
 
@@ -150,7 +163,7 @@ systems and components they use.
 | `ns-units` / `ns-unit` | components | One `<a-entity ns-unit="id: N">` per thing in the world: model or sprite card, smooth movement, health bar. |
 | `ns-residence` | component | The map's Residences. |
 | `ns-effects` | component | Shells in flight, impacts, explosions, falling bridges and islets. |
-| `ns-placement` | component | Bridge and building previews with the reason a spot is refused and the ends a piece joins by; the reach of guns (yours and the enemy's, `src/reach.js`), Energy rings, selection. |
+| `ns-placement` | component | Bridge and building previews with the reason a spot is refused and the ends a piece joins by; the reach of guns (yours and the enemy's, `src/reach.js`), Energy rings by Fury (`src/energy.js`), selection. |
 | `ns-xr` | system | The tabletop modes: scales the battlefield onto the table, the VR scenery, AR placement (A-Frame's `ar-hit-test`), the controllers' rays, sticks and buttons, the panel (`src/xr-panel.js`). |
 | `ns-hand` | component | A hand's controller model (the controller components `laser-controls` sets up, without its ray) and hand tracking. |
 

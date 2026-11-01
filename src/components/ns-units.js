@@ -4,7 +4,7 @@
  * crystals, geysers) and one <a-entity ns-residence> for each Residence; `ns-unit` draws its entity
  * as a model or a sprite card, moves it smoothly from cell to cell and shows its health.
  */
-import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, playerTheme } from '../state.js';
+import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, playerTheme, defs } from '../state.js';
 import { MODELS, heightOf, modelKind, spriteKey, cargoModel, part, ico, glow, bake } from '../models.js';
 
 const { THREE } = AFRAME;
@@ -132,6 +132,11 @@ AFRAME.registerComponent('ns-unit', {
       (MODELS[kind] ?? MODELS.generic)(this.rep, this.model, e);
       bake(this.model, `${kind}|${e.type ?? ''}|${e.owner ?? 0}`);
       this.rep.height = heightOf(this.model);
+      // an Aerial Transport's ring under it spans the ship
+      if (e.kind === 'transport' && NS.flies(defs.get(e.type))) {
+        const b = new THREE.Box3().setFromObject(this.model);
+        this.rep.span = Math.max(b.max.x - b.min.x, b.max.z - b.min.z) / 2;
+      }
     }
     this.el.setObject3D('model', this.model);
     this.pos = null;

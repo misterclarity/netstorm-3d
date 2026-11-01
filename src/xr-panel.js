@@ -4,7 +4,7 @@
  * updating while the headset is on) and a press on one of its buttons clicks the HUD's own button.
  * The dialogs come along too, with their choices: the main menu, the briefing, victory and defeat.
  */
-import { G } from './state.js';
+import { G, FURY_COLOR } from './state.js';
 
 const { THREE } = AFRAME;
 const W = 1280, H = 800; // canvas pixels
@@ -174,6 +174,7 @@ export class Panel {
         const fill = el.querySelector('[data-cool]');
         out.cards.push({ key: `b${i}`, x: cx, y: 534, w: 100, h: 136, icon: el.querySelector('canvas'), label: txt(el.querySelector('span')),
           cost: txt(el.querySelector('.cost')).replace(/[^\d]/g, ''), on: el.classList.contains('on'), dim: el.classList.contains('poor'),
+          mana: [...el.querySelectorAll('.needs .mana')].map((m) => m.dataset.l),
           cool: fill ? Math.round(parseFloat(fill.style.width) / 5) * 5 : null, act: () => el.click() });
       }
       cx += 108;
@@ -344,6 +345,24 @@ export class Panel {
       g.fillStyle = C.accent;
       g.fillText(c.cost, c.x + c.w / 2, c.y + 128);
     }
+    // the Energy the unit needs: a dot per icon, its Fury's colour, "any" in all four
+    (c.mana ?? []).forEach((l, i) => {
+      const x = c.x + c.w - 14 - i * 18, y = c.y + 14;
+      const quarters = l === 's' ? [FURY_COLOR.wind, FURY_COLOR.rain, FURY_COLOR.thunder, FURY_COLOR.sun] : [FURY_COLOR[{ w: 'wind', r: 'rain', t: 'thunder' }[l]]];
+      quarters.forEach((col, q) => {
+        g.beginPath();
+        g.moveTo(x, y);
+        g.arc(x, y, 7, -Math.PI / 2 + (q * 2 * Math.PI) / quarters.length, -Math.PI / 2 + ((q + 1) * 2 * Math.PI) / quarters.length);
+        g.closePath();
+        g.fillStyle = col;
+        g.fill();
+      });
+      g.lineWidth = 2;
+      g.strokeStyle = 'rgba(0,0,0,0.55)';
+      g.beginPath();
+      g.arc(x, y, 7, 0, Math.PI * 2);
+      g.stroke();
+    });
     if (c.keyLabel) {
       g.font = this.font(16, true);
       g.fillStyle = C.muted;

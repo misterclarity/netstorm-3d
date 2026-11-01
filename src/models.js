@@ -841,6 +841,7 @@ export const MODELS = {
     if (f === 'wind') {
       // the Air Ship: a canvas envelope with fins, a gondola, a propeller behind
       const body = holder(g, 0, 4.3, 0);
+      body.scale.setScalar(1.25); // a big ship, a quarter larger than the other carriers' scale
       rep.anim.push((s) => { body.position.y = 4.3 + Math.sin(s * 1.1 + rep.id) * 0.15; });
       part(body, sph(1, 14, 10), mat('#efe6cf')).scale.set(0.85, 0.75, 2.0);
       part(body, ring(0.86, 0.06, 18), team(rep), 0, 0, 0.4).scale.set(1, 0.88, 1);
@@ -849,7 +850,7 @@ export const MODELS = {
       for (const x of [-0.2, 0.2]) part(body, cyl(0.02, 0.02, 0.5, 4), mat('#5a4a3a'), x, -0.75, 0.1);
       const prop = spin(rep, holder(body, 0, -1.05, -0.55), 'z', 14);
       part(prop, box(0.08, 0.7, 0.03), mat('#3a3330'));
-      rep.cargo = holder(g, 0, 2.6, 0);
+      rep.cargo = holder(g, 0, 2.3, 0);
     } else if (f === 'rain') {
       // the Cloud Floater: a cloud that carries a basket
       const body = holder(g, 0, 3.4, 0);

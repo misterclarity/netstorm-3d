@@ -8,10 +8,11 @@ import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
 import { Minimap } from '../minimap.js';
-import { groundCell, unit } from '../space.js';
+import { groundCell, unit, localRay } from '../space.js';
+import { energyAt, missingAdvice } from '../energy.js';
 import * as models from '../models.js';
 
-const AIR_BOX = new THREE.Box3(), AIR_HIT = new THREE.Vector3();
+const AIR_BOX = new THREE.Box3(), AIR_HIT = new THREE.Vector3(), PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 AFRAME.registerSystem('ns-game', {
   init() {
@@ -226,7 +227,7 @@ AFRAME.registerSystem('ns-game', {
     if (ray && this.xr().panelHover(ray)) { G.mouse = null; G.hover = null; G.hoverPick = null; return; }
     G.mouse = d;
     G.hover = ray ? groundCell(ray) : null;
-    G.hoverPick = this.airAt(ray);
+    G.hoverPick = this.pickAt(ray);
   },
   onTap(d) {
     const ray = this.rayAt(d.x, d.y);
@@ -242,7 +243,7 @@ AFRAME.registerSystem('ns-game', {
       G.mouse = d;
       if (!same) return;
     }
-    this.primary(cell.x, cell.y, d.shift, this.airAt(ray));
+    this.primary(cell.x, cell.y, d.shift, this.pickAt(ray));
   },
 
   /**
@@ -266,6 +267,39 @@ AFRAME.registerSystem('ns-game', {
     return best;
   },
 
+  /**
+   * With a carrier (a Transport or the player's Priest) selected, the geyser or loose crystal the
+   * ray points at, before anything else under the cursor: by its body (the geyser's steam column,
+   * the crystal) or by the ground within a cell and a half of it, the nearest to the camera. A
+   * small geyser beside a Workshop or a Golem is what a carrier is sent for.
+   */
+  gatherAt(ray) {
+    const sel = G.selected === null ? null : G.view.entities.get(G.selected);
+    if (!ray || G.tool.kind !== 'select' || sel?.owner !== ME || (sel.kind !== 'transport' && sel.kind !== 'priest')) return null;
+    const units = this.units(), local = localRay(ray), ground = local.intersectPlane(PLANE, new THREE.Vector3());
+    let best = null, near = Infinity;
+    for (const e of G.view.entities.values()) {
+      const geyser = e.kind === 'geyser' && e.stock > 0, crystal = e.kind === 'crystal' && e.carriedBy === null;
+      if (!geyser && !crystal) continue;
+      const el = units?.byId.get(e.id);
+      if (!el) continue;
+      const p = el.object3D.position, r = geyser ? 1.1 : 0.75, h = geyser ? Math.max(3.5, el.components['ns-unit']?.rep?.height ?? 0) : 1.4;
+      AIR_BOX.min.set(p.x - r, 0, p.z - r);
+      AIR_BOX.max.set(p.x + r, h, p.z + r);
+      const hit = local.intersectBox(AIR_BOX, AIR_HIT);
+      let d = hit ? hit.distanceTo(local.origin) : Infinity;
+      if (d === Infinity && ground && Math.abs(ground.x - p.x) <= 1.5 && Math.abs(ground.z - p.z) <= 1.5) d = ground.distanceTo(local.origin) + 1;
+      if (d < near) { near = d; best = e; }
+    }
+    return best;
+  },
+
+  /** What a ray picks above the ground before the cell under it: for a selected carrier a geyser
+   * or crystal, else an Aerial Transport by its body. */
+  pickAt(ray) {
+    return this.gatherAt(ray) ?? this.airAt(ray);
+  },
+
   /** A click on map cell (x, y), as netstorm-web's controls.ts reads it; `picked` is a unit hit
    * above the ground (an Aerial Transport), which counts before what stands on the cell. */
   primary(x, y, shift = false, picked = null) {
@@ -281,7 +315,7 @@ AFRAME.registerSystem('ns-game', {
       const def = defs.get(tool.type), a = NS.anchorFor(def, x, y);
       const cmd = { t: 'build', type: def.id, ...a, ...(NS.hasFacing(def) ? { facing: G.facing } : {}) };
       const err = G.view.canBuild({ player: ME, ...cmd });
-      if (err) { this.hud.toast(errorText(err), 'bad'); return; }
+      if (err) { this.hud.toast(err === 'no energy' ? missingAdvice(def, energyAt(def, a.x, a.y)) : errorText(err), 'bad'); return; }
       submit(cmd);
       if (!shift) this.setTool({ kind: 'select' });
       return;

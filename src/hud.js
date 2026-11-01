@@ -3,6 +3,7 @@
  * the card of the selected thing, the next-step card, toasts and the dialogs.
  */
 import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, facingText, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml } from './state.js';
+import { needOf, needText, iconsHtml, iconName, sourceOf } from './energy.js';
 import { submit, SKIRMISH_DEFAULTS } from './game.js';
 import { modelKind } from './models.js';
 import { describeBuild, loadNewer } from './version.js';
@@ -194,7 +195,8 @@ export class Hud {
       $('hand').innerHTML = h;
       const card = (d) => {
         const c = cool(d.id), poor = me.storm < d.cost;
-        return `<button class="card ${tool.kind === 'build' && tool.type === d.id ? 'on' : ''} ${poor || c ? 'poor' : ''}" data-act="build" data-type="${d.id}" title="${d.name}: ${d.cls}, ${d.footX}×${d.footY}${d.range ? `, range ${d.range}` : ''}"><canvas width="46" height="40" data-icon="${d.id}"></canvas><span>${d.name}</span><span class="cost">⚡${d.cost}</span>${c ? `<i class="fill" data-cool="${d.id}"></i>` : ''}</button>`;
+        const need = needOf(d);
+        return `<button class="card ${tool.kind === 'build' && tool.type === d.id ? 'on' : ''} ${poor || c ? 'poor' : ''}" data-act="build" data-type="${d.id}" title="${d.name}: ${d.cls}, ${d.footX}×${d.footY}${d.range ? `, range ${d.range}` : ''}${need.length ? `\nNeeds ${needText(need)} Energy where it is built (from your Temple or Generators)` : ''}"><canvas width="46" height="40" data-icon="${d.id}"></canvas><span>${d.name}</span><span class="cost">⚡${d.cost}</span>${need.length ? `<em class="needs">${iconsHtml(need)}</em>` : ''}${c ? `<i class="fill" data-cool="${d.id}"></i>` : ''}</button>`;
       };
       const why = (d) => {
         const err = NS.makerError(G.view, ME, d), fury = (d.theme ?? 'sun').replace(/^./, (c) => c.toUpperCase());
@@ -306,6 +308,10 @@ export class Hud {
     if (e.kind === 'geyser') lines.push(e.stock > 0 ? `${e.stock} Storm Power left` : 'Spent');
     if (e.kind === 'building') {
       if (e.rising > 0) lines.push(`Under construction: ${Math.ceil(e.rising / TPS)} s`);
+      const source = sourceOf(e), need = needOf(d);
+      if (source) {
+        lines.push(`Gives ${iconsHtml(Array(source.count).fill(source.letter))} ${source.count > 1 ? `${source.count} ` : ''}${iconName(source.letter)} Energy within ${G.view.energyRange} cells${e.rising > 0 ? ' once it stands' : ''}. One source serves everything built in its ring; nothing is used up.`);
+      } else if (need.length) lines.push(`Energy to build it: ${iconsHtml(need)} ${needText(need)}`);
       if (d.cls === 'Production') {
         lines.push(`Level ${e.upgrades + 1} · production slots ${e.slots.length}/${e.upgrades + 1}`);
         lines.push(e.slots.length ? `Makes: ${e.slots.map((t) => defs.get(t)?.name).join(', ')}` : 'No unit in production yet');
@@ -314,7 +320,7 @@ export class Hud {
             if (!u || !NS.takesSlot(u) || e.slots.includes(u.id)) continue;
             const err = NS.canProduce(G.view, { player: ME, workshop: e.id, type: u.id });
             if (err === 'cannot build') continue;
-            acts.push(`<button data-sel="produce" data-type="${u.id}" ${err ? `disabled title="${errorText(err)}"` : ''}>+ ${u.name}</button>`);
+            acts.push(`<button data-sel="produce" data-type="${u.id}" ${err ? `disabled title="${errorText(err)}"` : `title="Needs ${needText(needOf(u))} Energy where it is built"`}>+ ${u.name} ${iconsHtml(needOf(u))}</button>`);
           }
           const up = NS.canUpgrade(G.view, { player: ME, workshop: e.id });
           if (up !== 'bad target' && up !== 'fully upgraded') acts.push(`<button data-sel="upgrade" ${up ? `disabled title="${errorText(up)}"` : ''}>Upgrade (⚡${d.cost})</button>`);
@@ -443,7 +449,7 @@ export class Hud {
       goal = 'Select a Golem, then click a geyser to collect Storm Power. Geysers on islets need a bridge first.';
     } else if (!guns.length) {
       goal = `Lay bridge pieces toward the enemy${toward ? ` in the ${toward}` : ''}, then build ${gunName}s near the end of your bridge.`;
-      sub = 'Bridges join by their ends. Guns need Energy: blue rings show where you have it.';
+      sub = 'Bridges join by their ends. Guns need Energy: the dots on their cards show what kind, the coloured rings where you have it.';
     } else if (foe && !reaches && this.energyAdvice()) {
       goal = `Your guns can’t reach the enemy Priest yet. ${this.energyAdvice()}`;
       sub = `Then lay more bridge${toward ? ` ${toward}` : ''} and build guns within range of the enemy Priest (yellow ring).`;
@@ -596,7 +602,7 @@ export class Hud {
       <li><b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>Q</kbd><kbd>E</kbd> turn</li>
       <li><b>Select:</b> click a unit or building. With a Golem or air ship selected, click a geyser to collect, a downed enemy Priest to capture him, or ground to send it there. With your Priest selected, click ground to walk, or your Altar to perform a sacrifice.</li>
       <li><b>Bridges:</b> click a piece (or <kbd>1</kbd>–<kbd>6</kbd>), then the map. <kbd>R</kbd> rotates. Pieces join only by their ends; the yellow dot marks the cell under the cursor.</li>
-      <li><b>Build:</b> click a card, then the map. <kbd>R</kbd> turns cannons. Hold <kbd>Shift</kbd> to build several. Blue rings show your Energy; yellow, the gun’s range.</li>
+      <li><b>Build:</b> click a card, then the map. <kbd>R</kbd> turns cannons. Hold <kbd>Shift</kbd> to build several. Rings in each Fury’s colour show your Energy (the ones that count for the spot light up, and the tip says what is missing); yellow, the gun’s range. The dots on a card are the Energy it needs.</li>
       <li><b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <b>Salvage:</b> <kbd>Delete</kbd></li>
       <li><b>Look:</b> <kbd>H</kbd> your Temple · <kbd>P</kbd> your Priest · <kbd>F</kbd> follow the selected unit · click or drag on the minimap</li>
       <li><b>Danger:</b> <kbd>G</kbd> shows where enemy guns reach (red); they show by themselves while you hold a piece or a building · <kbd>L</kbd> the event log</li>
@@ -637,7 +643,12 @@ export class Hud {
       <h3>Workshops and units</h3>
       <p>A Workshop makes the units of its Fury. Select it and put units in its production slots; they then
         appear as Build cards, and you build them on your island. Upgrade a Workshop for its stronger units.
-        Guns need <b>Energy</b>: build a Generator near them (blue rings show where you have Energy).</p>
+        Units need <b>Energy</b> where they are built. The dots on a card show how much: one dot per
+        icon, in the colour of its Fury, and a four-coloured dot for “any”. Level 1 units need one of their
+        Fury’s, level 2 one more of any, level 3 two of their Fury’s and one of any. Your Temple gives two of
+        its Fury and each Generator one of its own (a Sun Generator’s counts as any) to everything inside its
+        ring. Nothing is used up: one Generator serves every unit around it. While you place a unit, the
+        rings that count light up and the tip says what is missing.</p>
       <h3>Fighting</h3>
       <p>Guns fire by themselves at enemies in range (the yellow ring when you place or select one). Cannons
         and the Crossbow fire the way they face. Turn them with <kbd>R</kbd> while placing them. The Wind
