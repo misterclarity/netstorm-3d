@@ -23,6 +23,7 @@ export class Hud {
     $('artSprites').onclick = () => this.art.setMode('sprites');
     $('artModels').onclick = () => this.art.setMode('models');
     $('help').onclick = () => this.help();
+    $('howto').onclick = () => this.howToPlay();
     const sound = this.sound = game.el.systems['ns-sound'];
     for (const key of ['sound', 'music']) {
       const b = $(key === 'sound' ? 'sfxToggle' : 'musicToggle');
@@ -518,7 +519,7 @@ export class Hud {
             <label>Map <span class="seed"><input id="skSeed" type="number" min="0" max="99999" value="${s.seed}"><button type="button" id="skDice" title="Another map">🎲</button></span></label>
           </div>
           <button class="main" data-start="skirmish">Start skirmish</button></section>
-      </div>`, []);
+      </div>`, [{ label: 'How to play', act: () => this.howToPlay(() => this.menu()) }]);
     const box = $('modalBox');
     box.querySelector('#skDice').onclick = () => { box.querySelector('#skSeed').value = String(Math.floor(Math.random() * 100000)); };
     box.querySelector('[data-start="mission"]').onclick = () => this.game.start({ mode: 'mission' });
@@ -555,7 +556,7 @@ export class Hud {
       <li>Build <b>Golems</b> and send them to geysers for Storm Power. Lay <b>bridge pieces</b> to reach islets and the enemy.</li>
       <li>Knock out the enemy Priest with cannons, carry him to your <b>Altar</b> with a Golem, and have your Priest perform the sacrifice.</li></ol>
       <p class="note">Your enemy, ${escapeHtml(mission.enemy)}, is played by netstorm-web’s own computer opponent.</p>`,
-    [{ label: 'Controls', act: () => this.help(true) },
+    [{ label: 'How to play', act: () => this.howToPlay(() => this.briefing()) }, { label: 'Controls', act: () => this.help(true) },
       { label: 'Play mission', main: true, act: () => this.begin() }]);
   }
 
@@ -567,7 +568,8 @@ export class Hud {
       <ol><li>Win by capturing the enemy’s Priest and sacrificing him at your Altar; lose if he does it to you.</li>
       <li>You know the ${cap(s.theme)} units (${escapeHtml(this.furyUnits(s.theme))}) and the Sun’s first ones. Your Priest builds the Workshops that make them (a ${cap(s.theme)} Workshop for the ${cap(s.theme)} units), and an Altar.</li>
       <li>New geysers appear during the battle. Golems carry their Storm Power home.</li></ol>`,
-    [{ label: 'Main menu', act: () => this.menu() }, { label: 'Controls', act: () => this.help(true) }, { label: 'Start', main: true, act: () => this.begin() }]);
+    [{ label: 'Main menu', act: () => this.menu() }, { label: 'How to play', act: () => this.howToPlay(() => this.briefing()) },
+      { label: 'Controls', act: () => this.help(true) }, { label: 'Start', main: true, act: () => this.begin() }]);
   }
 
   /** The names of the units of `theme` the player knows, for the briefing. */
@@ -602,6 +604,59 @@ export class Hud {
       <li><b>Tabletop:</b> <kbd>T</kbd> puts the battle on a table, as a headset shows it. <b>VR</b> and <b>AR</b> appear in the top bar when your headset or phone can do them: the trigger (or a tap) selects, lays and builds · grip cancels · A/X rotates the piece · right stick turns and zooms the map, left stick moves it · B/Y recenters (AR: moves the table)</li></ol>
       <p class="note">Build ${escapeHtml(describeBuild())} · <a href="https://github.com/misterclarity/netstorm-3d" target="_blank" rel="noopener">source on GitHub</a></p>`,
     [{ label: fromBriefing ? 'Back' : 'Resume', main: true, act: () => { if (fromBriefing) this.briefing(); else { this.closeModal(); G.paused = was; G.clock.reset(); } } }]);
+  }
+
+  /**
+   * The game explained: the goal, Storm Power, bridges, building, fighting and the capture. `back`
+   * is where its button returns (the menu or a briefing); from the battle it resumes.
+   */
+  howToPlay(back = null) {
+    const was = G.paused;
+    if (G.started) G.paused = true;
+    this.modal(`<h2>How to play</h2><div class="guide">
+      <p>Islands float above the clouds, and each side has a <b>High Priest</b> and a <b>Temple</b>. You win by
+        knocking out the enemy’s Priest, carrying him to your <b>Altar</b> and sacrificing him there. If the
+        enemy does that to yours, you lose.</p>
+      <h3>Your Priest</h3>
+      <p>He is your most precious unit. He builds Workshops and the Altar (the “Priest builds” cards), walks on
+        your ground and can carry a Storm Crystal home. Keep him out of reach of enemy guns: press <kbd>G</kbd>
+        to see their range in red.</p>
+      <h3>Storm Power ⚡</h3>
+      <p>Everything costs Storm Power. It comes from geysers as Storm Crystals, and counts once a crystal is
+        carried home to your Temple. Build <b>Golems</b> at your Temple, select one and click a geyser: it
+        keeps carrying crystals home by itself. Geysers run dry and new ones appear during the battle. Air
+        ships fly, so they can reach geysers no bridge leads to.</p>
+      <h3>Bridges</h3>
+      <p>Bridge pieces arrive in your hand at the bottom, up to six, while you have a Temple. Each must
+        harden for a moment before it can be laid. Click one (or press <kbd>1</kbd>–<kbd>6</kbd>), turn it with
+        <kbd>R</kbd>, and lay it so that one of its ends meets the end of your ground or of another bridge:
+        pieces join only by their ends. Bridges lead your Golems and Priest to islets, geysers and the enemy.
+        Nothing is built on a bridge itself, but many units can be built just off its open end, on a little
+        islet of their own, and on any unclaimed island a bridge joins to yours. Enemy fire can crack and
+        break bridges.</p>
+      <h3>Workshops and units</h3>
+      <p>A Workshop makes the units of its Fury. Select it and put units in its production slots; they then
+        appear as Build cards, and you build them on your island. Upgrade a Workshop for its stronger units.
+        Guns need <b>Energy</b>: build a Generator near them (blue rings show where you have Energy).</p>
+      <h3>Fighting</h3>
+      <p>Guns fire by themselves at enemies in range (the yellow ring when you place or select one). Cannons
+        and the Crossbow fire the way they face. Turn them with <kbd>R</kbd> while placing them. The Wind
+        Tower is shielded on the side it faces. Towers and barricades hold a line, air bases send flyers at
+        the enemy, and the Vander Tower shoots flyers down.</p>
+      <h3>Capturing the enemy Priest</h3>
+      <ol><li>Build guns within reach of the enemy Priest and knock him out: he falls when he is below half
+        his health.</li>
+        <li>Quickly select a Golem and click him, before he gets his strength back and stands up. It carries
+        him to your Altar, or holds him until you have built one; then press “Carry to the Altar”.</li>
+        <li>When he is chained to your Altar, select your Priest and click the Altar. Your Priest wards five
+        runes standing beside it; protect both until the last. In a skirmish nobody can be chained in the
+        first two minutes.</li></ol>
+      <p>The enemy will try the same: if your Priest is knocked out, shoot the carriers that come for him.</p>
+      <h3>Tips</h3>
+      <p>The <b>Next step</b> card at the top right always says what to do next. Golems come first: without
+        Storm Power there is no army. Press <kbd>Space</kbd> to pause and look around, and <b>Help</b> for every
+        control.</p></div>`,
+    [{ label: back ? 'Back' : 'Resume', main: true, act: () => { if (back) back(); else { this.closeModal(); G.paused = was; G.clock.reset(); } } }]);
   }
 
   confirmRestart() {

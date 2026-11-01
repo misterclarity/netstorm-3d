@@ -34,10 +34,12 @@ In the mission:
 If something goes wrong, a small panel says so and the game keeps running. **Help** shows which
 build you are playing, and a notice offers to reload when a newer one has been published.
 
-A *Next step* card reads the state of the battle and tells you what to do next. **Help** in the
-top bar lists the controls: orbit by dragging, pan with right-drag or Shift-drag, zoom with the
+A *Next step* card reads the state of the battle and tells you what to do next. **How to play**
+(in the top bar, the main menu and the briefings) explains the game: the goal, Storm Power,
+bridges, building, fighting and capturing the enemy's Priest. **Help** in the top bar lists the
+controls: orbit by dragging, pan with right-drag or Shift-drag, zoom with the
 wheel or a pinch, `R` rotates pieces and cannons, `Esc` cancels, `Space` pauses. On a phone the
-less-used buttons (the art style, Sound, Music, Tabletop, the minimap, Help, Restart) are under
+less-used buttons (the art style, Sound, Music, Tabletop, the minimap, How to play, Help, Restart) are under
 **⋯** in the top bar.
 
 To see where you stand:

@@ -107,6 +107,9 @@
 #modal .note a { color: var(--accent); }
 
 /* the main menu */
+#modal .guide p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; color: #dbe4f0; }
+#modal .guide h3 { margin: 14px 0 0; font-size: 14.5px; color: var(--accent); }
+#modal .guide ol { margin-top: 6px; }
 #modal .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
 #modal .modes section { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: rgba(255,255,255,0.03); }
 #modal .modes h3 { margin: 0; font-size: 15px; }
