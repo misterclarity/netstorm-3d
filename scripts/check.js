@@ -61,6 +61,28 @@ const shop = [...view.entities.values()].find((e) => e.type === 'sunfactory' && 
 if (!shop || shop.rising > 0) fail('the Workshop was not finished');
 const played = `${world.tick} ticks, Storm Power ${Math.round(me.storm)}, ${view.entities.size} entities`;
 
+// The computer captures a downed Priest before it has an Altar, as the player can
+// (scripts/house-rules.mjs): the player's Priest down beside its Temple, one of its Golems near.
+{
+  const w2 = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+  const v2 = w2.view(), foe = w2.templeOf(2), mine = w2.priestOf(NS.ME);
+  if ([...v2.entities.values()].some((e) => e.kind === 'building' && e.owner === 2 && e.type === 'altar')) fail('the computer has an Altar at the start');
+  const open = [];
+  for (let y = foe.y - 2; y < foe.y + foe.fy + 2; y++) {
+    for (let x = foe.x - 2; x < foe.x + foe.fx + 2; x++) {
+      const i = w2.at(x, y);
+      if (w2.terrain[i] === 1 && !w2.occupant[i] && !w2.priestAt(x, y)) open.push([x, y]);
+    }
+  }
+  if (open.length < 2) fail('no ground beside the computer\'s Temple');
+  Object.assign(mine, { x: open[0][0], y: open[0][1], path: [], goal: 'idle', state: 'down', hp: 1 });
+  const near = open.find(([x, y]) => Math.abs(x - mine.x) + Math.abs(y - mine.y) >= 2) ?? open[1];
+  w2.spawnTransport('sunwalker', 2, near[0], near[1]);
+  const orders = NS.aiMove(v2, { ...mission.sides[2]?.ai, player: 2, difficulty: 'normal' }, NS.createAiMemory(5), () => {});
+  if (!orders.some((c) => c.t === 'capturePriest' && c.target === mine.id)) fail(`the computer did not send for the downed Priest without an Altar: ${orders.map((c) => c.t).join(', ')}`);
+  console.log('capture: the computer sends for a downed Priest before it has an Altar');
+}
+
 // The HUD's account of Energy (src/energy.js) agrees with the rules everywhere: for every unit
 // that needs Energy, at every site where the rules have nothing else against it, `ok` is whether
 // the rules build it. Its own module reads A-Frame's THREE as it loads; a stand-in will do here.

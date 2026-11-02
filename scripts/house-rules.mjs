@@ -12,6 +12,7 @@
  * the carrier is sent on to the Altar later ("Carry to the Altar" on its card).
  *
  * A Transport can be sent to a place, not only for something: the command `moveTransport` (below).
+ * And the computer captures by the same rule as the player (below).
  */
 import { readFile } from 'node:fs/promises';
 
@@ -134,6 +135,46 @@ function moveTransportTo(
 
 /** Whether (x, y) lies inside the rim of a building's footprint: not on its outermost cells. */
 function withinRim(`,
+});
+
+// The computer plays by the same rule: it sends its carriers for a downed Priest whether or not
+// it has an Altar yet (it builds one when an enemy Priest is down), and a carrier holding a
+// captive is sent on to the Altar once one stands, not asked to every move and refused.
+CHANGES.push({
+  file: 'ai.ts',
+  why: 'the computer captures before it has an Altar',
+  was: `function capture(world: WorldView, move: Move, transports: View<Transport>[]): void {
+  // A captive held by a transport that stands (a Crab took him, or it was too early for the
+  // Sacrifice) goes on to the Altar.
+  for (const t of transports) {
+    const held = t.carrying === null ? undefined : world.entities.get(t.carrying);
+
+    if (t.goal === 'idle' && held?.kind === 'priest' && world.hostile(held.owner, move.me)) {`,
+  now: `function capture(world: WorldView, move: Move, transports: View<Transport>[]): void {
+  // (netstorm-3d) an Altar is no longer needed to capture, only to go on to it
+  const altar = world.buildingsOf(move.me).some((b) => b.type === ALTAR && b.rising === 0);
+
+  // A captive held by a transport that stands (a Crab took him, it was too early for the
+  // Sacrifice, or there was no Altar yet) goes on to the Altar once there is one.
+  for (const t of transports) {
+    const held = t.carrying === null ? undefined : world.entities.get(t.carrying);
+
+    if (altar && t.goal === 'idle' && held?.kind === 'priest' && world.hostile(held.owner, move.me)) {`,
+}, {
+  file: 'ai.ts',
+  why: 'the computer captures before it has an Altar',
+  was: `  const home = world.templeOf(move.me);
+  // Without an Altar that stands, the world refuses the capture: the Altar comes first.
+  const altar = world.buildingsOf(move.me).some((b) => b.type === ALTAR && b.rising === 0);
+
+  // He has to be within a step of ground the transports can walk to: a bridge that merely lies
+  // beside his island does not lead onto it.
+  if (!home || !altar) {`,
+  now: `  const home = world.templeOf(move.me);
+
+  // He has to be within a step of ground the transports can walk to: a bridge that merely lies
+  // beside his island does not lead onto it.
+  if (!home) {`,
 });
 
 export function houseRules() {
