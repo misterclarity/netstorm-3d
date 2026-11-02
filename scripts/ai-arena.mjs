@@ -72,6 +72,8 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
       stats[p].moveMs += performance.now() - t0;
       stats[p].moves++;
     }
+    // where each carrier was and what it was doing, for the trace of one that is lost
+    const carriers = trace ? new Map([...world.entities.values()].filter((e) => e.kind === 'transport').map((e) => [e.id, { x: e.x, y: e.y, goal: e.goal, cargo: e.carrying !== null }])) : null;
     world.step(commands);
     // DIAG=16: in the 16th minute, why side 1 lays no gun that reaches the enemy Temple
     if (process.env.DIAG && world.tick === Math.round(Number(process.env.DIAG) * 60 * NS.TPS)) {
@@ -87,6 +89,16 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
         }
       }
       console.log('DIAG', JSON.stringify(tally));
+      // and, with the enemy Priest down, each of side 1's carriers: its way to him, and the fire on it
+      const down = world.priestOf(2);
+      if (down?.state === 'down') {
+        const threat = NS.threatMap(view, 1);
+        for (const t of [...world.entities.values()].filter((e) => e.kind === 'transport' && e.owner === 1)) {
+          const path = view.findPath(1, t.x, t.y, ([x, y]) => Math.abs(x - down.x) + Math.abs(y - down.y) <= 1);
+          const fire = path ? path.reduce((sum, [x, y]) => sum + threat[world.at(x, y)], 0) : null;
+          console.log('DIAG carrier', t.id, t.type, 'at', t.x, t.y, t.goal, 'way', path?.length ?? 'none', 'fire', fire, 'hp', t.hp, 'speed', world.def(t.type).speed, 'Priest at', down.x, down.y);
+        }
+      }
     }
     if (trace && world.tick % (60 * NS.TPS) === 0) {
       const line = [];
@@ -109,7 +121,12 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
       else if (ev.what === 'destroyed') s.lost++;
       else if (ev.what === 'priest down') { s.downs++; firstDown ??= world.tick; }
       if (trace && ev.what === 'rejected' && ev.who === 1) console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: side 1 refused \${ev.data.cmd}: \${ev.data.err}\`);
-      if (trace && ev.what === 'destroyed' && ['Ground Transport', 'Aerial Transport'].includes(world.defs.get(ev.data.type)?.cls)) console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: side \${ev.who} lost carrier \${ev.data.id}\`);
+      if (trace && ev.what === 'destroyed' && ['Ground Transport', 'Aerial Transport'].includes(world.defs.get(ev.data.type)?.cls)) {
+        const was = carriers.get(ev.data.id), temple = world.templeOf(ev.who);
+        const by = was ? [...world.entities.values()].filter((e) => e.kind === 'building' && e.owner && e.owner !== ev.who && (world.def(e.type).range ?? 0) > 0
+          && Math.max(Math.abs(e.x + e.fx / 2 - was.x), Math.abs(e.y + e.fy / 2 - was.y)) <= world.def(e.type).range + 1).map((e) => e.type) : [];
+        console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: side \${ev.who} lost carrier \${ev.data.id} (\${world.defs.get(ev.data.type)?.name ?? ev.data.type}) at \${was?.x},\${was?.y}, \${temple && was ? Math.round(Math.hypot(was.x - temple.x, was.y - temple.y)) : '-'} from home, \${was?.goal}\${was?.cargo ? ' with cargo' : ''}; guns about: \${by.join(' ') || 'none'}\`);
+      }
       if (trace && ev.what === 'priest down') {
         const pr = world.priestOf(ev.who), temple = world.templeOf(ev.who);
         const guns = [...world.entities.values()].filter((e) => e.kind === 'building' && e.owner !== ev.who && e.owner && (world.def(e.type).range ?? 0) > 0

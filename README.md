@@ -257,9 +257,14 @@ lay its guns, came later to the enemy without them, so it keeps them);
 **Normal and Hard lay their next bridge piece to a downed Priest** no ground of theirs leads to
 (Hard had knocked Easy's out seven cells from its bridge, and he lay there a minute);
 **Hard fetches a downed Priest by air** where no bridge of its leads, and buys a flying carrier
-once that happens; carriers also wait while the enemy Temple is under fire, since its fall knocks
+once that happens; where every carrier Normal or Hard has would die on the way to a downed Priest,
+it buys (saving up, and salvaging a spare gun) the cheapest that would live through it, a Sail
+Skater where Golems fall; carriers also wait while the enemy Temple is under fire, since its fall knocks
 the Priest out; at every level a side left with no carrier and too little Storm Power for one
-salvages a spare gun for it; and a gun short of Energy at a bridge head that already has some gets
+salvages a spare gun for it; a carrier fetches a loose crystal only if it would live to bring it home (one
+killed under the enemy's guns dropped its crystal there, the next walked in for it and died, a
+carrier lost every minute and a half on both sides for fifteen minutes); and a gun short of
+Energy at a bridge head that already has some gets
 one more Generator there, up to three (this game's Energy counts icons, and the opponent only ever
 laid a Generator where there was no Energy at all: Normal stood six cells from an idle enemy's
 Temple for four minutes with 1500 Storm Power). `npm run check` checks the carriers in wait. A Priest sent to a geyser works that one

@@ -610,7 +610,10 @@ CHANGES.push({
 // foot could fetch him. An Aerial Transport flies straight to a downed Priest (rules/capture.ts asks
 // wayOf, which flies it), but netstorm-web's opponent only sends carriers that walk. A level that
 // carries off by air sends what flies of its carriers too, straight to him, and once his Priest has
-// lain where no ground of its own leads, buys one that flies, if its Fury knows one.
+// lain where no ground of its own leads, buys one that flies, if its Fury knows one. And (for the
+// levels that weigh a capture run) where every carrier it has would die on the way to him, as Hard's
+// Golems did on the way to a Priest its guns had pinned down for eighteen minutes, it buys the
+// cheapest that would live through the fire, saving up for it and salvaging a spare gun.
 CHANGES.push({
   file: 'ai/params.ts',
   why: 'a downed Priest carried off by air',
@@ -657,9 +660,11 @@ CHANGES.push({
     because(\`\${transports.length} transports, \${wanted} wanted for \${mined} geysers\`);
   }
 
-  if (params.airCapture && memory && options.capture !== false && !firstTransport) {
-    flierFor(world, move, memory, transports, reached);
-    because('the enemy Priest lay where no ground leads: a transport that flies is bought for him');
+  if (memory && options.capture !== false && !firstTransport) {
+    const keep = fetcherFor(world, move, memory, transports, reached);
+    because('the enemy Priest is down and no carrier of the side could fetch him: one that can is bought');
+    move.budget -= keep;
+    saving += keep;
   }`,
 }, {
   file: 'ai.ts',
@@ -677,31 +682,95 @@ function flight(x0: number, y0: number, x1: number, y1: number): [number, number
   return out;
 }
 
-/** (netstorm-3d) Once the enemy Priest has lain where no ground of the side leads, the cheapest
- * transport that flies its Fury knows, unless it has one. */
-function flierFor(
+/** (netstorm-3d) A carrier that can fetch the downed enemy Priest when none the side has can: one
+ * that flies, once he has lain where no ground of the side leads (a level that carries off by air),
+ * and the cheapest on foot that would live through the fire on the way where every carrier it has
+ * would die (a level that weighs a capture run). One at a time. Short of the Storm Power for the one
+ * on foot, a spare gun is salvaged for it and the move keeps what it has: returns what it keeps. */
+function fetcherFor(
   world: WorldView,
   move: Move,
   memory: AiMemory,
   transports: View<Transport>[],
   reached: Uint8Array | null,
-): void {
-  const mem = memory as { wantFlier?: boolean; };
+): number {
+  const mem = memory as { wantFlier?: boolean; fetcher?: number; };
   const foe = enemyPriest(world, move.me, 'down');
+  const home = world.templeOf(move.me);
   const near = (x: number, y: number): boolean => world.inside(x, y) && reached?.[world.at(x, y)] === 1;
 
-  if (foe && reached && !near(foe.x, foe.y) && !DIRS.some(([dx, dy]) => near(foe.x + dx, foe.y + dy))) {
+  if (!home || (mem.fetcher !== undefined && world.tick - mem.fetcher < FETCH_WAIT * TPS)) {
+    return 0;
+  }
+
+  const from = { x: home.x + home.fx, y: home.y + home.fy };
+  const kinds = transportKinds(world, move.me)
+    .filter((d) => move.budget >= d.cost)
+    .sort((a, b) => a.cost - b.cost || a.id.localeCompare(b.id));
+  const buy = (def: Readonly<UnitDef> | undefined): void => {
+    if (def && place(world, move, def, from).placed) {
+      mem.fetcher = world.tick;
+    }
+  };
+  const onFoot = foe && reached && (near(foe.x, foe.y) || DIRS.some(([dx, dy]) => near(foe.x + dx, foe.y + dy)));
+
+  if (foe && reached && !onFoot && move.params.airCapture) {
     mem.wantFlier = true;
   }
 
-  const home = world.templeOf(move.me);
-  const def = transportKinds(world, move.me).filter((d) => flies(d))
-    .sort((a, b) => a.cost - b.cost || a.id.localeCompare(b.id))[0];
+  // Where no ground leads to him, or while he is up, only one that flies, if it is wanted.
+  if (!foe || !onFoot) {
+    if (mem.wantFlier && move.params.airCapture && !transports.some((t) => flies(world.def(t.type)))) {
+      buy(kinds.find((d) => flies(d)));
+    }
 
-  if (mem.wantFlier && home && def && !transports.some((t) => flies(world.def(t.type)))) {
-    place(world, move, def, { x: home.x + home.fx, y: home.y + home.fy });
+    return 0;
   }
+
+  if (!move.params.safeCapture || transports.some((t) => t.goal === 'capture')) {
+    return 0;
+  }
+
+  // The fire on the way to him: the least on any own carrier's way, or on the Priest's from home.
+  const goal = ([x, y]: [number, number]): boolean => distance(x, y, foe.x, foe.y) <= 1;
+  const fireOn = (path: readonly (readonly [number, number])[]): number =>
+    path.reduce((sum, [x, y]) => sum + move.threat[world.at(x, y)]!, 0);
+  let fire = Infinity;
+
+  for (const t of transports) {
+    const path = t.carrying === null && !flies(world.def(t.type)) ? world.findPath(move.me, t.x, t.y, goal) : null;
+
+    if (path && survives(world, move, t, path)) {
+      return 0; // one of them can go
+    }
+
+    fire = Math.min(fire, path ? fireOn(path) : Infinity);
+  }
+
+  const own = world.priestOf(move.me);
+  const walk = own && fire === Infinity ? world.findPath(move.me, own.x, own.y, goal) : null;
+  fire = walk ? fireOn(walk) : fire;
+
+  const def = fire < Infinity
+    ? transportKinds(world, move.me).filter((d) => !flies(d) && fire / d.speed < d.hp)
+      .sort((a, b) => a.cost - b.cost || a.id.localeCompare(b.id))[0]
+    : undefined;
+
+  if (!def) {
+    return 0;
+  }
+
+  if (move.budget >= def.cost) {
+    buy(def);
+    return 0;
+  }
+
+  fundCapture(world, move);
+  return Math.max(0, move.budget);
 }
+
+/** Seconds a carrier bought to fetch a Priest is given before another is (invented). */
+const FETCH_WAIT = 20;
 
 /** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
 });
@@ -789,6 +858,25 @@ function feeding(world: WorldView, me: number, at: { x: number; y: number; }): n
   return world.buildingsOf(me).filter((b) => world.def(b.type).group === 'battery'
     && Math.hypot(b.x + b.fx / 2 - at.x - 0.5, b.y + b.fy / 2 - at.y - 0.5) <= world.energyRange).length;
 }`,
+});
+
+// No crystal fetched from under the enemy's guns (a fix, for every level). netstorm-web's opponent
+// sends an idle carrier for the first loose crystal it can walk to, wherever it lies. Traced in the
+// arena: a carrier killed under the enemy's guns drops its crystal there, the next one walks in for
+// it and dies, and so on, a carrier lost every minute and a half on both sides for fifteen minutes.
+// A carrier now fetches only a crystal it would live to bring home: the fire on the way there and
+// back, at its pace, against its hit points, as the opponent already weighs a way to a geyser.
+CHANGES.push({
+  file: 'ai.ts',
+  why: 'no crystal fetched from under the guns',
+  was: `    const crystal = loose.find((c) =>
+      world.findPath(move.me, t.x, t.y, ([x, y]) => distance(x, y, c.x, c.y) <= 1) !== null
+    );`,
+  now: `    // (netstorm-3d) only one it would live to bring home: the fire there and back, at its pace
+    const crystal = loose.find((c) => {
+      const way = world.findPath(move.me, t.x, t.y, ([x, y]) => distance(x, y, c.x, c.y) <= 1);
+      return way !== null && (!avoidDanger || flies(world.def(t.type)) || 2 * fire(t, way) < t.hp);
+    });`,
 });
 
 // The first carrier paid for (a fix, for every level). Traced in the arena: Normal lost its last
