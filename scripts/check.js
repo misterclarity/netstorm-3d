@@ -83,6 +83,47 @@ const played = `${world.tick} ticks, Storm Power ${Math.round(me.storm)}, ${view
   console.log('capture: the computer sends for a downed Priest before it has an Altar');
 }
 
+// A Priest sent to a geyser collects from it alone: when it is spent he stops and waits, where a
+// Golem moves on to another (scripts/house-rules.mjs). Three geysers are moved onto the home
+// island beside the Temple: one crystal each for the Priest and a Golem, and a full one.
+{
+  const w3 = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+  const v3 = w3.view(), p = w3.priestOf(NS.ME), t = w3.templeOf(NS.ME);
+  const free = [];
+  for (let r = 2; r < 12 && free.length < 4; r++) {
+    for (let dx = -r; dx <= r && free.length < 4; dx += 3) {
+      const x = t.x + dx, y = t.y + t.fy + r, i = w3.at(x, y);
+      const clear = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b]) => w3.terrain[w3.at(x + a, y + b)] === 1 && !w3.occupant[w3.at(x + a, y + b)]);
+      if (clear && !w3.priestAt(x, y) && free.every(([fx, fy]) => Math.abs(fx - x) + Math.abs(fy - y) > 3)) free.push([x, y, i]);
+    }
+  }
+  const geysers = [...v3.entities.values()].filter((g) => g.kind === 'geyser').slice(0, 3);
+  if (free.length < 4 || geysers.length < 3) fail('no room to set up the geysers');
+  geysers.forEach((g, k) => {
+    w3.occupant[w3.at(g.x, g.y)] = 0;
+    [g.x, g.y] = free[k];
+    w3.occupant[free[k][2]] = g.id;
+  });
+  const [forPriest, forGolem, full] = geysers;
+  forPriest.stock = 200;
+  forGolem.stock = 200;
+  full.stock = 2000;
+  const carrier = w3.spawnTransport('sunwalker', NS.ME, free[3][0], free[3][1]);
+  w3.step([{ t: 'collect', player: NS.ME, transport: p.id, geyser: forPriest.id }, { t: 'collect', player: NS.ME, transport: carrier.id, geyser: forGolem.id }]);
+  if (p.goal !== 'collect' || carrier.goal !== 'collect') fail(`the test's orders were refused: Priest ${p.goal}, Golem ${carrier.goal}`);
+  let golemOn = false, priestDone = false;
+  for (let i = 0; i < 3000 && !(golemOn && priestDone); i++) {
+    w3.step([]);
+    w3.drainEvents();
+    priestDone ||= !v3.entities.has(forPriest.id) && p.carrying === null && p.goal === 'idle' && !p.path.length;
+    golemOn ||= carrier.goal === 'collect' && carrier.target === full.id;
+    if (p.target === full.id) fail('the Priest walked on to another geyser when his was spent');
+  }
+  if (!priestDone) fail(`the Priest did not stop when his geyser was spent: goal ${p.goal}, target ${p.target}`);
+  if (!golemOn) fail(`the Golem did not move on when its geyser was spent: goal ${carrier.goal}, target ${carrier.target}`);
+  console.log('geysers: a Priest waits when his geyser is spent, a Golem moves on');
+}
+
 // The HUD's account of Energy (src/energy.js) agrees with the rules everywhere: for every unit
 // that needs Energy, at every site where the rules have nothing else against it, `ok` is whether
 // the rules build it. Its own module reads A-Frame's THREE as it loads; a stand-in will do here.

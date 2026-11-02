@@ -12,7 +12,8 @@
  * the carrier is sent on to the Altar later ("Carry to the Altar" on its card).
  *
  * A Transport can be sent to a place, not only for something: the command `moveTransport` (below).
- * And the computer captures by the same rule as the player (below).
+ * And the computer captures by the same rule as the player, and a Priest whose geyser is spent
+ * waits for orders instead of walking off to another (below).
  */
 import { readFile } from 'node:fs/promises';
 
@@ -175,6 +176,24 @@ CHANGES.push({
   // He has to be within a step of ground the transports can walk to: a bridge that merely lies
   // beside his island does not lead onto it.
   if (!home) {`,
+});
+
+// A Priest collects only from the geyser he was sent to: once it is spent (or gone) he stops and
+// waits for orders. netstorm-web sends any carrier on to the geyser nearest its Temple, which can
+// walk the most precious unit to the front; Transports still move on.
+CHANGES.push({
+  file: 'rules/movement.ts',
+  why: 'a Priest does not seek another geyser',
+  was: `function seekGeyser(world: World, t: Carrier): void {
+  const home = world.templeOf(t.owner);`,
+  now: `function seekGeyser(world: World, t: Carrier): void {
+  // (netstorm-3d) a Priest waits for orders instead
+  if (t.kind === 'priest') {
+    stop(t);
+    return;
+  }
+
+  const home = world.templeOf(t.owner);`,
 });
 
 export function houseRules() {

@@ -1,0 +1,126 @@
+/**
+ * Matches of the computer opponent against itself (or against a side that does nothing), set up as
+ * this game's skirmish menu sets them up (its house rules, its Residences, the player's side
+ * knowing its Fury), played without a browser: the yardstick for the levels of the opponent.
+ *
+ *   npm run ai:arena                                  # each pairing below on seeds 1-4, 30 minutes
+ *   PAIRS=hard:idle,hard:easy SEEDS=1,2,3,4,5,6 npm run ai:arena
+ *   MINUTES=20 JOBS=2 npm run ai:arena
+ *
+ * A side is a level (easy, normal, hard, and any added to the table) or idle. Side 1 plays Wind,
+ * side 2 Rain, on four islands with 2000 Storm Power, as the menu's defaults. Each move is worked
+ * out on a copy of the world with the worker's cache, as in the game.
+ */
+import * as esbuild from 'esbuild';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { mkdirSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { aiMemo } from './ai-memo.mjs';
+import { houseRules } from './house-rules.mjs';
+
+const VENDOR = resolve('vendor/netstorm-web');
+const OUT = resolve('build/ai-arena-match.mjs');
+
+const entry = `
+import * as NS from './src/engine.js';
+import DATA from './build/game-data.json';
+const defs = NS.loadDefs(DATA.units);
+export async function match(seed, side1, side2, minutes) {
+  globalThis.AFRAME ??= { THREE: {} };
+  const { settleResidences } = await import('./src/residences.js');
+  const levels = { 1: side1, 2: side2 };
+  const options = { ...NS.DEFAULT_OPTIONS, lang: 'en', mode: 'skirmish', opponent: 'ai', theme: 'wind', enemyTheme: 'rain', islands: 4,
+    difficulty: side2 === 'idle' ? 'normal' : side2, storm: 2000, seed };
+  const known = [...NS.AI_ALIGNMENTS.find((a) => a.name === 'Wind').tech];
+  const world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known, altarLevel: 1 });
+  settleResidences(world, seed);
+  const memory = { 1: NS.createAiMemory(seed + 1), 2: NS.createAiMemory(seed + 2) };
+  const every = (p) => Math.round(NS.DIFFICULTY[levels[p]].moveSeconds * NS.TPS);
+  const stat = () => ({ crystals: 0, built: 0, guns: 0, pieces: 0, lost: 0, downs: 0, captures: 0, moveMs: 0, moves: 0, rejected: 0 });
+  const stats = { 1: stat(), 2: stat() };
+  const ticks = Math.round(minutes * 60 * NS.TPS);
+  let firstDown = null;
+  for (let i = 0; i < ticks && world.winner === null; i++) {
+    const commands = [];
+    for (const p of [1, 2]) {
+      if (levels[p] === 'idle' || (world.tick - p) % every(p) !== 0) continue;
+      const raw = structuredClone(world.handoff());
+      for (const g of ['terrain', 'owner', 'links', 'wear', 'occupant']) raw[g] = Array.from(raw[g]);
+      const copy = NS.World.fromSnapshot(raw);
+      const t0 = performance.now();
+      globalThis.__nsAiMove = true;
+      commands.push(...NS.aiMove(copy.view(), { player: p, difficulty: levels[p] }, memory[p], () => {}));
+      globalThis.__nsAiMove = false;
+      stats[p].moveMs += performance.now() - t0;
+      stats[p].moves++;
+    }
+    world.step(commands);
+    for (const ev of world.drainEvents()) {
+      const s = stats[ev.who];
+      if (!s) continue;
+      if (ev.what === 'delivered') s.crystals++;
+      else if (ev.what === 'build') { s.built++; if (['Shooter', 'Anti-Air'].includes(world.def(ev.data.type).cls)) s.guns++; }
+      else if (ev.what === 'bridge') s.pieces++;
+      else if (ev.what === 'destroyed') s.lost++;
+      else if (ev.what === 'priest down') { s.downs++; firstDown ??= world.tick; }
+      else if (ev.what === 'captured') s.captures++;
+      else if (ev.what === 'rejected') s.rejected++;
+    }
+  }
+  for (const p of [1, 2]) stats[p].moveMs = stats[p].moves ? Math.round(stats[p].moveMs / stats[p].moves) : 0;
+  return { seed, side1, side2, winner: world.winner, minutes: +(world.tick / NS.TPS / 60).toFixed(1),
+    firstDown: firstDown === null ? null : +(firstDown / NS.TPS / 60).toFixed(1), stats };
+}`;
+
+// a child: one match, printed as a line of JSON
+if (process.env.ARENA_MATCH) {
+  const [seed, side1, side2, minutes] = process.env.ARENA_MATCH.split(':');
+  const { match } = await import(pathToFileURL(OUT).href);
+  console.log(JSON.stringify(await match(Number(seed), side1, side2, Number(minutes))));
+  process.exit(0);
+}
+
+mkdirSync('build', { recursive: true });
+const messages = { name: 'messages', setup(b) { b.onResolve({ filter: /paraglide\/messages\.js$/ }, () => ({ path: resolve('src/messages.js') })); } };
+await esbuild.build({
+  stdin: { contents: entry, resolveDir: resolve('.'), loader: 'js' },
+  bundle: true, platform: 'node', format: 'esm', logLevel: 'warning', outfile: OUT,
+  alias: {
+    '@netstorm/sim': `${VENDOR}/packages/sim/src/index.ts`,
+    'ns-client': `${VENDOR}/packages/client/src`,
+    'ns-messages': `${VENDOR}/packages/client/messages`,
+  },
+  plugins: [messages, houseRules(), aiMemo({ gated: true })],
+});
+
+const pairs = (process.env.PAIRS ?? 'hard:idle,hard:easy,hard:normal,normal:easy,hard:hard').split(',').map((p) => p.split(':'));
+const seeds = (process.env.SEEDS ?? '1,2,3,4').split(',').map(Number);
+const minutes = Number(process.env.MINUTES ?? 30);
+const jobs = Number(process.env.JOBS ?? 2);
+const queue = pairs.flatMap(([a, b]) => seeds.map((seed) => `${seed}:${a}:${b}:${minutes}`));
+const results = [];
+const run = (spec) => new Promise((done) => {
+  execFile(process.execPath, [new URL(import.meta.url).pathname], { env: { ...process.env, ARENA_MATCH: spec }, maxBuffer: 1 << 24 },
+    (error, stdout, stderr) => {
+      const line = stdout.trim().split('\n').pop();
+      try { results.push(JSON.parse(line)); } catch { console.error(`match ${spec} failed: ${stderr || error?.message}`); }
+      const r = results.at(-1);
+      if (r) console.error(`  ${r.side1} vs ${r.side2}, seed ${r.seed}: ${r.winner === null ? 'no winner' : `side ${r.winner} (${r.winner === 1 ? r.side1 : r.side2})`} at ${r.minutes} min`);
+      done();
+    });
+});
+const started = Date.now();
+await Promise.all(Array.from({ length: jobs }, async () => { while (queue.length) await run(queue.shift()); }));
+
+console.log(`\n${results.length} matches, ${minutes} minutes each at most, ${((Date.now() - started) / 60000).toFixed(1)} min to play\n`);
+console.log('pairing          wins (side 1 / side 2 / none)   minutes to win   first Priest down   crystals 1/2   guns 1/2   move ms 1/2');
+for (const [a, b] of pairs) {
+  const rs = results.filter((r) => r.side1 === a && r.side2 === b);
+  const w1 = rs.filter((r) => r.winner === 1), w2 = rs.filter((r) => r.winner === 2), none = rs.length - w1.length - w2.length;
+  const avg = (xs) => (xs.length ? (xs.reduce((s, x) => s + x, 0) / xs.length).toFixed(1) : '-');
+  const won = [...w1, ...w2].map((r) => r.minutes), downs = rs.filter((r) => r.firstDown !== null).map((r) => r.firstDown);
+  console.log(`${`${a} vs ${b}`.padEnd(17)}${`${w1.length} / ${w2.length} / ${none}`.padEnd(32)}${avg(won).padEnd(17)}${`${avg(downs)} (${downs.length}/${rs.length})`.padEnd(20)}`
+    + `${`${avg(rs.map((r) => r.stats[1].crystals))}/${avg(rs.map((r) => r.stats[2].crystals))}`.padEnd(15)}${`${avg(rs.map((r) => r.stats[1].guns))}/${avg(rs.map((r) => r.stats[2].guns))}`.padEnd(11)}`
+    + `${avg(rs.map((r) => r.stats[1].moveMs))}/${avg(rs.map((r) => r.stats[2].moveMs))}`);
+}

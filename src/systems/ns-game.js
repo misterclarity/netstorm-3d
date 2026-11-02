@@ -131,6 +131,8 @@ AFRAME.registerSystem('ns-game', {
     this.sound().newGame();
     this.destroyed.clear();
     this.rising = new Set();
+    this.priestGoal = null;
+    this.priestGeyser = null;
     this.el.emit('ns-new-game');
     this.shadowsNow = true;
     this.frameView();
@@ -162,10 +164,23 @@ AFRAME.registerSystem('ns-game', {
       this.el.emit('ns-terrain');
     }
     this.watchBuildings();
+    this.watchPriest();
     this.minimap.follow();
     this.miniAcc = (this.miniAcc ?? 0) + dt;
     if (this.miniAcc > 200) { this.miniAcc = 0; this.minimap.draw(); }
     this.hud.frame(dt);
+  },
+
+  /** Tell the player when the geyser their Priest worked is spent: he waits for orders there. */
+  watchPriest() {
+    const p = G.view.priestOf(ME);
+    if (!p) return;
+    if (this.priestGoal === 'collect' && p.goal === 'idle' && !p.path.length && this.priestGeyser != null
+      && !(G.view.entities.get(this.priestGeyser)?.stock > 0)) {
+      this.hud.toast('The geyser your Priest worked is spent: he waits for your orders', 'good');
+    }
+    if (p.goal === 'collect') this.priestGeyser = p.target;
+    this.priestGoal = p.goal;
   },
 
   /** Note in the log when one of the player's buildings is up. */

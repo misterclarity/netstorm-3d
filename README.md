@@ -231,7 +231,9 @@ Altar is built. And a Transport can be sent to a place, not only for something (
 "Left-click someplace legal, and the Transport will move there", as the original's help puts it.
 Golems walk there; air ships fly there and land. The computer captures by the same rule: it
 sends its carriers for a downed Priest before it has an Altar, and on to the Altar once it has one.
-`npm run check` sets that up and fails if it does not.
+`npm run check` sets that up and fails if it does not. A Priest sent to a geyser works that one
+alone: when it is spent he stops and waits for orders, where netstorm-web walks him on to the
+geyser nearest his Temple, which can take him to the front. Golems and air ships still move on.
 
 **netstorm-web** sits in `vendor/netstorm-web` as a git submodule pinned to one commit. The build
 bundles its TypeScript straight from there (`src/engine.js` lists what is used: the simulation,
