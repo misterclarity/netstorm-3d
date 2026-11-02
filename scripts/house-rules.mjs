@@ -305,9 +305,10 @@ CHANGES.push({
   why: 'carriers wait near an enemy Priest under fire',
   was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
   now: `/**
- * (netstorm-3d) While the enemy Priest is shot at (up, below his full health) and stands within six
- * cells of ground the AI's carriers walk to, the level's number of carriers wait at the nearest
- * cell of that ground out of enemy fire, so that one is by him the moment he falls. Those already
+ * (netstorm-3d) While the enemy Priest is shot at (up, below his full health), or his Temple is,
+ * whose fall knocks him out, and he stands within eight cells of ground the AI's carriers walk to,
+ * the level's number of carriers wait at the nearest cell of that ground out of enemy fire, so
+ * that one is by him the moment he falls. Those already
  * waiting stay; the others are the nearest without cargo. Returns the carriers kept waiting.
  */
 function stage(
@@ -323,11 +324,14 @@ function stage(
   const foe = enemyPriest(world, move.me, 'normal');
   let spot: [number, number] | null = null;
 
-  if (want > 0 && reached && foe && foe.hp < foe.hpMax) {
+  const foeTemple = foe ? world.templeOf(foe.owner) : undefined;
+  const shot = foe && (foe.hp < foe.hpMax || (foeTemple !== undefined && foeTemple.hp < foeTemple.hpMax));
+
+  if (want > 0 && reached && foe && shot) {
     let best = Infinity;
 
-    for (let dy = -6; dy <= 6; dy++) {
-      for (let dx = -6; dx <= 6; dx++) {
+    for (let dy = -8; dy <= 8; dy++) {
+      for (let dx = -8; dx <= 8; dx++) {
         const x = foe.x + dx;
         const y = foe.y + dy;
         const i = world.inside(x, y) ? world.at(x, y) : -1;
@@ -425,6 +429,294 @@ function survives(world: WorldView, move: Move, t: View<Transport>, path: readon
 }
 
 /** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+});
+
+// The alarm (a level's `alarm`). A level without it defends only what is fired on or lost, not
+// ground that merely comes near: Easy, for a beginner, reacts instead of building a wall of guns
+// at home before anyone attacks (in the arena it built as many guns as Hard).
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'a level may defend only when fired on',
+  was: `  safeCapture: boolean;
+}`,
+  now: `  safeCapture: boolean;
+  /** (netstorm-3d) Whether enemy ground coming near calls a defence, not only fire or a loss. */
+  alarm: boolean;
+}`,
+}, ...[['    safeCapture: false,', false], ['    stageCarriers: 1,\n    safeCapture: true,', true], ['    stageCarriers: 2,\n    safeCapture: true,', true]]
+  .map(([was, on]) => ({ file: 'ai/params.ts', why: 'a level may defend only when fired on', was, now: `${was}\n    alarm: ${on},` })),
+{
+  file: 'ai.ts',
+  why: 'a level may defend only when fired on',
+  was: `  const defend = assaultFirst ? 0 : defendScore(pressure);`,
+  now: `  const calm = !pressure.fired && pressure.losses === 0;
+  const defend = assaultFirst || (!params.alarm && calm) ? 0 : defendScore(pressure);`,
+});
+
+// The Priest kept safe (a level's `priestSafety`). Traced in the arena: Hard's Priest was knocked out
+// seven times in six minutes, standing idle 130 cells from his Temple among the enemy's cannons. The
+// opponent raises an Outpost on the first unowned island cell in the map's order, wherever that is,
+// and its Priest walks there; nothing brings him back. A level that keeps its Priest safe raises it
+// on the unowned ground nearest its Temple out of fire (none farther than 40 cells), and walks its
+// Priest home when he stands idle far from his Temple and nothing else is asked of him.
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'the Priest kept safe',
+  was: `  alarm: boolean;
+}`,
+  now: `  alarm: boolean;
+  /** (netstorm-3d) Outposts near home, and the Priest walked home when idle far from it. */
+  priestSafety: boolean;
+}`,
+}, ...[['    safeCapture: false,\n    alarm: false,', false], ['    stageCarriers: 1,\n    safeCapture: true,\n    alarm: true,', true], ['    stageCarriers: 2,\n    safeCapture: true,\n    alarm: true,', true]]
+  .map(([was, on]) => ({ file: 'ai/params.ts', why: 'the Priest kept safe', was, now: `${was}\n    priestSafety: ${on},` })),
+{
+  file: 'ai.ts',
+  why: 'the Priest kept safe',
+  was: `  const free = reached.findIndex((walked, i) =>
+    walked === 1 && world.terrain[i] === Terrain.Island && world.owner[i] === 0
+  );`,
+  now: `  // (netstorm-3d) a level that keeps its Priest safe: the unowned ground nearest the Temple out
+  // of fire, not the first in the map's order, and none beyond the Priest's safe walk
+  let free = -1;
+  const home = world.templeOf(move.me);
+
+  if (move.params.priestSafety && home) {
+    let best = 40;
+    reached.forEach((walked, i) => {
+      if (walked !== 1 || world.terrain[i] !== Terrain.Island || world.owner[i] !== 0 || move.threat[i]! > 0) return;
+      const d = Math.abs((i % W) - home.x) + Math.abs(Math.floor(i / W) - home.y);
+      if (d < best) { best = d; free = i; }
+    });
+  } else {
+    free = reached.findIndex((walked, i) =>
+      walked === 1 && world.terrain[i] === Terrain.Island && world.owner[i] === 0
+    );
+  }`,
+}, {
+  file: 'ai.ts',
+  why: 'the Priest kept safe',
+  was: `  if (explain && !move.commands.length) {`,
+  now: `  homeward(world, move);
+  because('the Priest stands idle far from his Temple: he walks home');
+
+  if (explain && !move.commands.length) {`,
+}, {
+  file: 'ai.ts',
+  why: 'the Priest kept safe',
+  was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+  now: `/** (netstorm-3d) A level that keeps its Priest safe walks him home, to ground beside his Temple out
+ * of fire, when he stands idle more than 18 cells from it and this move asks nothing else of him. */
+function homeward(world: WorldView, move: Move): void {
+  const p = world.priestOf(move.me);
+  const home = world.templeOf(move.me);
+
+  if (
+    !move.params.priestSafety || move.fleeing || move.ritual || !p || !home || p.state !== 'normal'
+    || p.goal !== 'idle' || p.path.length > 0 || p.carrying !== null
+  ) {
+    return;
+  }
+
+  const asked = move.commands.some((c) => c.t === 'movePriest'
+    || ((c.t === 'collect' || c.t === 'pickupCrystal') && c.transport === p.id)
+    || (c.t === 'build' && PRIEST_BUILT.has(world.defs.get(c.type)?.cls ?? '')));
+  const cx = home.x + home.fx / 2;
+  const cy = home.y + home.fy / 2;
+
+  if (asked || Math.hypot(p.x - cx, p.y - cy) <= 18) {
+    return;
+  }
+
+  const way = world.findPath(move.me, p.x, p.y, ([x, y]) => Math.hypot(x - cx, y - cy) <= 8
+    && move.threat[world.at(x, y)] === 0 && !world.occupant[world.at(x, y)] && !world.priestAt(x, y), true);
+  const end = way?.at(-1);
+
+  if (end) {
+    move.commands.push({ t: 'movePriest', player: move.me, x: end[0], y: end[1] });
+  }
+}
+
+/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+});
+
+// Lean Energy (a level's `leanEnergy`). The opponent lays a Generator along a bridge whenever its
+// head is 18 cells from Energy, and its bridges grow toward several geysers and the enemy at once:
+// in the arena a side had 25 to 37 Generators to 5 to 11 guns by the 24th minute, some 10000 Storm
+// Power that never fired. A lean level lays none ahead of the guns while it has three more than
+// guns; one a gun wants where it is laid is laid as before.
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'no more Generators than guns need',
+  was: `  priestSafety: boolean;
+}`,
+  now: `  priestSafety: boolean;
+  /** (netstorm-3d) No Generator along a bridge while there are three more Generators than guns. */
+  leanEnergy: boolean;
+}`,
+}, ...[['    alarm: false,\n    priestSafety: false,', false], ['    stageCarriers: 1,\n    safeCapture: true,\n    alarm: true,\n    priestSafety: true,', true], ['    stageCarriers: 2,\n    safeCapture: true,\n    alarm: true,\n    priestSafety: true,', true]]
+  .map(([was, on]) => ({ file: 'ai/params.ts', why: 'no more Generators than guns need', was, now: `${was}\n    leanEnergy: ${on},` })),
+{
+  file: 'ai.ts',
+  why: 'no more Generators than guns need',
+  was: `  if (attack && first?.target.enemy && first.head && options.attack !== false) {
+    carryEnergy(world, move, first.head, first.target);`,
+  now: `  if (attack && first?.target.enemy && first.head && options.attack !== false && !lean(world, move)) {
+    carryEnergy(world, move, first.head, first.target);`,
+}, {
+  file: 'ai.ts',
+  why: 'no more Generators than guns need',
+  was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+  now: `/** (netstorm-3d) A lean level with three more Generators than guns lays none ahead of a gun. */
+function lean(world: WorldView, move: Move): boolean {
+  if (!move.params.leanEnergy) {
+    return false;
+  }
+
+  const mine = world.buildingsOf(move.me);
+  const generators = mine.filter((b) => world.def(b.type).group === 'battery').length;
+  const guns = mine.filter((b) => groundDps(world.def(b.type)) > 0).length;
+  return generators >= guns + 3;
+}
+
+/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+});
+
+// A level's value for a new knob, set in each level's block of the table (easy, normal, hard).
+const LEVEL_BLOCKS = ['    siegeSeconds: Infinity,\n    assaultFirst: false,', '    siegeSeconds: 240,\n    assaultFirst: false,', '    siegeSeconds: 120,\n    assaultFirst: true,'];
+const perLevel = (why, field, values) => LEVEL_BLOCKS.map((was, i) => ({ file: 'ai/params.ts', why, was, now: `${was}\n    ${field}: ${values[i]},` }));
+
+// The Priest's walks kept short (part of a level's `priestSafety`). Traced in the arena: between
+// builds the opponent's Priest carries crystals from the geyser nearest home that no gun reaches,
+// however far that is; Hard's walked 100 cells out, was knocked out on the way home and lay there
+// for twenty minutes. A level that keeps its Priest safe sends him to no geyser farther than 24
+// cells from his Temple; the transports work the far ones.
+CHANGES.push({
+  file: 'ai.ts',
+  why: 'the Priest collects near home',
+  was: `  const calm = reachable.filter((g) => move.threat[world.at(g.x, g.y)] === 0);`,
+  now: `  // (netstorm-3d) a level that keeps its Priest safe: no geyser farther than 24 cells from home
+  const cx = home.x + home.fx / 2;
+  const cy = home.y + home.fy / 2;
+  const calm = reachable.filter((g) => move.threat[world.at(g.x, g.y)] === 0
+    && (!move.params.priestSafety || Math.hypot(g.x - cx, g.y - cy) <= 24));`,
+});
+
+// Carried off by air (a level's `airCapture`). Traced in the arena: Hard's guns knocked Normal's
+// Priest out fifteen times across the sky, where no bridge of Hard's led to him, and no carrier on
+// foot could fetch him. An Aerial Transport flies straight to a downed Priest (rules/capture.ts asks
+// wayOf, which flies it), but netstorm-web's opponent only sends carriers that walk. A level that
+// carries off by air sends what flies of its carriers too, straight to him, and once his Priest has
+// lain where no ground of its own leads, buys one that flies, if its Fury knows one.
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'a downed Priest carried off by air',
+  was: `  leanEnergy: boolean;
+}`,
+  now: `  leanEnergy: boolean;
+  /** (netstorm-3d) Aerial Transports sent for a downed Priest, and one bought for him when he
+   * lies where no ground of the side leads. */
+  airCapture: boolean;
+}`,
+}, ...perLevel('a downed Priest carried off by air', 'airCapture', [false, false, true]), {
+  file: 'ai.ts',
+  why: 'a downed Priest carried off by air',
+  was: `  if (
+    !near(captive.x, captive.y)
+    && !DIRS.some(([dx, dy]) => near(captive.x + dx, captive.y + dy))
+  ) {
+    return;
+  }`,
+  now: `  // (netstorm-3d) where no ground leads to him, a level that carries off by air sends what flies
+  const onFoot = near(captive.x, captive.y) || DIRS.some(([dx, dy]) => near(captive.x + dx, captive.y + dy));
+  const air = (t: View<Transport>): boolean => move.params.airCapture && flies(world.def(t.type));
+
+  if (!onFoot && !transports.some(air)) {
+    return;
+  }`,
+}, {
+  file: 'ai.ts',
+  why: 'a downed Priest carried off by air',
+  was: `      const path = world.findPath(move.me, t.x, t.y, ([x, y]) => distance(x, y, captive.x, captive.y) <= 1);
+      // (netstorm-3d) a run the carrier would not survive is no run`,
+  now: `      const path = air(t) ? flight(t.x, t.y, captive.x, captive.y)
+        : onFoot ? world.findPath(move.me, t.x, t.y, ([x, y]) => distance(x, y, captive.x, captive.y) <= 1) : null;
+      // (netstorm-3d) a run the carrier would not survive is no run`,
+}, {
+  file: 'ai.ts',
+  why: 'a downed Priest carried off by air',
+  was: `  if (options.collect !== false && !firstTransport && transports.length < wanted) {
+    newTransport(world, move, geysers.length === 0, 0);
+    because(\`\${transports.length} transports, \${wanted} wanted for \${mined} geysers\`);
+  }`,
+  now: `  if (options.collect !== false && !firstTransport && transports.length < wanted) {
+    newTransport(world, move, geysers.length === 0, 0);
+    because(\`\${transports.length} transports, \${wanted} wanted for \${mined} geysers\`);
+  }
+
+  if (params.airCapture && memory && options.capture !== false && !firstTransport) {
+    flierFor(world, move, memory, transports, reached);
+    because('the enemy Priest lay where no ground leads: a transport that flies is bought for him');
+  }`,
+}, {
+  file: 'ai.ts',
+  why: 'a downed Priest carried off by air',
+  was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+  now: `/** (netstorm-3d) The cells of a flight in a straight line, without the first. */
+function flight(x0: number, y0: number, x1: number, y1: number): [number, number][] {
+  const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+  const out: [number, number][] = [];
+
+  for (let k = 1; k <= n; k++) {
+    out.push([Math.round(x0 + ((x1 - x0) * k) / n), Math.round(y0 + ((y1 - y0) * k) / n)]);
+  }
+
+  return out;
+}
+
+/** (netstorm-3d) Once the enemy Priest has lain where no ground of the side leads, the cheapest
+ * transport that flies its Fury knows, unless it has one. */
+function flierFor(
+  world: WorldView,
+  move: Move,
+  memory: AiMemory,
+  transports: View<Transport>[],
+  reached: Uint8Array | null,
+): void {
+  const mem = memory as { wantFlier?: boolean; };
+  const foe = enemyPriest(world, move.me, 'down');
+  const near = (x: number, y: number): boolean => world.inside(x, y) && reached?.[world.at(x, y)] === 1;
+
+  if (foe && reached && !near(foe.x, foe.y) && !DIRS.some(([dx, dy]) => near(foe.x + dx, foe.y + dy))) {
+    mem.wantFlier = true;
+  }
+
+  const home = world.templeOf(move.me);
+  const def = transportKinds(world, move.me).filter((d) => flies(d))
+    .sort((a, b) => a.cost - b.cost || a.id.localeCompare(b.id))[0];
+
+  if (mem.wantFlier && home && def && !transports.some((t) => flies(world.def(t.type)))) {
+    place(world, move, def, { x: home.x + home.fx, y: home.y + home.fy });
+  }
+}
+
+/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+});
+
+// The first carrier paid for (a fix, for every level). Traced in the arena: Normal lost its last
+// carrier with 145 Storm Power, less than any carrier costs, and kept it for twelve minutes with
+// eighteen guns standing idle at home, its Priest the only one carrying crystals. With no carrier and
+// too little Storm Power for one, a side salvages a spare gun for the fare, as it does for a capture.
+CHANGES.push({
+  file: 'ai.ts',
+  why: 'the first carrier paid for',
+  was: `      explain?.(\`  no transport yet: \${saving} kept toward the first\`);`,
+  now: `      explain?.(\`  no transport yet: \${saving} kept toward the first\`);
+
+      // (netstorm-3d) too little for any: a spare gun salvaged for the fare
+      if (fares.length && player.storm < Math.min(...fares)) {
+        fundCapture(world, move);
+      }`,
 });
 
 export function houseRules() {

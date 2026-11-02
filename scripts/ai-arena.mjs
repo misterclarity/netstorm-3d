@@ -52,7 +52,10 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
       const copy = NS.World.fromSnapshot(raw);
       const t0 = performance.now();
       globalThis.__nsAiMove = true;
-      const got = NS.aiMove(copy.view(), { player: p, difficulty: levels[p] }, memory[p], () => {});
+      // EXPLAIN=15 prints side 1's reasoning for its moves in the 15th minute
+      const minute = world.tick / NS.TPS / 60, at = Number(process.env.EXPLAIN ?? -9);
+      const say = p === 1 && minute >= at && minute < at + Number(process.env.EXPLAIN_FOR ?? 0.1) ? (line) => console.log(line) : () => {};
+      const got = NS.aiMove(copy.view(), { player: p, difficulty: levels[p] }, memory[p], say);
       if (trace) for (const c of got) if (c.t === 'moveTransport' || c.t === 'capturePriest') console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: side \${p} \${c.t} \${c.transport} → \${c.x ?? ''},\${c.y ?? ''}\${c.target ?? ''}\`);
       commands.push(...got);
       globalThis.__nsAiMove = false;
@@ -68,7 +71,7 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
         const guns = mine.filter((e) => e.kind === 'building' && ['Shooter', 'Anti-Air'].includes(world.def(e.type).cls));
         const near = foe ? Math.min(Infinity, ...guns.map((g) => Math.hypot(g.x + g.fx / 2 - foe.x - foe.fx / 2, g.y + g.fy / 2 - foe.y - foe.fy / 2) - (world.def(g.type).range ?? 0))) : NaN;
         line.push(\`S\${p}: ⚡\${Math.round(pl.storm)} carriers \${mine.filter((e) => e.kind === 'transport').length} guns \${guns.length} gens \${mine.filter((e) => e.kind === 'building' && world.def(e.type).group === 'battery').length} \`
-          + \`temple \${temple ? Math.round(100 * temple.hp / temple.hpMax) : 0}% priest \${priest ? \`\${Math.round(100 * priest.hp / priest.hpMax)}% \${priest.state}\` : '-'} gun→foe temple \${Number.isFinite(near) ? Math.round(near) : '-'} hand \${pl.hand.length}\`);
+          + \`temple \${temple ? Math.round(100 * temple.hp / temple.hpMax) : 0}% priest \${priest ? \`\${Math.round(100 * priest.hp / priest.hpMax)}% \${priest.state} \${priest.goal}@\${temple ? Math.round(Math.hypot(priest.x - temple.x - temple.fx / 2, priest.y - temple.y - temple.fy / 2)) : '-'}\${priest.path.length ? '→' : ''}\` : '-'} gun→foe temple \${Number.isFinite(near) ? Math.round(near) : '-'} hand \${pl.hand.length}\`);
       }
       console.log(\`\${(world.tick / NS.TPS / 60).toFixed(0).padStart(2)} min  \${line.join('  |  ')}\`);
     }
@@ -82,6 +85,13 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
       else if (ev.what === 'priest down') { s.downs++; firstDown ??= world.tick; }
       if (trace && ev.what === 'rejected' && ev.who === 1) console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: side 1 refused \${ev.data.cmd}: \${ev.data.err}\`);
       if (trace && ev.what === 'destroyed' && ['Ground Transport', 'Aerial Transport'].includes(world.defs.get(ev.data.type)?.cls)) console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: side \${ev.who} lost carrier \${ev.data.id}\`);
+      if (trace && ev.what === 'priest down') {
+        const pr = world.priestOf(ev.who), temple = world.templeOf(ev.who);
+        const guns = [...world.entities.values()].filter((e) => e.kind === 'building' && e.owner !== ev.who && e.owner && (world.def(e.type).range ?? 0) > 0
+          && Math.hypot(e.x + e.fx / 2 - pr.x, e.y + e.fy / 2 - pr.y) <= (world.def(e.type).range ?? 0) + 2);
+        const flyers = [...world.entities.values()].filter((e) => e.kind === 'flyer' && e.owner !== ev.who && Math.hypot(e.px / NS.FLYER_SCALE - pr.x, e.py / NS.FLYER_SCALE - pr.y) < 6);
+        console.log(\`      the Priest of side \${ev.who} at \${pr.x},\${pr.y} (\${temple ? Math.round(Math.hypot(pr.x - temple.x - 2, pr.y - temple.y - 2)) : '-'} from his Temple), errand \${pr.goal}; guns in reach: \${guns.map((g) => g.type).join(' ') || 'none'}; flyers near: \${flyers.map((f) => f.type).join(' ') || 'none'}\`);
+      }
       if (trace && ['priest down', 'captured', 'released', 'chained', 'sacrifice', 'too early', 'rune'].includes(ev.what)) {
         console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: \${ev.what} (side \${ev.who})\`);
       }
@@ -145,13 +155,14 @@ const started = Date.now();
 await Promise.all(Array.from({ length: jobs }, async () => { while (queue.length) await run(queue.shift()); }));
 
 console.log(`\n${results.length} matches, ${minutes} minutes each at most, ${((Date.now() - started) / 60000).toFixed(1)} min to play\n`);
-console.log('pairing          wins (side 1 / side 2 / none)   minutes to win   first Priest down   crystals 1/2   guns 1/2   move ms 1/2');
+console.log('pairing          wins (side 1 / side 2 / none)   minutes to win   first Priest down   Priests down 1/2   crystals 1/2   guns 1/2   move ms 1/2');
 for (const [a, b] of pairs) {
   const rs = results.filter((r) => r.side1 === a && r.side2 === b);
   const w1 = rs.filter((r) => r.winner === 1), w2 = rs.filter((r) => r.winner === 2), none = rs.length - w1.length - w2.length;
   const avg = (xs) => (xs.length ? (xs.reduce((s, x) => s + x, 0) / xs.length).toFixed(1) : '-');
   const won = [...w1, ...w2].map((r) => r.minutes), downs = rs.filter((r) => r.firstDown !== null).map((r) => r.firstDown);
   console.log(`${`${a} vs ${b}`.padEnd(17)}${`${w1.length} / ${w2.length} / ${none}`.padEnd(32)}${avg(won).padEnd(17)}${`${avg(downs)} (${downs.length}/${rs.length})`.padEnd(20)}`
+    + `${`${avg(rs.map((r) => r.stats[1].downs))}/${avg(rs.map((r) => r.stats[2].downs))}`.padEnd(19)}`
     + `${`${avg(rs.map((r) => r.stats[1].crystals))}/${avg(rs.map((r) => r.stats[2].crystals))}`.padEnd(15)}${`${avg(rs.map((r) => r.stats[1].guns))}/${avg(rs.map((r) => r.stats[2].guns))}`.padEnd(11)}`
     + `${avg(rs.map((r) => r.stats[1].moveMs))}/${avg(rs.map((r) => r.stats[2].moveMs))}`);
 }
