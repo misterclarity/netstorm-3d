@@ -75,7 +75,7 @@ AFRAME.registerSystem('ns-game', {
    */
   warmUp() {
     const scene = this.el, renderer = scene.renderer, camera = scene.camera;
-    if (this.warm || !renderer?.compileAsync || !camera) return;
+    if (this.warm || !renderer?.compile || !camera) return;
     const extra = new THREE.Group();
     for (const d of defs.values()) {
       const kinds = { Shooter: 'building', Defense: 'building', 'Anti-Air': 'building', 'Source of Energy': 'building', 'Air Attack Base': 'building',
@@ -107,8 +107,10 @@ AFRAME.registerSystem('ns-game', {
     scene.object3D.add(extra);
     const hidden = [];
     scene.object3D.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
-    // the materials are gathered now; the compiling goes on in the background
-    renderer.compileAsync(scene.object3D, camera).catch(() => {});
+    // the materials are gathered now; where the browser can, the compiling goes on in the
+    // background, else it is done at once (a moment's pause at the menu, not in battle)
+    if (renderer.extensions.has('KHR_parallel_shader_compile')) renderer.compileAsync(scene.object3D, camera).catch(() => {});
+    else renderer.compile(scene.object3D, camera);
     for (const o of hidden) o.visible = false;
     scene.object3D.remove(extra);
     this.warm = extra;
