@@ -258,8 +258,11 @@ lay its guns, came later to the enemy without them, so it keeps them);
 (Hard had knocked Easy's out seven cells from its bridge, and he lay there a minute);
 **Hard fetches a downed Priest by air** where no bridge of its leads, and buys a flying carrier
 once that happens; carriers also wait while the enemy Temple is under fire, since its fall knocks
-the Priest out; and at every level a side left with no carrier and too little Storm Power for one
-salvages a spare gun for it. `npm run check` checks the carriers in wait. A Priest sent to a geyser works that one
+the Priest out; at every level a side left with no carrier and too little Storm Power for one
+salvages a spare gun for it; and a gun short of Energy at a bridge head that already has some gets
+one more Generator there, up to three (this game's Energy counts icons, and the opponent only ever
+laid a Generator where there was no Energy at all: Normal stood six cells from an idle enemy's
+Temple for four minutes with 1500 Storm Power). `npm run check` checks the carriers in wait. A Priest sent to a geyser works that one
 alone: when it is spent he stops and waits for orders, where netstorm-web walks him on to the
 geyser nearest his Temple, which can take him to the front. Golems and air ships still move on.
 

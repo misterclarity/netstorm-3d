@@ -758,6 +758,39 @@ CHANGES.push({
     }`,
 });
 
+// Energy enough for the gun wanted (a fix, for every level). This game's Energy rule counts icons:
+// a level-2 gun needs two, a level-3 three, and a Generator gives one. netstorm-web's opponent lays
+// a Generator for a gun short of Energy only where no Energy at all is near (18 cells), so a bridge
+// head with one Generator by it never feeds the gun it wants there. Traced in the arena: Normal
+// stood six cells from an idle enemy's Temple for four minutes with 1500 Storm Power and laid
+// nothing. Now a gun short of Energy where some is near gets one more Generator at the head, up to
+// three within the Energy's reach of it.
+CHANGES.push({
+  file: 'ai.ts',
+  why: 'Energy enough for the gun wanted',
+  was: `  if (short) {
+    carryEnergy(world, move, head, target);
+  }
+
+  return false;
+}`,
+  now: `  if (short && !carryEnergy(world, move, head, target) && !move.energized
+    && feeding(world, move.me, head) < 3 && generator(world, move, head)) {
+    // (netstorm-3d) Energy near, but too little for the gun: one more Generator at the head
+    move.energized = true;
+    move.actions++;
+  }
+
+  return false;
+}
+
+/** (netstorm-3d) Own Generators whose Energy reaches a cell. */
+function feeding(world: WorldView, me: number, at: { x: number; y: number; }): number {
+  return world.buildingsOf(me).filter((b) => world.def(b.type).group === 'battery'
+    && Math.hypot(b.x + b.fx / 2 - at.x - 0.5, b.y + b.fy / 2 - at.y - 0.5) <= world.energyRange).length;
+}`,
+});
+
 // The first carrier paid for (a fix, for every level). Traced in the arena: Normal lost its last
 // carrier with 145 Storm Power, less than any carrier costs, and kept it for twelve minutes with
 // eighteen guns standing idle at home, its Priest the only one carrying crystals. With no carrier and
