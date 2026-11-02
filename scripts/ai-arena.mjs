@@ -6,6 +6,7 @@
  *   npm run ai:arena                                  # each pairing below on seeds 1-4, 30 minutes
  *   PAIRS=hard:idle,hard:easy SEEDS=1,2,3,4,5,6 npm run ai:arena
  *   MINUTES=20 JOBS=2 npm run ai:arena
+ *   TUNE='{"hard":{"assaultFirst":false}}' npm run ai:arena   # a level's knobs turned for a trial
  *
  * A side is a level (easy, normal, hard, and any added to the table) or idle. Side 1 plays Wind,
  * side 2 Rain, on four islands with 2000 Storm Power, as the menu's defaults. Each move is worked
@@ -26,8 +27,9 @@ const entry = `
 import * as NS from './src/engine.js';
 import DATA from './build/game-data.json';
 const defs = NS.loadDefs(DATA.units);
-export async function match(seed, side1, side2, minutes) {
+export async function match(seed, side1, side2, minutes, trace = false, tune = null) {
   globalThis.AFRAME ??= { THREE: {} };
+  if (tune) globalThis.__nsAiTune = tune;
   const { settleResidences } = await import('./src/residences.js');
   const levels = { 1: side1, 2: side2 };
   const options = { ...NS.DEFAULT_OPTIONS, lang: 'en', mode: 'skirmish', opponent: 'ai', theme: 'wind', enemyTheme: 'rain', islands: 4,
@@ -50,12 +52,26 @@ export async function match(seed, side1, side2, minutes) {
       const copy = NS.World.fromSnapshot(raw);
       const t0 = performance.now();
       globalThis.__nsAiMove = true;
-      commands.push(...NS.aiMove(copy.view(), { player: p, difficulty: levels[p] }, memory[p], () => {}));
+      const got = NS.aiMove(copy.view(), { player: p, difficulty: levels[p] }, memory[p], () => {});
+      if (trace) for (const c of got) if (c.t === 'moveTransport' || c.t === 'capturePriest') console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: side \${p} \${c.t} \${c.transport} → \${c.x ?? ''},\${c.y ?? ''}\${c.target ?? ''}\`);
+      commands.push(...got);
       globalThis.__nsAiMove = false;
       stats[p].moveMs += performance.now() - t0;
       stats[p].moves++;
     }
     world.step(commands);
+    if (trace && world.tick % (60 * NS.TPS) === 0) {
+      const line = [];
+      for (const p of [1, 2]) {
+        const pl = world.players.get(p), mine = [...world.entities.values()].filter((e) => e.owner === p);
+        const foe = world.templeOf(3 - p), temple = world.templeOf(p), priest = world.priestOf(p);
+        const guns = mine.filter((e) => e.kind === 'building' && ['Shooter', 'Anti-Air'].includes(world.def(e.type).cls));
+        const near = foe ? Math.min(Infinity, ...guns.map((g) => Math.hypot(g.x + g.fx / 2 - foe.x - foe.fx / 2, g.y + g.fy / 2 - foe.y - foe.fy / 2) - (world.def(g.type).range ?? 0))) : NaN;
+        line.push(\`S\${p}: ⚡\${Math.round(pl.storm)} carriers \${mine.filter((e) => e.kind === 'transport').length} guns \${guns.length} gens \${mine.filter((e) => e.kind === 'building' && world.def(e.type).group === 'battery').length} \`
+          + \`temple \${temple ? Math.round(100 * temple.hp / temple.hpMax) : 0}% priest \${priest ? \`\${Math.round(100 * priest.hp / priest.hpMax)}% \${priest.state}\` : '-'} gun→foe temple \${Number.isFinite(near) ? Math.round(near) : '-'} hand \${pl.hand.length}\`);
+      }
+      console.log(\`\${(world.tick / NS.TPS / 60).toFixed(0).padStart(2)} min  \${line.join('  |  ')}\`);
+    }
     for (const ev of world.drainEvents()) {
       const s = stats[ev.who];
       if (!s) continue;
@@ -64,6 +80,11 @@ export async function match(seed, side1, side2, minutes) {
       else if (ev.what === 'bridge') s.pieces++;
       else if (ev.what === 'destroyed') s.lost++;
       else if (ev.what === 'priest down') { s.downs++; firstDown ??= world.tick; }
+      if (trace && ev.what === 'rejected' && ev.who === 1) console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: side 1 refused \${ev.data.cmd}: \${ev.data.err}\`);
+      if (trace && ev.what === 'destroyed' && ['Ground Transport', 'Aerial Transport'].includes(world.defs.get(ev.data.type)?.cls)) console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: side \${ev.who} lost carrier \${ev.data.id}\`);
+      if (trace && ['priest down', 'captured', 'released', 'chained', 'sacrifice', 'too early', 'rune'].includes(ev.what)) {
+        console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: \${ev.what} (side \${ev.who})\`);
+      }
       else if (ev.what === 'captured') s.captures++;
       else if (ev.what === 'rejected') s.rejected++;
     }
@@ -77,7 +98,8 @@ export async function match(seed, side1, side2, minutes) {
 if (process.env.ARENA_MATCH) {
   const [seed, side1, side2, minutes] = process.env.ARENA_MATCH.split(':');
   const { match } = await import(pathToFileURL(OUT).href);
-  console.log(JSON.stringify(await match(Number(seed), side1, side2, Number(minutes))));
+  console.log(JSON.stringify(await match(Number(seed), side1, side2, Number(minutes), process.env.TRACE === '1',
+    process.env.TUNE ? JSON.parse(process.env.TUNE) : null)));
   process.exit(0);
 }
 
@@ -93,6 +115,15 @@ await esbuild.build({
   },
   plugins: [messages, houseRules(), aiMemo({ gated: true })],
 });
+
+if (process.env.TRACE === '1') {
+  // one match, a line a minute: PAIRS=hard:easy SEEDS=1 TRACE=1 npm run ai:arena
+  const [a, b] = (process.env.PAIRS ?? 'hard:easy').split(',')[0].split(':');
+  const spec = `${(process.env.SEEDS ?? '1').split(',')[0]}:${a}:${b}:${Number(process.env.MINUTES ?? 30)}`;
+  await new Promise((done) => execFile(process.execPath, [new URL(import.meta.url).pathname], { env: { ...process.env, ARENA_MATCH: spec }, maxBuffer: 1 << 24 },
+    (error, stdout, stderr) => { process.stdout.write(stdout + stderr); done(); }));
+  process.exit(0);
+}
 
 const pairs = (process.env.PAIRS ?? 'hard:idle,hard:easy,hard:normal,normal:easy,hard:hard').split(',').map((p) => p.split(':'));
 const seeds = (process.env.SEEDS ?? '1,2,3,4').split(',').map(Number);

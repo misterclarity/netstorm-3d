@@ -163,6 +163,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run dev` | Builds in watch mode and serves the page on port 8080 (set `PORT` to change it). |
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
 | `npm run lint` | ESLint over the client and the scripts (`eslint.config.mjs`): undefined or unused names, unreachable code, shadowed names; any warning fails it. CI runs it. |
+| `npm run ai:arena` | Matches of the computer against itself or against an idle side, on skirmish maps as the menu makes them, with this game's rules: wins, minutes to win, when a Priest first falls, crystals, guns, time per move. `PAIRS=hard:easy,normal:idle SEEDS=1,2,3,4 MINUTES=30`; `TRACE=1` follows one match minute by minute with every capture event; `TUNE='{"hard":{…}}'` turns a level's knobs for a trial. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error, then compares the HUD's account of Energy (`src/energy.js`) with the rules' own answer at every site of a map, with units and Generators of every Fury and level. CI runs it. |
 | `npm run ai-check` | Plays eight minutes of a skirmish at each level twice, with and without the AI worker's cache (below), and fails unless the computer makes the same moves both ways; prints how long a move takes. CI runs it. |
 | `npm run playtest` | Plays the built page in headless Chromium (Playwright), failing on any page error: the mission's opening; a staged endgame, whose Victory waits for the Sacrifice to be heard out; a downed Priest captured with no Altar yet and carried there once one stands; an order the rules would refuse refused at once, without the unit answering; Auto-collect on and off; several Golems selected with a box, sent together, Shift-clicked out, cleared, an idle one picked with I and all picked with a double click; an air ship clicked by its body and sent across the island; a Golem sent to a geyser by a click on its steam; a Priest sent to a geyser while holding a crystal; five minutes of a skirmish (with its Residences and greenery); five minutes of a battle the computer plays on both sides, in both art styles and on the table, checked for any warning, any unit drawn out of place or out of step with the world, and "NaN" in the HUD; and the tabletop (with the mouse, then with faked VR controllers). Run one with `node scripts/playtest.mjs <name>`. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
@@ -231,7 +232,17 @@ Altar is built. And a Transport can be sent to a place, not only for something (
 "Left-click someplace legal, and the Transport will move there", as the original's help puts it.
 Golems walk there; air ships fly there and land. The computer captures by the same rule: it
 sends its carriers for a downed Priest before it has an Altar, and on to the Altar once it has one.
-`npm run check` sets that up and fails if it does not. A Priest sent to a geyser works that one
+`npm run check` sets that up and fails if it does not.
+
+**The computer opponent**, netstorm-web's, plays here with three changes measured in
+`npm run ai:arena`, each a knob of its levels. Traced matches showed why it rarely won: it paid for
+a defence whenever enemy ground came near, fired on or not, and the guns it wanted at the enemy
+Priest were never paid for; a Priest it knocked out got up again before a carrier came; and the
+carriers it sent walked through his guns and died. Now **Hard puts the assault first** (no defence
+for ground that merely comes near while its guns are wanted at the enemy and nothing of its own is
+fired on); **carriers wait** at the nearest safe ground by an enemy Priest under fire (Normal one,
+Hard two), to take him the moment he falls; and **Normal and Hard send no carrier on a way through
+more fire than it would survive**. `npm run check` checks the carriers in wait. A Priest sent to a geyser works that one
 alone: when it is spent he stops and waits for orders, where netstorm-web walks him on to the
 geyser nearest his Temple, which can take him to the front. Golems and air ships still move on.
 

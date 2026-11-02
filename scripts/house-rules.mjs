@@ -196,6 +196,237 @@ CHANGES.push({
   const home = world.templeOf(t.owner);`,
 });
 
+// The assault first (a level's choice, `assaultFirst`). netstorm-web's opponent spends on a defence
+// as soon as enemy ground comes within 12 cells, fired on or not, and holds a reserve for one: two
+// sides whose islands face each other then pour everything into guns at home, and the guns it wants
+// at the enemy's Priest or Temple are never paid for (measured in npm run ai:arena: Hard knocked
+// Easy's Priest out by the tenth minute in every match and won none). A level that puts the
+// assault first, while its guns are wanted at the enemy and nothing of its own is fired on or lost,
+// keeps neither: Storm Power goes to the assault. A real attack still calls the defence at once.
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'a level may put the assault first',
+  was: `  siegeSeconds: number;
+}`,
+  now: `  siegeSeconds: number;
+  /** (netstorm-3d) While its guns are wanted at the enemy and it is not fired on, no defence for
+   * ground that merely comes near, and no reserve held for one. */
+  assaultFirst: boolean;
+}`,
+}, {
+  file: 'ai/params.ts',
+  why: 'a level may put the assault first',
+  was: `    siegeSeconds: Infinity,
+  },`,
+  now: `    siegeSeconds: Infinity,
+    assaultFirst: false,
+  },`,
+}, {
+  file: 'ai/params.ts',
+  why: 'a level may put the assault first',
+  was: `    siegeSeconds: 240,
+  },`,
+  now: `    siegeSeconds: 240,
+    assaultFirst: false,
+  },`,
+}, {
+  file: 'ai/params.ts',
+  why: 'a level may put the assault first',
+  was: `    siegeSeconds: 120,
+  },`,
+  now: `    siegeSeconds: 120,
+    assaultFirst: true,
+  },`,
+}, {
+  file: 'ai.ts',
+  why: 'a level may put the assault first',
+  was: `  const params: Readonly<AiParams> = {
+    ...DIFFICULTY[options.difficulty ?? 'normal'],`,
+  now: `  const params: Readonly<AiParams> = {
+    ...DIFFICULTY[options.difficulty ?? 'normal'],
+    // (netstorm-3d) a level's knobs turned for a trial by scripts/ai-arena.mjs (TUNE); never in play
+    ...((globalThis as { __nsAiTune?: Record<string, Partial<AiParams>>; }).__nsAiTune?.[options.difficulty ?? 'normal'] ?? {}),`,
+}, {
+  file: 'ai.ts',
+  why: 'a level may put the assault first',
+  was: `  const seen = noticed(world, memory, params.reactionMoves * params.moveSeconds);`,
+  now: `  const seen = noticed(world, memory, params.reactionMoves * params.moveSeconds);
+  // (netstorm-3d) whether the last move wanted guns at the enemy; this move finds out anew
+  const assaultWanted = (memory as { assaultWanted?: boolean; } | undefined)?.assaultWanted ?? false;
+  if (memory) (memory as { assaultWanted?: boolean; }).assaultWanted = false;`,
+}, {
+  file: 'ai.ts',
+  why: 'a level may put the assault first',
+  was: `  const defend = defendScore(pressure);`,
+  now: `  // (netstorm-3d) the assault first: no defence for ground that merely comes near, nor a reserve
+  const assaultFirst = params.assaultFirst && assaultWanted && !pressure.fired && pressure.losses === 0;
+  const defend = assaultFirst ? 0 : defendScore(pressure);`,
+}, {
+  file: 'ai.ts',
+  why: 'a level may put the assault first',
+  was: `  let reserve = defend === 0 ? Math.min(move.budget, params.reserveShooters * cheapest) : 0;`,
+  now: `  let reserve = defend === 0 && !assaultFirst ? Math.min(move.budget, params.reserveShooters * cheapest) : 0;`,
+}, {
+  file: 'ai.ts',
+  why: 'a level may put the assault first',
+  was: '    const at = `the head at ${head.x},${head.y} toward ${describeTarget(target)}`;',
+  now: '    const at = `the head at ${head.x},${head.y} toward ${describeTarget(target)}`;\n'
+    + '    if (memory && atPriest && (covering < params.concentrate || siege)) (memory as { assaultWanted?: boolean; }).assaultWanted = true;',
+});
+
+// Carriers in wait (a level's `stageCarriers`). A Priest knocked out gets up again within
+// seconds; netstorm-web's opponent sends its carriers for him only once he is down, from wherever
+// they work, and they rarely come in time (traced in the arena: an enemy Priest down seven times
+// over ten minutes before one was carried off). Its notes say why it could do no better: no
+// command sent a transport to a place. This game has one (above). While the enemy Priest is
+// being shot at and stands within six cells of ground its carriers walk to, the level's number of
+// them wait at the nearest such cell out of enemy fire, and are not sent collecting meanwhile.
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'carriers wait near an enemy Priest under fire',
+  was: `  assaultFirst: boolean;
+}`,
+  now: `  assaultFirst: boolean;
+  /** (netstorm-3d) Carriers that wait near the enemy Priest while he is shot at, to carry him off
+   * the moment he falls. */
+  stageCarriers: number;
+}`,
+}, ...[['    siegeSeconds: Infinity,\n    assaultFirst: false,', 0], ['    siegeSeconds: 240,\n    assaultFirst: false,', 1], ['    siegeSeconds: 120,\n    assaultFirst: true,', 2]]
+  .map(([was, n]) => ({ file: 'ai/params.ts', why: 'carriers wait near an enemy Priest under fire', was, now: `${was}\n    stageCarriers: ${n},` })),
+{
+  file: 'ai.ts',
+  why: 'carriers wait near an enemy Priest under fire',
+  was: `    collect(world, move, transports, geysers, options.avoidDanger !== false);`,
+  now: `    // (netstorm-3d) the carriers waiting by an enemy Priest under fire are not sent collecting
+    const waiting = stage(world, move, memory, transports, reached);
+    collect(world, move, transports.filter((t) => !waiting.has(t.id)), geysers, options.avoidDanger !== false);`,
+}, {
+  file: 'ai.ts',
+  why: 'carriers wait near an enemy Priest under fire',
+  was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+  now: `/**
+ * (netstorm-3d) While the enemy Priest is shot at (up, below his full health) and stands within six
+ * cells of ground the AI's carriers walk to, the level's number of carriers wait at the nearest
+ * cell of that ground out of enemy fire, so that one is by him the moment he falls. Those already
+ * waiting stay; the others are the nearest without cargo. Returns the carriers kept waiting.
+ */
+function stage(
+  world: WorldView,
+  move: Move,
+  memory: AiMemory | undefined,
+  transports: View<Transport>[],
+  reached: Uint8Array | null,
+): Set<number> {
+  const kept = new Set<number>();
+  const mem = memory as { staged?: number[]; } | undefined;
+  const want = move.params.stageCarriers ?? 0;
+  const foe = enemyPriest(world, move.me, 'normal');
+  let spot: [number, number] | null = null;
+
+  if (want > 0 && reached && foe && foe.hp < foe.hpMax) {
+    let best = Infinity;
+
+    for (let dy = -6; dy <= 6; dy++) {
+      for (let dx = -6; dx <= 6; dx++) {
+        const x = foe.x + dx;
+        const y = foe.y + dy;
+        const i = world.inside(x, y) ? world.at(x, y) : -1;
+
+        if (i >= 0 && reached[i] === 1 && move.threat[i]! <= 0 && !world.takenBy(x, y) && Math.abs(dx) + Math.abs(dy) < best) {
+          best = Math.abs(dx) + Math.abs(dy);
+          spot = [x, y];
+        }
+      }
+    }
+  }
+
+  if (!spot) {
+    if (mem) mem.staged = [];
+    return kept;
+  }
+
+  const [sx, sy] = spot;
+  const before = new Set(mem?.staged ?? []);
+  const free = transports.filter((t) => t.carrying === null && t.goal !== 'capture' && t.goal !== 'altar')
+    .sort((a, b) => Number(before.has(b.id)) - Number(before.has(a.id))
+      || Math.abs(a.x - sx) + Math.abs(a.y - sy) - (Math.abs(b.x - sx) + Math.abs(b.y - sy)));
+
+  for (const t of free.slice(0, want)) {
+    kept.add(t.id);
+    const end = t.path.length ? t.path[t.path.length - 1]! : [t.x, t.y];
+
+    if (Math.abs(end[0] - sx) + Math.abs(end[1] - sy) > 2) {
+      move.commands.push({ t: 'moveTransport', player: move.me, transport: t.id, x: sx, y: sy } as unknown as Command);
+    }
+  }
+
+  if (mem) mem.staged = [...kept];
+  return kept;
+}
+
+/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+});
+
+// Capture runs it would survive (a level's `safeCapture`). Traced in the arena: carriers sent for a
+// downed Priest, or to wait by him, walked through his guns and died on the way, six in six minutes
+// (some 2400 Storm Power) with no capture. netstorm-web's opponent already weighs a way to a geyser
+// so (the fire along it, at the carrier's pace, against its hit points); with this, a level weighs
+// the way to a downed Priest, and to the cell where carriers wait, the same, and sends none on a
+// way it would not survive.
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'capture runs a carrier would survive',
+  was: `  stageCarriers: number;
+}`,
+  now: `  stageCarriers: number;
+  /** (netstorm-3d) Sends no carrier for a downed Priest, or to wait by him, on a way through more
+   * fire than it would survive. */
+  safeCapture: boolean;
+}`,
+}, ...[['    stageCarriers: 0,', false], ['    stageCarriers: 1,', true], ['    stageCarriers: 2,', true]]
+  .map(([was, on]) => ({ file: 'ai/params.ts', why: 'capture runs a carrier would survive', was, now: `${was}\n    safeCapture: ${on},` })),
+{
+  file: 'ai.ts',
+  why: 'capture runs a carrier would survive',
+  was: `  const runners = transports
+    .filter((t) => t.carrying === null && t.goal !== 'capture')
+    .map((t) => ({
+      t,
+      way: world.findPath(move.me, t.x, t.y, ([x, y]) => distance(x, y, captive.x, captive.y) <= 1)
+        ?.length ?? Infinity,
+    }))`,
+  now: `  const runners = transports
+    .filter((t) => t.carrying === null && t.goal !== 'capture')
+    .map((t) => {
+      const path = world.findPath(move.me, t.x, t.y, ([x, y]) => distance(x, y, captive.x, captive.y) <= 1);
+      // (netstorm-3d) a run the carrier would not survive is no run
+      return { t, way: path && (!move.params.safeCapture || survives(world, move, t, path)) ? path.length : Infinity };
+    })`,
+}, {
+  file: 'ai.ts',
+  why: 'capture runs a carrier would survive',
+  was: `  for (const t of free.slice(0, want)) {
+    kept.add(t.id);`,
+  now: `  for (const t of free) {
+    if (kept.size >= want) break;
+    // a carrier that would not live to get there stays where it is
+    const way = before.has(t.id) ? null : world.findPath(move.me, t.x, t.y, ([x, y]) => x === sx && y === sy);
+    if (!before.has(t.id) && (!way || (move.params.safeCapture && !survives(world, move, t, way)))) continue;
+    kept.add(t.id);`,
+}, {
+  file: 'ai.ts',
+  why: 'capture runs a carrier would survive',
+  was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+  now: `/** (netstorm-3d) Whether a carrier lives through the enemy's fire along a way: the damage per
+ * second on each cell, at its pace, against its hit points (as netstorm-web weighs a way to a
+ * geyser). */
+function survives(world: WorldView, move: Move, t: View<Transport>, path: readonly (readonly [number, number])[]): boolean {
+  return path.reduce((sum, [x, y]) => sum + move.threat[world.at(x, y)]!, 0) / world.def(t.type).speed < t.hp;
+}
+
+/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+});
+
 export function houseRules() {
   return {
     name: 'house-rules',

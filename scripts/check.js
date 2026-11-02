@@ -124,6 +124,28 @@ const played = `${world.tick} ticks, Storm Power ${Math.round(me.storm)}, ${view
   console.log('geysers: a Priest waits when his geyser is spent, a Golem moves on');
 }
 
+// Carriers in wait (scripts/house-rules.mjs): the player's Priest wounded but up, beside the
+// computer's Temple, two of its Golems on its island. At Hard its next move sends carriers to wait
+// by him; at Easy (none in wait) it does not.
+for (const [level, want] of [['hard', true], ['easy', false]]) {
+  const w4 = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+  const v4 = w4.view(), foe = w4.templeOf(2), mine = w4.priestOf(NS.ME);
+  const open = [];
+  for (let y = foe.y - 3; y < foe.y + foe.fy + 3; y++) {
+    for (let x = foe.x - 3; x < foe.x + foe.fx + 3; x++) {
+      const i = w4.at(x, y);
+      if (w4.terrain[i] === 1 && !w4.occupant[i] && !w4.priestAt(x, y)) open.push([x, y]);
+    }
+  }
+  Object.assign(mine, { x: open[0][0], y: open[0][1], path: [], goal: 'idle', state: 'normal', hp: Math.floor(mine.hpMax * 0.7) });
+  const far = open.filter(([x, y]) => Math.abs(x - mine.x) + Math.abs(y - mine.y) >= 6);
+  for (const [x, y] of far.slice(-2)) w4.spawnTransport('sunwalker', 2, x, y);
+  const orders = NS.aiMove(v4, { ...mission.sides[2]?.ai, player: 2, difficulty: level }, NS.createAiMemory(9), () => {});
+  const waits = orders.filter((c) => c.t === 'moveTransport').length;
+  if ((waits > 0) !== want) fail(`at ${level}, ${waits} carriers sent to wait by a wounded enemy Priest`);
+}
+console.log('waiting: at Hard carriers wait by a wounded enemy Priest, at Easy none');
+
 // The HUD's account of Energy (src/energy.js) agrees with the rules everywhere: for every unit
 // that needs Energy, at every site where the rules have nothing else against it, `ok` is whether
 // the rules build it. Its own module reads A-Frame's THREE as it loads; a stand-in will do here.

@@ -11,7 +11,8 @@
     "check": "node scripts/build.mjs --check",
     "playtest": "node scripts/playtest.mjs",
     "ai-check": "node scripts/ai-check.mjs",
-    "lint": "eslint --max-warnings 0 ."
+    "lint": "eslint --max-warnings 0 .",
+    "ai:arena": "node scripts/ai-arena.mjs"
   },
   "devDependencies": {
     "aframe": "1.8.0",
