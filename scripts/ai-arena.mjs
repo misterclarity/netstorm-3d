@@ -7,6 +7,9 @@
  *   PAIRS=hard:idle,hard:easy SEEDS=1,2,3,4,5,6 npm run ai:arena
  *   MINUTES=20 JOBS=2 npm run ai:arena
  *   TUNE='{"hard":{"assaultFirst":false}}' npm run ai:arena   # a level's knobs turned for a trial
+ *   PAIRS=hard:easy SEEDS=2 TRACE=1 npm run ai:arena        # one match, a line a minute
+ *   … TRACE=1 EXPLAIN=12 EXPLAIN_FOR=0.5                  # and side 1's reasons from minute 12
+ *   … TRACE=1 DIAG=16                                      # why no gun of side 1 stands by the Temple
  *
  * A side is a level (easy, normal, hard, and any added to the table) or idle. Side 1 plays Wind,
  * side 2 Rain, on four islands with 2000 Storm Power, as the menu's defaults. Each move is worked
@@ -49,7 +52,14 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
       if (levels[p] === 'idle' || (world.tick - p) % every(p) !== 0) continue;
       const raw = structuredClone(world.handoff());
       for (const g of ['terrain', 'owner', 'links', 'wear', 'occupant']) raw[g] = Array.from(raw[g]);
-      const copy = NS.World.fromSnapshot(raw);
+      let copy;
+      try { copy = NS.World.fromSnapshot(raw); } catch (e) {
+        // the entity the world's own check refuses, and what it points at, to find where it came from
+        const id = Number(/for ([0-9]+)/.exec(e.message)?.[1]);
+        const bad = raw.entities.find((x) => x.id === id);
+        const target = bad?.target == null ? 'none' : raw.entities.find((x) => x.id === bad.target)?.kind ?? 'gone';
+        throw new Error(\`\${e.message} at \${(world.tick / NS.TPS / 60).toFixed(2)} min: \${bad?.kind} \${bad?.goal}, its target \${bad?.target} (\${target})\`);
+      }
       const t0 = performance.now();
       globalThis.__nsAiMove = true;
       // EXPLAIN=15 prints side 1's reasoning for its moves in the 15th minute
@@ -63,6 +73,21 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
       stats[p].moves++;
     }
     world.step(commands);
+    // DIAG=16: in the 16th minute, why side 1 lays no gun that reaches the enemy Temple
+    if (process.env.DIAG && world.tick === Math.round(Number(process.env.DIAG) * 60 * NS.TPS)) {
+      const foe = world.templeOf(2), view = world.view(), tally = {};
+      for (const id of world.players.get(1).tech) {
+        const def = world.defs.get(id);
+        if (!def || !(def.dps > 0) || !(def.range > 0) || def.level < 1) continue;
+        for (let y = foe.y - def.range - 2; y <= foe.y + foe.fy + def.range + 2; y++) for (let x = foe.x - def.range - 2; x <= foe.x + foe.fx + def.range + 2; x++) {
+          if (!world.inside(x, y)) continue;
+          const got = view.canBuild({ player: 1, type: id, x, y, facing: 0 });
+          const key = id + ' ' + (got ?? 'ok');
+          tally[key] = (tally[key] ?? 0) + 1;
+        }
+      }
+      console.log('DIAG', JSON.stringify(tally));
+    }
     if (trace && world.tick % (60 * NS.TPS) === 0) {
       const line = [];
       for (const p of [1, 2]) {

@@ -234,7 +234,10 @@ Altar is built. And a Transport can be sent to a place, not only for something (
 "Left-click someplace legal, and the Transport will move there", as the original's help puts it.
 Golems walk there; air ships fly there and land. The computer captures by the same rule: it
 sends its carriers for a downed Priest before it has an Altar, and on to the Altar once it has one.
-`npm run check` sets that up and fails if it does not.
+`npm run check` sets that up and fails if it does not. And a new geyser that rises where a spent one stood takes over the carriers
+bound for the old one: netstorm-web left them bound for a geyser that no longer existed, and the
+world's own check then refused the copies made for the computer's moves until they arrived (found
+in `npm run ai:arena`).
 
 **The computer opponent**, netstorm-web's, plays here with changes measured in
 `npm run ai:arena`, each a knob of its levels (the menu sums each level up in a line). Traced matches showed why it rarely won: it paid for
@@ -248,8 +251,11 @@ more fire than it would survive**. Later traces added more: **Easy defends only 
 on** or loses something, not whenever enemy ground comes near (it had walled itself in with as many
 guns as Hard); **Normal and Hard keep their Priest safe**, with Outposts on the free ground nearest
 the Temple, an idle Priest walked home and no geyser for him beyond 24 cells (Hard's had walked 100
-cells out and lain knocked out for twenty minutes); **Normal and Hard lay no Generator ahead of the
-guns while they have three more Generators than guns** (sides had 25 to 37 to 5 to 11 guns);
+cells out and lain knocked out for twenty minutes); **Hard lays no Generator ahead of its guns while
+it has three more Generators than guns** (sides had 25 to 37 to 5 to 11 guns; Normal, slower to
+lay its guns, came later to the enemy without them, so it keeps them);
+**Normal and Hard lay their next bridge piece to a downed Priest** no ground of theirs leads to
+(Hard had knocked Easy's out seven cells from its bridge, and he lay there a minute);
 **Hard fetches a downed Priest by air** where no bridge of its leads, and buys a flying carrier
 once that happens; carriers also wait while the enemy Temple is under fire, since its fall knocks
 the Priest out; and at every level a side left with no carrier and too little Storm Power for one

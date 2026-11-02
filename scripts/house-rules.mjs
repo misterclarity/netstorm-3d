@@ -545,6 +545,9 @@ function homeward(world: WorldView, move: Move): void {
 // in the arena a side had 25 to 37 Generators to 5 to 11 guns by the 24th minute, some 10000 Storm
 // Power that never fired. A lean level lays none ahead of the guns while it has three more than
 // guns; one a gun wants where it is laid is laid as before.
+// Hard only: in the arena it took Hard to an idle enemy's Priest two minutes sooner (12.5 minutes
+// against 14.9), but Normal's arm then lacked the Energy its slower guns wanted at the head and it
+// came two minutes later (16.1 against 14.4, one map not won in 30).
 CHANGES.push({
   file: 'ai/params.ts',
   why: 'no more Generators than guns need',
@@ -554,7 +557,7 @@ CHANGES.push({
   /** (netstorm-3d) No Generator along a bridge while there are three more Generators than guns. */
   leanEnergy: boolean;
 }`,
-}, ...[['    alarm: false,\n    priestSafety: false,', false], ['    stageCarriers: 1,\n    safeCapture: true,\n    alarm: true,\n    priestSafety: true,', true], ['    stageCarriers: 2,\n    safeCapture: true,\n    alarm: true,\n    priestSafety: true,', true]]
+}, ...[['    alarm: false,\n    priestSafety: false,', false], ['    stageCarriers: 1,\n    safeCapture: true,\n    alarm: true,\n    priestSafety: true,', false], ['    stageCarriers: 2,\n    safeCapture: true,\n    alarm: true,\n    priestSafety: true,', true]]
   .map(([was, on]) => ({ file: 'ai/params.ts', why: 'no more Generators than guns need', was, now: `${was}\n    leanEnergy: ${on},` })),
 {
   file: 'ai.ts',
@@ -701,6 +704,58 @@ function flierFor(
 }
 
 /** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+});
+
+// A bridge to a downed Priest (a level's `chaseDowned`). Traced in the arena: Hard knocked Easy's
+// Priest out seven cells from its own bridge head, and he lay there a minute; no ground of Hard's
+// led to him, the bridge kept on toward his Temple, and the carriers sent once a piece happened to
+// reach him died on the long way. A level that chases a downed Priest grows its first bridge of
+// the move to the sky beside him while no ground of its leads there.
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'a bridge to a downed Priest',
+  was: `  airCapture: boolean;
+}`,
+  now: `  airCapture: boolean;
+  /** (netstorm-3d) A bridge to the sky beside a downed enemy Priest no ground of the side leads to. */
+  chaseDowned: boolean;
+}`,
+}, ...perLevel('a bridge to a downed Priest', 'chaseDowned', [false, true, true]), {
+  file: 'ai.ts',
+  why: 'a bridge to a downed Priest',
+  was: `  const wanted = geysers.slice(0, move.params.planningGeysers).map((g) => g.target);
+  return attack ? [...nearest, ...wanted] : [...wanted, ...nearest];`,
+  now: `  const wanted = geysers.slice(0, move.params.planningGeysers).map((g) => g.target);
+  // (netstorm-3d) a downed enemy Priest no ground of the side leads to: the sky beside him first
+  const fallen = move.params.chaseDowned ? enemyPriest(world, me, 'down') : undefined;
+  const walked = (x: number, y: number): boolean => world.inside(x, y) && reached?.[world.at(x, y)] === 1;
+  const chase: Target[] = fallen && reached && !walked(fallen.x, fallen.y)
+    && !DIRS.some(([dx, dy]) => walked(fallen.x + dx, fallen.y + dy))
+    ? [{ x: fallen.x, y: fallen.y, enemy: false, exact: true }]
+    : [];
+  return attack ? [...chase, ...nearest, ...wanted] : [...chase, ...wanted, ...nearest];`,
+});
+
+// A new geyser in a spent one's place takes over its carriers (a fix). A geyser spent in open sky
+// stays as an empty one, and a new geyser may later rise on that spot, replacing it; carriers still
+// bound for the empty one kept its id, which no longer named anything. The world's own check then
+// refused every copy of the world made for the computer's moves (found in the arena: a match
+// stopped at its 12th minute), so the opponent would stand still until the carrier arrived. Now
+// they go on to the new geyser, which stands on the same cell.
+CHANGES.push({
+  file: 'rules/geysers.ts',
+  why: 'carriers of a replaced geyser go to the new one',
+  was: `    const g = world.addGeyser(at.x, at.y, world.geyserStock, sky);`,
+  now: `    const g = world.addGeyser(at.x, at.y, world.geyserStock, sky);
+
+    // (netstorm-3d) carriers bound for the spent geyser it replaces go to the new one in its place
+    if (at.old) {
+      for (const e of world.entities.values()) {
+        if ((e.kind === 'transport' || e.kind === 'priest') && e.target === at.old.id) {
+          e.target = g.id;
+        }
+      }
+    }`,
 });
 
 // The first carrier paid for (a fix, for every level). Traced in the arena: Normal lost its last
