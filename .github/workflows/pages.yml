@@ -35,7 +35,8 @@ jobs:
       # the AI worker's cache leaves the computer's moves as they were
       - run: npm run ai-check
       - run: npm run build
-      # plays the built page in headless Chromium: the opening, a staged endgame, a skirmish and the tabletop
+      # plays the built page in headless Chromium: the opening, a staged endgame, orders and
+      # selection with mouse and keys, a skirmish, a battle the computer plays on both sides, the tabletop
       - run: npx playwright install --with-deps chromium
       - run: npm run playtest
       - uses: actions/upload-pages-artifact@v5

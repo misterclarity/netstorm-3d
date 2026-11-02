@@ -530,6 +530,74 @@ SCENARIOS.group = async () => {
 };
 
 /**
+ * A battle played by the computer on both sides for five minutes of game time, the page drawing
+ * between stretches, in both art styles and on the table: no page error or warning, every unit
+ * drawn where a unit can be, the units on the screen those of the world, and no "NaN" or
+ * "undefined" in the HUD.
+ */
+SCENARIOS.soak = async () => {
+  const { page, errors } = await open({ width: 1100, height: 700 });
+  const warnings = [];
+  page.on('console', (m) => { if (m.type() === 'warning') warnings.push(m.text()); });
+  await page.selectOption('#skTheme', 'wind');
+  await page.selectOption('#skEnemy', 'thunder');
+  await page.fill('#skSeed', '11');
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  await page.click('#modal button.main');
+  await page.evaluate(() => {
+    const { G, NS } = window.NS3D;
+    window.seen = {};
+    const emit = G.world.emit.bind(G.world);
+    G.world.emit = (ev) => { window.seen[ev.what] = (window.seen[ev.what] ?? 0) + 1; emit(ev); };
+    window.mine = NS.createAiMemory(21);
+  });
+  const play = (n) => page.evaluate((ticks) => {
+    const { G, NS, stepWorld, flushPendingAi, submit } = window.NS3D;
+    G.worker?.terminate(); G.worker = null;
+    for (let i = 0; i < ticks && !G.ended && G.view.winner == null; i++) {
+      if (G.world.tick % 60 === 7) for (const c of NS.aiMove(G.view, { player: 1, difficulty: 'normal' }, window.mine, () => {})) submit(c);
+      if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+    }
+    return G.ended || G.view.winner != null;
+  }, n);
+  const art = (mode) => page.evaluate((m) => document.querySelector('a-scene').systems['ns-art'].setMode(m), mode);
+  for (let i = 0; i < 10; i++) {
+    const over = await play(300);
+    await page.waitForTimeout(300);
+    if (i === 2) await art('models');
+    if (i === 5) await page.keyboard.press('t');
+    if (i === 6) await page.keyboard.press('t');
+    if (i === 7) await art('sprites');
+    if (over) break;
+  }
+  // the units on the screen follow the world on the next frames (a slow software renderer here);
+  // the battle is held, so that no step adds a unit between the frame and the look
+  await page.evaluate(() => { window.NS3D.G.paused = true; });
+  await page.waitForFunction(() => {
+    const { G } = window.NS3D, units = window.NS3D.game.units();
+    return [...units.byId.keys()].every((id) => G.view.entities.has(id)) && [...G.view.entities.keys()].every((id) => units.byId.has(id));
+  }, null, { polling: 250, timeout: 15000 }).catch(() => {});
+  const state = await page.evaluate(() => {
+    const { G } = window.NS3D, units = window.NS3D.game.units();
+    const bad = [];
+    for (const [id, el] of units.byId) {
+      const p = el.object3D.position;
+      if (![p.x, p.y, p.z].every(Number.isFinite) || Math.abs(p.x) > 300 || Math.abs(p.z) > 300) bad.push(id);
+    }
+    const shown = [...units.byId.keys()].filter((id) => !G.view.entities.has(id)).length, missing = [...G.view.entities.keys()].filter((id) => !units.byId.has(id)).length;
+    const hud = ['top', 'right', 'sel', 'bar', 'toasts'].map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+    return { tick: G.world.tick, bad, shown, missing, nan: /\bNaN\b|\bundefined\b/.test(hud), seen: window.seen };
+  });
+  if (state.bad.length) throw new Error(`units drawn where none can be: ${state.bad.join(', ')}`);
+  if (state.shown > 0 || state.missing > 0) throw new Error(`the units on the screen are not the world's: ${state.shown} too many, ${state.missing} missing`);
+  if (state.nan) throw new Error('"NaN" or "undefined" in the HUD');
+  if ((state.seen.build ?? 0) < 5 || (state.seen.bridge ?? 0) < 5) throw new Error(`too little happened: ${JSON.stringify(state.seen)}`);
+  if (warnings.length) throw new Error(`page warnings:\n  ${[...new Set(warnings)].slice(0, 5).join('\n  ')}`);
+  return errors;
+};
+
+/**
  * A Priest who holds a crystal (sent for a walk while carrying one home) and is sent to a geyser:
  * he banks it at the Temple first and then collects, instead of the order being refused.
  */
