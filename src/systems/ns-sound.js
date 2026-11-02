@@ -231,6 +231,7 @@ AFRAME.registerSystem('ns-sound', {
     this.building.clear();
     this.shots.clear();
     this.echoes = [];
+    this.scanned = -1;
     this.alarm = NS.createAlarm(G.view);
     this.ambience(true);
     this.music('ser22', true); // the menu's music while the briefing is up
@@ -312,6 +313,10 @@ AFRAME.registerSystem('ns-sound', {
       this.play(e.name);
       return false;
     });
+    // the rest follows the battle, which changes only when the world steps (ten times a second):
+    // looked at once a step, not every frame
+    if (G.world.tick === this.scanned) return;
+    this.scanned = G.world.tick;
     // a building going up loops jimbuild; when it is up, its own sound or buildDone (renderer.ts)
     for (const e of v.entities.values()) {
       if (e.kind !== 'building') continue;

@@ -32,6 +32,8 @@ AFRAME.registerSystem('ns-game', {
       this.start(G.setup, { menu: true });
       if (this.el.renderStarted) this.pace();
       else this.el.addEventListener('renderstart', () => this.pace(), { once: true });
+      // while the menu is up, the shaders the battle will need
+      setTimeout(() => this.warmUp(), 1200);
       setTimeout(() => document.getElementById('loading')?.classList.add('gone'), 300);
     });
   },
@@ -60,6 +62,55 @@ AFRAME.registerSystem('ns-game', {
       render(time, frame);
     });
     this.paced = true;
+  },
+
+  /**
+   * Compile every shader program the battle will need now, while the menu is up, instead of the
+   * first time each kind of thing appears: a shell in flight, an explosion's puff, a sprite card,
+   * a unit type, a placement ring. A program is compiled per kind of material, not per thing, so
+   * a sample of each kind is enough: everything in the scene, the hidden pools too (made visible
+   * for the moment the materials are gathered), a model of every unit, and the effects' and
+   * cards' materials. The samples are kept, so that their programs stay in the renderer's cache.
+   */
+  warmUp() {
+    const scene = this.el, renderer = scene.renderer, camera = scene.camera;
+    if (this.warm || !renderer?.compileAsync || !camera) return;
+    const extra = new THREE.Group();
+    for (const d of defs.values()) {
+      const kinds = { Shooter: 'building', Defense: 'building', 'Anti-Air': 'building', 'Source of Energy': 'building', 'Air Attack Base': 'building',
+        Production: 'building', Energy: 'building', Altar: 'building', 'Ground Transport': 'transport', 'Aerial Transport': 'transport', 'Aerial Attack': 'flyer' };
+      const kind = kinds[d.cls];
+      if (!kind) continue;
+      const e = { kind, type: d.id, owner: ME, id: 0, facing: 2, fx: d.footX, fy: d.footY, slots: [], upgrades: 0, stock: 1, rising: 0 };
+      const rep = { id: 0, kind, type: d.id, owner: ME, anim: [], own: [] }, g = new THREE.Group();
+      try {
+        const mk = models.modelKind(e);
+        models.MODELS[mk]?.(rep, g, e);
+        models.bake(g, `${mk}|${d.id}|${ME}`);
+        extra.add(g);
+      } catch { /* a unit whose model needs more than a sample has: its shader comes when it does */ }
+    }
+    for (const [kind, type] of [['priest', 'priest'], ['crystal', 'nugget'], ['geyser', 'geyser'], ['obelisk', 'obelisk']]) {
+      const g = new THREE.Group();
+      try { models.MODELS[kind]?.({ id: 0, owner: ME, anim: [], own: [] }, g, { kind, type, owner: ME, stock: 1 }); extra.add(g); } catch { /* as above */ }
+    }
+    const tex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    const box = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    for (const material of [
+      new THREE.MeshBasicMaterial({ color: '#ffd27a' }), // a shell in flight (ns-effects)
+      new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0.35, depthWrite: false }), // its glow, a puff
+      new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide }), // a sprite card or frame
+    ]) extra.add(new THREE.Mesh(box, material));
+    scene.object3D.add(extra);
+    const hidden = [];
+    scene.object3D.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+    // the materials are gathered now; the compiling goes on in the background
+    renderer.compileAsync(scene.object3D, camera).catch(() => {});
+    for (const o of hidden) o.visible = false;
+    scene.object3D.remove(extra);
+    this.warm = extra;
   },
 
   /** Whether the scene has to move smoothly now. */
