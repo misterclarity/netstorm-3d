@@ -11,6 +11,14 @@ import { toScene } from './space.js';
 
 const $ = (id) => document.getElementById(id);
 
+/** The computer's levels as the menu describes them (scripts/house-rules.mjs and netstorm-web's
+ * ai/params.ts set what each does). */
+const LEVELS = {
+  easy: 'Moves slowly and does little at a time. Defends only once you shoot at it. A good start.',
+  normal: 'Answers your bridges and guns, keeps its Priest near home and has a carrier ready when yours falls.',
+  hard: 'Fast and aggressive: guns at your Priest and Temple first, two carriers ready, and a fallen Priest fetched even by air.',
+};
+
 export class Hud {
   constructor(game) {
     this.game = game;
@@ -513,25 +521,43 @@ export class Hud {
     const s = { ...SKIRMISH_DEFAULTS, ...saved };
     const fury = (id, value) => `<select id="${id}">${['wind', 'rain', 'thunder'].map((f) => `<option value="${f}" ${f === value ? 'selected' : ''}>${f[0].toUpperCase() + f.slice(1)}</option>`).join('')}</select>`;
     const pick = (id, values, value, label = (x) => x) => `<select id="${id}">${values.map((x) => `<option value="${x}" ${String(x) === String(value) ? 'selected' : ''}>${label(x)}</option>`).join('')}</select>`;
+    let missionLevel = 'normal';
+    try { missionLevel = localStorage.getItem('netstorm-3d:mission-level') ?? 'normal'; } catch { /* no storage */ }
+    if (!LEVELS[missionLevel]) missionLevel = 'normal';
+    const level = (id, value) => `<label>Opponent ${pick(id, Object.keys(LEVELS), value, (x) => x[0].toUpperCase() + x.slice(1))}</label>`;
     this.modal(`<h2>NetStorm 3D</h2>
       <p class="text">Islands at war above the clouds: build bridges, gather Storm Power and sacrifice the enemy’s Priest.</p>
       <div class="modes">
         <section><h3>${escapeHtml(MISSION.title)}</h3><p>Mission 1 of the campaign: break free from ${escapeHtml(MISSION.enemy)}. Guided step by step.</p>
+          <div class="form">${level('msLevel', missionLevel)}</div>
+          <p class="level" id="msLevelNote"></p>
           <button class="main" data-start="mission">Play mission</button></section>
         <section><h3>Skirmish</h3><p>A random map against the computer.</p>
           <div class="form">
             <label>Your Fury ${fury('skTheme', s.theme)}</label>
             <label>Enemy Fury ${fury('skEnemy', s.enemyTheme)}</label>
             <label>Islands ${pick('skIslands', [2, 4, 6, 9], s.islands)}</label>
-            <label>Opponent ${pick('skLevel', ['easy', 'normal', 'hard'], s.difficulty, (x) => x[0].toUpperCase() + x.slice(1))}</label>
+            ${level('skLevel', s.difficulty)}
             <label>Storm Power ${pick('skStorm', [1000, 2000, 5000, 10000], s.storm)}</label>
             <label>Map <span class="seed"><input id="skSeed" type="number" min="0" max="99999" value="${s.seed}"><button type="button" id="skDice" title="Another map">🎲</button></span></label>
           </div>
+          <p class="level" id="skLevelNote"></p>
           <button class="main" data-start="skirmish">Start skirmish</button></section>
       </div>`, [{ label: 'How to play', act: () => this.howToPlay(() => this.menu()) }]);
     const box = $('modalBox');
     box.querySelector('#skDice').onclick = () => { box.querySelector('#skSeed').value = String(Math.floor(Math.random() * 100000)); };
-    box.querySelector('[data-start="mission"]').onclick = () => this.game.start({ mode: 'mission' });
+    // each level's line under its choice, kept up to date as it changes
+    for (const id of ['msLevel', 'skLevel']) {
+      const select = box.querySelector(`#${id}`), note = box.querySelector(`#${id}Note`);
+      const show = () => { note.textContent = LEVELS[select.value]; };
+      select.onchange = show;
+      show();
+    }
+    box.querySelector('[data-start="mission"]').onclick = () => {
+      const difficulty = box.querySelector('#msLevel').value;
+      try { localStorage.setItem('netstorm-3d:mission-level', difficulty); } catch { /* no storage */ }
+      this.game.start({ mode: 'mission', difficulty });
+    };
     box.querySelector('[data-start="skirmish"]').onclick = () => {
       const setup = {
         mode: 'skirmish',
@@ -564,7 +590,7 @@ export class Hud {
       <ol><li>Have your <b>Priest</b> build a <b>Sun Workshop</b>, then put the <b>Sun Cannon</b> in its production slots.</li>
       <li>Build <b>Golems</b> and send them to geysers for Storm Power. Lay <b>bridge pieces</b> to reach islets and the enemy.</li>
       <li>Knock out the enemy Priest with cannons, carry him to your <b>Altar</b> with a Golem, and have your Priest perform the sacrifice.</li></ol>
-      <p class="note">Your enemy, ${escapeHtml(mission.enemy)}, is played by netstorm-web’s own computer opponent.</p>`,
+      <p class="note">Your enemy, ${escapeHtml(mission.enemy)}, is played by netstorm-web’s own computer opponent, at ${G.setup.difficulty ?? 'normal'} level.</p>`,
     [{ label: 'How to play', act: () => this.howToPlay(() => this.briefing()) }, { label: 'Controls', act: () => this.help(true) },
       { label: 'Play mission', main: true, act: () => this.begin() }]);
   }
@@ -686,6 +712,10 @@ export class Hud {
         runes standing beside it; protect both until the last. In a skirmish nobody can be chained in the
         first two minutes.</li></ol>
       <p>The enemy will try the same: if your Priest is knocked out, shoot the carriers that come for him.</p>
+      <h3>The computer’s levels</h3>
+      <p>Chosen in the main menu, for the mission and the skirmish alike. <b>Easy</b>: ${LEVELS.easy}
+        <b>Normal</b>: ${LEVELS.normal} <b>Hard</b>: ${LEVELS.hard} All three pay the same prices and
+        start with the same Storm Power.</p>
       <h3>Tips</h3>
       <p>The <b>Next step</b> card at the top right always says what to do next. Golems come first: without
         Storm Power there is no army. Press <kbd>Space</kbd> to pause and look around, and <b>Help</b> for every

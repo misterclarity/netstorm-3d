@@ -13,7 +13,8 @@ project uses unchanged as its engine. This repository is the 3D client around it
 
 The main menu offers two kinds of battle against netstorm-web's computer opponent:
 
-- **Mission 1, *The War Begins!***, guided step by step (below).
+- **Mission 1, *The War Begins!***, guided step by step (below), at the opponent's level you
+  choose (easy, normal, hard).
 - **Skirmish**: a random map from a seed, with your Fury and the enemy's (Wind, Rain or Thunder),
   2 to 9 islands, the opponent's level (easy, normal, hard) and the starting Storm Power. You know
   your Fury's units (the original's alignment of that name) and the Sun's first ones; the
@@ -205,7 +206,8 @@ fifty units is about a hundred draw calls and nothing piles up on the GPU as uni
 
 **The computer opponent** is netstorm-web's AI (`aiMove` in its `packages/sim/src/ai.ts`): rules,
 not a learning system. Every few seconds of game time (in a skirmish 8 at easy, 5 at normal, 3 at
-hard; a mission sets its own) it reads the battle and gives the same kind of commands a player
+hard; a mission sets its own, which easy lengthens and hard shortens in the same proportion) it
+reads the battle and gives the same kind of commands a player
 does: it sends transports to geysers, lays bridge pieces toward the best free geyser and later
 toward the enemy, around the cells his guns cover (except at easy), places guns and Generators at
 its bridge heads, builds and fills Workshops for the Furies it knows, answers air units with
@@ -234,15 +236,24 @@ Golems walk there; air ships fly there and land. The computer captures by the sa
 sends its carriers for a downed Priest before it has an Altar, and on to the Altar once it has one.
 `npm run check` sets that up and fails if it does not.
 
-**The computer opponent**, netstorm-web's, plays here with three changes measured in
-`npm run ai:arena`, each a knob of its levels. Traced matches showed why it rarely won: it paid for
+**The computer opponent**, netstorm-web's, plays here with changes measured in
+`npm run ai:arena`, each a knob of its levels (the menu sums each level up in a line). Traced matches showed why it rarely won: it paid for
 a defence whenever enemy ground came near, fired on or not, and the guns it wanted at the enemy
 Priest were never paid for; a Priest it knocked out got up again before a carrier came; and the
 carriers it sent walked through his guns and died. Now **Hard puts the assault first** (no defence
 for ground that merely comes near while its guns are wanted at the enemy and nothing of its own is
 fired on); **carriers wait** at the nearest safe ground by an enemy Priest under fire (Normal one,
 Hard two), to take him the moment he falls; and **Normal and Hard send no carrier on a way through
-more fire than it would survive**. `npm run check` checks the carriers in wait. A Priest sent to a geyser works that one
+more fire than it would survive**. Later traces added more: **Easy defends only once it is fired
+on** or loses something, not whenever enemy ground comes near (it had walled itself in with as many
+guns as Hard); **Normal and Hard keep their Priest safe**, with Outposts on the free ground nearest
+the Temple, an idle Priest walked home and no geyser for him beyond 24 cells (Hard's had walked 100
+cells out and lain knocked out for twenty minutes); **Normal and Hard lay no Generator ahead of the
+guns while they have three more Generators than guns** (sides had 25 to 37 to 5 to 11 guns);
+**Hard fetches a downed Priest by air** where no bridge of its leads, and buys a flying carrier
+once that happens; carriers also wait while the enemy Temple is under fire, since its fall knocks
+the Priest out; and at every level a side left with no carrier and too little Storm Power for one
+salvages a spare gun for it. `npm run check` checks the carriers in wait. A Priest sent to a geyser works that one
 alone: when it is spent he stops and waits for orders, where netstorm-web walks him on to the
 geyser nearest his Temple, which can take him to the front. Golems and air ships still move on.
 

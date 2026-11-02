@@ -643,6 +643,27 @@ SCENARIOS.carrier = async () => {
   return errors;
 };
 
+SCENARIOS.levels = async () => {
+  const { page, errors } = await open();
+  // each choice of level has its line, and the mission is played at the level chosen for it
+  const notes = await page.evaluate(() => [document.getElementById('msLevelNote').textContent, document.getElementById('skLevelNote').textContent]);
+  if (notes.some((t) => t.length < 20)) throw new Error(`a level has no description: ${JSON.stringify(notes)}`);
+  await page.selectOption('#msLevel', 'hard');
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
+  const hard = await page.evaluate(() => document.getElementById('msLevelNote').textContent);
+  if (hard === notes[0]) throw new Error('the description did not follow the level chosen');
+  await startMission(page);
+  const got = await page.evaluate(() => {
+    const { G, NS } = window.NS3D;
+    return { level: G.options.difficulty, setup: G.setup.difficulty, normal: NS.DIFFICULTY.normal.moveSeconds, hard: NS.DIFFICULTY.hard.moveSeconds };
+  });
+  if (got.level !== 'hard' || got.setup !== 'hard') throw new Error(`the mission is not played at Hard: ${JSON.stringify(got)}`);
+  // the choice is remembered for the next visit to the menu
+  const kept = await page.evaluate(() => localStorage.getItem('netstorm-3d:mission-level'));
+  if (kept !== 'hard') throw new Error(`the mission's level was not kept: ${kept}`);
+  return errors;
+};
+
 SCENARIOS.skirmish = async () => {
   const { page, errors } = await open();
   // a skirmish from the menu: Thunder against Wind on four islands, a fixed map

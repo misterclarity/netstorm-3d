@@ -29,7 +29,7 @@ export function newGame(setup = G.setup) {
   G.mission = setup.mode === 'mission' ? MISSION : null;
   const base = { ...NS.DEFAULT_OPTIONS, lang: 'en', difficulty: 'normal' };
   const options = G.mission
-    ? { ...base, mode: 'mission', mission: MISSION.id, storm: MISSION.storm }
+    ? { ...base, mode: 'mission', mission: MISSION.id, storm: MISSION.storm, difficulty: setup.difficulty ?? 'normal' }
     : {
       ...base, mode: 'skirmish', opponent: 'ai', theme: setup.theme, enemyTheme: setup.enemyTheme, islands: setup.islands,
       difficulty: setup.difficulty, storm: setup.storm, seed: setup.seed,
@@ -99,9 +99,12 @@ function aiOptions(player) {
   return { ...(G.mission?.sides[player]?.ai ?? {}), player, difficulty: G.options.difficulty };
 }
 
+/** Seconds between the computer's moves: the level's in a skirmish; in a mission its own, longer at
+ * Easy and shorter at Hard in the proportion the levels have in a skirmish. */
 function aiDelay(player) {
-  if (!G.mission) return NS.DIFFICULTY[G.options.difficulty].moveSeconds;
-  return G.mission.sides[player]?.delay ?? G.mission.aiDelay ?? 6;
+  const level = NS.DIFFICULTY[G.options.difficulty] ?? NS.DIFFICULTY.normal;
+  if (!G.mission) return level.moveSeconds;
+  return (G.mission.sides[player]?.delay ?? G.mission.aiDelay ?? 6) * level.moveSeconds / NS.DIFFICULTY.normal.moveSeconds;
 }
 
 function moveNow(player) {
