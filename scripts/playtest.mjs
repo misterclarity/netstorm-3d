@@ -379,6 +379,43 @@ SCENARIOS.gather = async () => {
 };
 
 /**
+ * An order the rules would refuse is refused at once: a Golem sent to a geyser no bridge leads to
+ * says nothing and goes nowhere, and a toast says why; one it can reach it answers and goes to.
+ */
+SCENARIOS.refuse = async () => {
+  const { page, errors } = await open({ width: 1000, height: 640 });
+  await startMission(page);
+  const r = await page.evaluate(() => {
+    const { G, game, stepWorld, flushPendingAi } = window.NS3D, w = G.world, t = w.templeOf(1), sound = game.sound();
+    const toasts = [], show = game.hud.toast.bind(game.hud);
+    game.hud.toast = (text, kind) => { toasts.push(text); show(text, kind); };
+    let at = null;
+    for (let r = 2; r < 12 && !at; r++) for (let dx = -r; dx <= r && !at; dx++) { const x = t.x + dx, y = t.y + t.fy + r; if (w.terrain[w.at(x, y)] === 1 && !w.occupant[w.at(x, y)] && !w.priestAt(x, y)) at = [x, y]; }
+    const golem = w.spawnTransport('sunwalker', 1, at[0], at[1]);
+    const next = (g) => (c) => Math.abs(c[0] - g.x) + Math.abs(c[1] - g.y) === 1;
+    const geysers = [...w.entities.values()].filter((e) => e.kind === 'geyser' && e.stock > 0);
+    const far = geysers.find((g) => !w.wayOf(golem, next(g))), close = geysers.find((g) => w.wayOf(golem, next(g)));
+    if (!far || !close) return { fail: `geysers: ${geysers.length}, unreachable ${!!far}, reachable ${!!close}` };
+    const click = (g) => {
+      G.selected = golem.id;
+      const before = sound.playedCount ?? 0;
+      game.primary(g.x, g.y, false, g);
+      for (let i = 0; i < 2; i++) if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+      game.handleEvents();
+      return { answered: (sound.playedCount ?? 0) > before, goal: golem.goal, target: golem.target };
+    };
+    const refused = click(far), taken = click(close);
+    return { refused, taken, far: far.id, close: close.id, toasts };
+  });
+  if (r.fail) throw new Error(r.fail);
+  if (r.refused.answered || r.refused.goal === 'collect') throw new Error(`an order the rules refuse was answered or taken: ${JSON.stringify(r.refused)}`);
+  if (!r.toasts.some((t) => /can't get to that geyser/.test(t))) throw new Error(`no toast said why: ${r.toasts.join(' / ')}`);
+  if (!r.taken.answered || r.taken.goal !== 'collect' || r.taken.target !== r.close) throw new Error(`a reachable geyser was not answered and taken: ${JSON.stringify(r.taken)}`);
+  if (r.toasts.some((t) => /wrong target|no path/i.test(t))) throw new Error(`the rules refused an order after all: ${r.toasts.join(' / ')}`);
+  return errors;
+};
+
+/**
  * A Priest who holds a crystal (sent for a walk while carrying one home) and is sent to a geyser:
  * he banks it at the Temple first and then collects, instead of the order being refused.
  */

@@ -120,6 +120,7 @@ AFRAME.registerSystem('ns-sound', {
     this.last.set(name, now);
     this.voices.set(name, (this.voices.get(name) ?? 0) + 1);
     this.played.push(name);
+    this.playedCount = (this.playedCount ?? 0) + 1;
     if (this.played.length > 50) this.played.shift();
     const { volume, pan } = this.where(at);
     const release = () => this.voices.set(name, Math.max(0, (this.voices.get(name) ?? 1) - 1));

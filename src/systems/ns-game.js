@@ -372,7 +372,9 @@ AFRAME.registerSystem('ns-game', {
       return;
     }
     const target = picked ?? NS.entityAt(G.view, x, y);
-    if (this.order(x, y, target)) {
+    const done = this.order(x, y, target);
+    if (done === 'refused') return; // said why in a toast; the unit does not answer
+    if (done) {
       // the unit answers its order: a carrier sent for something with its pickup sound
       this.sound().voice(G.view.entities.get(G.selected), target && target.owner !== ME ? 'pickup' : 'move');
       return;
@@ -398,32 +400,75 @@ AFRAME.registerSystem('ns-game', {
         const cmd = target.kind === 'geyser' ? { t: 'collect', transport: sel.id, geyser: target.id }
           : { t: 'pickupCrystal', transport: sel.id, crystal: target.id };
         if (this.carrierFree(sel)) {
+          if (this.refuse(sel, cmd)) return 'refused';
           submit(cmd);
           this.hud.toast(target.kind === 'geyser' ? 'Off to the geyser' : 'Off to fetch the crystal', 'good');
-        } else this.afterCargo(sel, cmd);
+        } else return this.afterCargo(sel, cmd) ? true : 'refused';
         return true;
       }
       if (sel.kind === 'transport' && target.kind === 'priest') {
-        if (target.state !== 'down') this.hud.toast(errorText('target not incapacitated'), 'bad');
-        else if (G.view.entities.get(sel.carrying)?.kind === 'priest') this.hud.toast(`The ${defs.get(sel.type)?.name ?? 'carrier'} already holds a captive`, 'bad');
-        else {
-          // a carrier cannot hold a crystal and a Priest: the crystal is set down where it stands,
-          // for the Priest gets up again if he is left too long
-          const crystal = sel.carrying !== null && sel.carrying !== undefined;
-          if (crystal) submit({ t: 'dropCargo', transport: sel.id });
-          submit({ t: 'capturePriest', transport: sel.id, target: target.id });
-          this.hud.toast(crystal ? 'Crystal set down: off to capture the enemy Priest!' : 'Capturing the enemy Priest!', 'good');
-        }
+        if (target.state !== 'down') { this.hud.toast(errorText('target not incapacitated'), 'bad'); return 'refused'; }
+        if (G.view.entities.get(sel.carrying)?.kind === 'priest') { this.hud.toast(`The ${defs.get(sel.type)?.name ?? 'carrier'} already holds a captive`, 'bad'); return 'refused'; }
+        const cmd = { t: 'capturePriest', transport: sel.id, target: target.id };
+        if (this.refuse(sel, cmd)) return 'refused';
+        // a carrier cannot hold a crystal and a Priest: the crystal is set down where it stands,
+        // for the Priest gets up again if he is left too long
+        const crystal = sel.carrying !== null && sel.carrying !== undefined;
+        if (crystal) submit({ t: 'dropCargo', transport: sel.id });
+        submit(cmd);
+        this.hud.toast(crystal ? 'Crystal set down: off to capture the enemy Priest!' : 'Capturing the enemy Priest!', 'good');
         return true;
       }
     }
-    if (sel.kind === 'priest' && target?.kind !== 'building') { submit({ t: 'movePriest', x, y }); return true; }
+    if (sel.kind === 'priest' && target?.kind !== 'building') {
+      if (this.refuse(sel, { t: 'movePriest', x, y })) return 'refused';
+      submit({ t: 'movePriest', x, y });
+      return true;
+    }
     // a carrier sent to ground goes there (an Aerial Transport flies and lands); the sky deselects
     if (sel.kind === 'transport' && !target && G.view.walkable(ME, x, y)) {
-      submit({ t: 'moveTransport', transport: sel.id, x, y });
+      const cmd = { t: 'moveTransport', transport: sel.id, x, y };
+      if (this.refuse(sel, cmd)) return 'refused';
+      submit(cmd);
       return true;
     }
     return false;
+  },
+
+  /**
+   * Whether the rules will refuse the order `cmd` for unit `sel`: the same search for a way that
+   * they make when it is carried out on the next step (to beside the geyser, within a step of the
+   * crystal or the Priest, onto the cell), made now, so that a unit answers only an order it can
+   * carry out. A refusal is told in a toast, and true is returned.
+   */
+  refuse(sel, cmd) {
+    const w = G.world, t = w.entities.get(sel.id);
+    if (!t) return false;
+    const name = t.kind === 'priest' ? 'Your Priest' : `The ${defs.get(t.type)?.name ?? 'carrier'}`;
+    const flies = t.kind === 'transport' && NS.flies(defs.get(t.type));
+    const near = (e, d) => (c) => Math.abs(c[0] - e.x) + Math.abs(c[1] - e.y) <= d;
+    let goal = null, what = 'there';
+    if (cmd.t === 'collect' || cmd.t === 'pickupCrystal') {
+      if (!w.templeOf(ME)) { this.hud.toast(errorText('no temple'), 'bad'); return true; }
+      const e = w.entities.get(cmd.t === 'collect' ? cmd.geyser : cmd.crystal);
+      if (!e) return false;
+      goal = cmd.t === 'collect' ? (c) => Math.abs(c[0] - e.x) + Math.abs(c[1] - e.y) === 1 : near(e, 1);
+      what = cmd.t === 'collect' ? 'that geyser' : 'that crystal';
+    } else if (cmd.t === 'capturePriest') {
+      const p = w.entities.get(cmd.target);
+      if (!p) return false;
+      goal = near(p, 1);
+      what = 'the enemy Priest';
+    } else if (cmd.t === 'moveTransport' || cmd.t === 'movePriest') {
+      if (t.kind === 'priest' && t.state !== 'normal') { this.hud.toast(errorText('priest unavailable'), 'bad'); return true; }
+      goal = (c) => c[0] === cmd.x && c[1] === cmd.y;
+    }
+    if (!goal) return false;
+    const way = t.kind === 'priest' ? w.findPath(ME, t.x, t.y, goal, true) : w.wayOf(t, goal);
+    if (way) return false;
+    this.hud.toast(flies ? `${name} can't get ${what === 'there' ? 'there' : `to ${what}`}`
+      : `${name} can't get ${what === 'there' ? 'there' : `to ${what}`}: no bridge or ground of yours leads ${what === 'there' ? 'there' : 'to it'}${t.kind === 'transport' ? '. An air ship could fly' : ''}`, 'bad');
+    return true;
   },
 
   /**
@@ -445,9 +490,10 @@ AFRAME.registerSystem('ns-game', {
    */
   afterCargo(t, cmd) {
     const name = t.kind === 'priest' ? 'Your Priest' : `The ${defs.get(t.type)?.name ?? 'carrier'}`;
-    if (t.kind === 'priest' && t.state !== 'normal') { this.hud.toast(errorText('priest unavailable'), 'bad'); return; }
+    if (t.kind === 'priest' && t.state !== 'normal') { this.hud.toast(errorText('priest unavailable'), 'bad'); return false; }
     const held = G.view.entities.get(t.carrying);
-    if (held?.kind !== 'crystal') { this.hud.toast(`${name} is carrying a captive`, 'bad'); return; }
+    if (held?.kind !== 'crystal') { this.hud.toast(`${name} is carrying a captive`, 'bad'); return false; }
+    if (this.refuse(t, cmd)) return false;
     const next = cmd.t === 'collect' ? 'goes to the geyser' : 'fetches the crystal';
     if (t.goal === 'home' && t.path?.length) {
       G.afterDelivery.set(t.id, cmd);
@@ -457,7 +503,9 @@ AFRAME.registerSystem('ns-game', {
       this.hud.toast(`${name} first takes the crystal he carries to the Temple, then ${next}`, 'good');
     } else {
       this.hud.toast(`${name} still holds a crystal and can't reach the Temple: drop it first`, 'bad');
+      return false;
     }
+    return true;
   },
 
   /** Walk the player's Priest beside his Temple (or an Outpost), where the crystal he holds is banked. */
