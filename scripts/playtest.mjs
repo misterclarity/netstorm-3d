@@ -390,7 +390,7 @@ SCENARIOS.refuse = async () => {
     const toasts = [], show = game.hud.toast.bind(game.hud);
     game.hud.toast = (text, kind) => { toasts.push(text); show(text, kind); };
     let at = null;
-    for (let r = 2; r < 12 && !at; r++) for (let dx = -r; dx <= r && !at; dx++) { const x = t.x + dx, y = t.y + t.fy + r; if (w.terrain[w.at(x, y)] === 1 && !w.occupant[w.at(x, y)] && !w.priestAt(x, y)) at = [x, y]; }
+    for (let d = 2; d < 12 && !at; d++) for (let dx = -d; dx <= d && !at; dx++) { const x = t.x + dx, y = t.y + t.fy + d; if (w.terrain[w.at(x, y)] === 1 && !w.occupant[w.at(x, y)] && !w.priestAt(x, y)) at = [x, y]; }
     const golem = w.spawnTransport('sunwalker', 1, at[0], at[1]);
     const next = (g) => (c) => Math.abs(c[0] - g.x) + Math.abs(c[1] - g.y) === 1;
     const geysers = [...w.entities.values()].filter((e) => e.kind === 'geyser' && e.stock > 0);
