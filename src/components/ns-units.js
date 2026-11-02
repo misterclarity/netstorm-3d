@@ -145,6 +145,7 @@ AFRAME.registerComponent('ns-unit', {
         this.rep.span = Math.max(b.max.x - b.min.x, b.max.z - b.min.z) / 2;
         this.rep.flies = true;
         this.rep.alt = e.aloft ? AIR.aloft : AIR.landed;
+        this.rep.lift = e.aloft ? 1 : 0;
         this.shadow = new THREE.Mesh(AIR_SHADOW.geo, AIR_SHADOW.mat);
         this.shadow.rotation.x = -Math.PI / 2;
         this.shadow.position.y = 0.07;
@@ -225,7 +226,10 @@ AFRAME.registerComponent('ns-unit', {
     for (const f of rep.anim) f(s);
 
     // an air ship's sprite rises as it takes off and sinks as it lands
-    if (rep.flies) rep.alt += ((e.aloft || e.path?.length ? AIR.aloft : AIR.landed) - rep.alt) * (1 - Math.exp(-dt / 350));
+    if (rep.flies) {
+      rep.alt += ((e.aloft || e.path?.length ? AIR.aloft : AIR.landed) - rep.alt) * (1 - Math.exp(-dt / 350));
+      rep.lift = (rep.alt - AIR.landed) / (AIR.aloft - AIR.landed); // the 3D model's height follows
+    }
 
     // in "Sprites" mode: the frame of its animation where it has one, else its still sprite, else
     // the model
@@ -370,18 +374,24 @@ AFRAME.registerComponent('ns-residence', {
 
   init() {
     const { x, y } = this.data, foot = NS.RESIDENCE_FOOT;
-    this.model = new THREE.Group();
-    MODELS.residence({ anim: [], own: [] }, this.model);
-    bake(this.model, 'residence');
-    this.el.setObject3D('model', this.model);
     this.el.object3D.position.set(wx(x + foot / 2), 0, wz(y + foot / 2));
     this.art = this.el.sceneEl.systems['ns-art'];
     this.front = foot / 2 - 0.15;
   },
 
+  /** The house in the colours of the Fury that holds its island. */
+  build(theme) {
+    this.model = new THREE.Group();
+    MODELS.residence({ anim: [], own: [] }, this.model, theme);
+    bake(this.model, `residence|${theme}`);
+    this.el.setObject3D('model', this.model);
+    this.theme = theme;
+  },
+
   tick(t) {
-    const owner = G.view?.owner[this.data.y * NS.W + this.data.x] ?? 0;
-    const key = `residence:${owner ? playerTheme(owner) : 'sun'}`;
+    const owner = G.view?.owner[this.data.y * NS.W + this.data.x] ?? 0, theme = owner ? playerTheme(owner) : 'sun';
+    if (theme !== this.theme) this.build(theme);
+    const key = `residence:${theme}`;
     const img = this.art.sprite(key) ?? this.art.sprite('residence:sun');
     if (img && this.cardKey !== key) {
       if (this.card) this.el.object3D.remove(this.card);

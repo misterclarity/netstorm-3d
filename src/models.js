@@ -196,6 +196,20 @@ function holder(g, x = 0, y = 0, z = 0) {
   g.add(h);
   return h;
 }
+/**
+ * An Aerial Transport's body at its height: `high` aloft, `low` (its gondola just above the
+ * ground) landed, and in between as it climbs or lands (`rep.lift`, 0 to 1, from ns-units),
+ * bobbing only in the air. What it carries hangs `rep.cargoBelow` under the body, never in the
+ * ground.
+ */
+function aloft(rep, body, low, high, bob, rate) {
+  return (s) => {
+    const k = rep.lift ?? 1;
+    body.position.y = low + (high - low) * k + Math.sin(s * rate + rep.id) * bob * k;
+    if (rep.cargo) rep.cargo.position.y = Math.max(0.35, body.position.y - (rep.cargoBelow ?? 2));
+  };
+}
+
 /** Turn `obj` about `axis` at `speed` radians a second, from `phase`. */
 function spin(rep, obj, axis, speed, phase = 0) {
   rep.anim.push((s) => { obj.rotation[axis] = phase + s * speed; });
@@ -842,7 +856,7 @@ export const MODELS = {
       // the Air Ship: a canvas envelope with fins, a gondola, a propeller behind
       const body = holder(g, 0, 4.3, 0);
       body.scale.setScalar(1.25); // a big ship, a quarter larger than the other carriers' scale
-      rep.anim.push((s) => { body.position.y = 4.3 + Math.sin(s * 1.1 + rep.id) * 0.15; });
+      rep.anim.push(aloft(rep, body, 1.8, 4.3, 0.15, 1.1));
       part(body, sph(1, 14, 10), mat('#efe6cf')).scale.set(0.85, 0.75, 2.0);
       part(body, ring(0.86, 0.06, 18), team(rep), 0, 0, 0.4).scale.set(1, 0.88, 1);
       for (const r of [0, Math.PI / 2, Math.PI]) part(body, box(0.06, 0.6, 0.6), mat('#9bcf6a'), 0, 0, -1.9).rotation.z = r;
@@ -851,24 +865,27 @@ export const MODELS = {
       const prop = spin(rep, holder(body, 0, -1.05, -0.55), 'z', 14);
       part(prop, box(0.08, 0.7, 0.03), mat('#3a3330'));
       rep.cargo = holder(g, 0, 2.3, 0);
+      rep.cargoBelow = 2.0;
     } else if (f === 'rain') {
       // the Cloud Floater: a cloud that carries a basket
       const body = holder(g, 0, 3.4, 0);
-      rep.anim.push((s) => { body.position.y = 3.4 + Math.sin(s * 1.3 + rep.id) * 0.2; });
+      rep.anim.push(aloft(rep, body, 1.6, 3.4, 0.2, 1.3));
       for (const [x, y, z, r] of [[0, 0, 0, 0.6], [0.55, -0.1, 0.1, 0.45], [-0.5, -0.05, -0.1, 0.48], [0.1, 0.3, -0.3, 0.42], [-0.15, -0.15, 0.45, 0.38]]) part(body, ico(r, 1), mat('#f4f8ff'), x, y, z);
       for (const [x, z] of [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]]) part(body, box(0.02, 0.6, 0.02), mat('#5a4a3a'), x, -0.85, z);
       part(body, box(0.5, 0.3, 0.5), mat('#8a6a4a'), 0, -1.25, 0);
       part(body, box(0.52, 0.06, 0.52), team(rep), 0, -1.1, 0);
       rep.cargo = holder(g, 0, 1.5, 0);
+      rep.cargoBelow = 1.9;
     } else {
       // the Sun's Balloon: a hot-air balloon in the owner's colour
       const body = holder(g, 0, 3.2, 0);
-      rep.anim.push((s) => { body.position.y = 3.2 + Math.sin(s * 1.3 + rep.id) * 0.18; });
+      rep.anim.push(aloft(rep, body, 1.9, 3.2, 0.18, 1.3));
       part(body, sph(0.75, 12, 10), mat('#e8c46a')).scale.set(1, 1.15, 1);
       part(body, cyl(0.48, 0.48, 0.08, 12), team(rep), 0, -0.8, 0);
       for (const [x, z] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]]) part(body, box(0.03, 0.7, 0.03), mat('#5a4a3a'), x, -1.15, z);
       part(body, box(0.6, 0.35, 0.6), mat('#8a5a34'), 0, -1.6, 0);
       rep.cargo = holder(g, 0, 1.4, 0);
+      rep.cargoBelow = 1.8;
     }
   },
 
@@ -913,14 +930,19 @@ export const MODELS = {
     part(g, cone(0.5, 0.8, 4), mat('#9a97a2'), 0, 3.6, 0).rotation.y = Math.PI / 4;
     part(g, box(0.72, 0.4, 0.72), glow('#c8b8ff', '#7a5cff', 0.8), 0, 2.2, 0);
   },
-  residence(rep, g) {
-    part(g, box(2.2, 1.2, 1.7), mat('#e1d3b4'), 0, 0.66, 0);
-    const top = part(g, cone(1.75, 1.05, 4), mat('#a8513a'), 0, 1.78, 0);
+  /** "As a Temple is built, the alignment of that Temple grows into the Residence": its walls,
+   * roof and trim are those of the Fury whose Temple holds the island (`theme`), the Sun's on
+   * unclaimed ground. */
+  residence(rep, g, theme = 'sun') {
+    const p = FURY[theme] ?? FURY.sun;
+    part(g, box(2.2, 1.2, 1.7), mat(p.stone), 0, 0.66, 0);
+    part(g, box(2.3, 0.12, 1.8), mat(p.trim), 0, 1.3, 0);
+    const top = part(g, cone(1.75, 1.05, 4), mat(p.roof), 0, 1.78, 0);
     top.rotation.y = Math.PI / 4;
     top.scale.z = 0.82;
-    part(g, box(0.26, 0.7, 0.26), mat('#7a6a5a'), 0.6, 2.0, -0.3);
+    part(g, box(0.26, 0.7, 0.26), mat(p.dark), 0.6, 2.0, -0.3);
     part(g, box(0.42, 0.65, 0.05), mat('#6b4a2c'), 0, 0.38, 0.86);
-    for (const x of [-0.7, 0.7]) part(g, box(0.34, 0.3, 0.05), glow('#ffe39a', '#ffb43a', 0.7), x, 0.8, 0.86);
+    for (const x of [-0.7, 0.7]) part(g, box(0.34, 0.3, 0.05), glow(p.glow[0], p.glow[1], 0.7), x, 0.8, 0.86);
     part(g, ico(0.45), mat('#4b7a30'), -1.4, 0.4, 1.3);
     part(g, ico(0.35), mat('#4b7a30'), 1.45, 0.35, -1.2);
   },
