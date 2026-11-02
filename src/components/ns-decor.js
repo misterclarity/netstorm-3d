@@ -2,10 +2,14 @@
  * The islands' greenery and stones: trees, pines, bushes, rocks, flowers and tufts of grass on
  * island ground, so that the islands do not look bare. They are only to look at: the rules never
  * see them, clicks go through them, and they keep clear of what the battle needs, standing
- * nowhere near a building, a geyser, a Temple or a Residence, and none on a bridge. Where
- * something is built they are cleared away. Each kind is one instanced mesh, so the whole lot
- * costs a few draw calls. Each cell's lot is fixed by its place (`hash`), so the islands look the
- * same each time; their colours follow the Fury of the island's owner.
+ * nowhere near a building, a geyser, an Obelisk, a Temple or a Residence, and none on a bridge.
+ * Each kind is one instanced mesh, so the whole lot costs a few draw calls. Each cell's lot is
+ * fixed by its place (`hash`), so the islands look the same each time; their colours follow the
+ * Fury of the island's owner.
+ *
+ * The lot is laid out when the islands change (a new map, an islet laid or fallen). After that a
+ * building going up or coming down only hides or shows the plants around it, and an island that
+ * changes hands only recolours its own: no new layout, no new meshes.
  */
 import { G, WORLD, wx, wz, hash, playerTheme } from '../state.js';
 
@@ -35,108 +39,157 @@ const PALETTE = {
 };
 const ROCKS = ['#8a8478', '#9a9286', '#7a7268', '#a39a8c'];
 const TRUNK = '#6b4a2c';
+const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), C = new THREE.Color();
 
 AFRAME.registerComponent('ns-decor', {
   init() {
     this.group = new THREE.Group();
     this.el.setObject3D('decor', this.group);
-    this.meshes = [];
-    this.sig = '';
+    this.meshes = {}; // kind → { mesh, items: [{ cell, x, z, scale, turn, role, pick, color, hidden }] }
+    this.standing = '';
+    this.owners = 0;
     this.wait = 0;
     const scene = this.el.sceneEl;
-    scene.addEventListener('ns-new-game', () => this.rebuild(true));
-    scene.addEventListener('ns-terrain', () => this.rebuild(true));
+    scene.addEventListener('ns-new-game', () => this.layout(true));
+    // the terrain changes with every bridge piece; the plants only with the islands themselves
+    scene.addEventListener('ns-terrain', () => this.layout(false));
     // on the original's pixel-art ground the greens are toned down to its darker, earthier colours
     const tone = () => MAT.color.set(scene.systems['ns-art']?.mode === 'sprites' ? '#a29a7c' : '#ffffff');
     scene.addEventListener('ns-art-mode', tone);
     scene.addEventListener('loaded', tone);
   },
 
-  /** What stands on the islands: rebuilt when it changes (a building laid or gone). */
-  signature() {
-    let sig = `${G.view.terrainRevision}|${G.view.residences.length}`;
-    for (const e of G.view.entities.values()) if (e.kind === 'building' || e.kind === 'geyser') sig += `|${e.id}`;
+  /** What stands on the islands: the plants around it are hidden when it changes. */
+  standingSig() {
+    let sig = `${G.view.residences.length}`;
+    for (const e of G.view.entities.values()) if (e.kind === 'building' || e.kind === 'geyser' || e.kind === 'obelisk') sig += `|${e.id}`;
+    return sig;
+  },
+
+  /** Who holds the island ground the plants grow on: they are recoloured when it changes. */
+  ownersSig() {
+    let sig = 0;
+    for (const cell of this.cells ?? []) sig = (Math.imul(sig, 31) + G.view.owner[cell] * 7 + cell) | 0;
     return sig;
   },
 
   tick(t, dt) {
-    if (!G.view) return;
+    if (!G.view || !this.cells) return;
     this.wait -= dt;
     if (this.wait > 0) return;
     this.wait = 500;
-    if (this.signature() !== this.sig) this.rebuild(false);
+    const standing = this.standingSig();
+    if (standing !== this.standing) this.clearAround(standing);
+    const owners = this.ownersSig();
+    if (owners !== this.owners) this.recolor(owners);
   },
 
-  rebuild() {
+  /** The whole lot for the islands as they are: every cell of island ground that may grow something. */
+  layout(force) {
     const v = G.view;
     if (!v) return;
-    this.sig = this.signature();
-    for (const m of this.meshes) { this.group.remove(m); m.dispose(); }
-    this.meshes = [];
+    let islands = 0;
+    for (let i = 0; i < WORLD * WORLD; i++) if (v.terrain[i] === ISLAND) islands = (Math.imul(islands, 31) + i) | 0;
+    if (!force && islands === this.islands) return;
+    this.islands = islands;
+    for (const { mesh } of Object.values(this.meshes)) { this.group.remove(mesh); mesh.dispose(); }
+    this.meshes = {};
+    const lots = { trunk: [], crown: [], pine: [], pineTop: [], bush: [], rock: [], flower: [], tuft: [] }, cells = new Set();
+    const put = (kind, cell, x, z, scale, role, pick, turn) => { lots[kind].push({ cell, x, z, scale, turn, role, pick, hidden: false }); cells.add(cell); };
+    const island = (x, y) => x >= 0 && y >= 0 && x < WORLD && y < WORLD && v.terrain[y * WORLD + x] === ISLAND;
+    for (let y = 0; y < WORLD; y++) {
+      for (let x = 0; x < WORLD; x++) {
+        const i = y * WORLD + x;
+        if (v.terrain[i] !== ISLAND) continue;
+        // near the rim the trees stand thicker
+        let rim = 0;
+        for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [1, 1], [-1, -1], [1, -1], [-1, 1]]) if (!island(x + dx, y + dy)) rim++;
+        const r = hash(x, y, 1), jx = (hash(x, y, 2) - 0.5) * 0.6, jz = (hash(x, y, 3) - 0.5) * 0.6;
+        const cx = wx(x + 0.5) + jx, cz = wz(y + 0.5) + jz, turn = hash(x, y, 4) * Math.PI * 2;
+        const size = 0.8 + hash(x, y, 5) * 0.55, pick = (s) => hash(x, y, s);
+        const trees = 0.03 + Math.min(rim, 3) * 0.035;
+        if (r < trees) {
+          // pines grow more on Wind's and Thunder's islands; which Fury that is can change, so the
+          // choice is by place alone and the colours follow the owner
+          if (hash(x, y, 7) < 0.4) {
+            put('trunk', i, cx, cz, size * 0.8, 'trunk', 0, turn);
+            put('pine', i, cx, cz, size, 'leaves', pick(6), turn);
+            put('pineTop', i, cx, cz, size, 'leaves', pick(6), turn);
+          } else {
+            put('trunk', i, cx, cz, size, 'trunk', 0, turn);
+            put('crown', i, cx, cz, size, 'leaves', pick(6), turn);
+          }
+        } else if (r < trees + 0.035) put('bush', i, cx, cz, size, 'leaves', pick(8), turn);
+        else if (r < trees + 0.055) put('rock', i, cx, cz, size, 'rock', pick(9), turn);
+        else if (r < trees + 0.09) {
+          for (let k = 0; k < 3; k++) put('flower', i, cx + (pick(20 + k) - 0.5) * 0.5, cz + (pick(30 + k) - 0.5) * 0.5, 1, 'flowers', pick(40 + k), 0);
+        } else if (r < trees + 0.2) {
+          for (let k = 0; k < 3; k++) put('tuft', i, cx + (pick(50 + k) - 0.5) * 0.4, cz + (pick(60 + k) - 0.5) * 0.4, 0.8 + pick(70 + k) * 0.5, 'grass', 0, pick(80 + k) * 6);
+        }
+      }
+    }
+    this.cells = [...cells];
+    for (const [kind, items] of Object.entries(lots)) {
+      if (!items.length) continue;
+      const mesh = new THREE.InstancedMesh(GEO[kind], MAT, items.length);
+      items.forEach((item, n) => mesh.setMatrixAt(n, this.matrix(item, false)));
+      mesh.castShadow = SHADOWS.has(kind);
+      mesh.receiveShadow = false;
+      mesh.computeBoundingSphere();
+      this.meshes[kind] = { mesh, items };
+      this.group.add(mesh);
+    }
+    this.standing = '';
+    this.owners = 0;
+    this.recolor(this.ownersSig());
+    this.clearAround(this.standingSig());
+  },
 
-    // where nothing may grow: buildings and geysers with a cell around them, Temples with three,
-    // Residences, and anything standing on a cell
+  matrix(item, hidden) {
+    return M4.compose(P.set(item.x, 0.02, item.z), Q.setFromAxisAngle(UP, item.turn), S.setScalar(hidden ? 0 : item.scale));
+  },
+
+  /** Hide the plants near what stands on the islands (and show again those it no longer covers). */
+  clearAround(standing) {
+    const v = G.view;
+    this.standing = standing;
     const keep = new Uint8Array(WORLD * WORLD);
     const clear = (x0, y0, w, h, margin) => {
       for (let y = y0 - margin; y < y0 + h + margin; y++) {
         for (let x = x0 - margin; x < x0 + w + margin; x++) if (x >= 0 && y >= 0 && x < WORLD && y < WORLD) keep[y * WORLD + x] = 1;
       }
     };
+    // buildings and geysers with a cell around them, Temples with three, Residences and Obelisks
     for (const e of v.entities.values()) {
       if (e.kind === 'building') clear(e.x, e.y, e.fx, e.fy, v.def(e.type).cls === 'Energy' ? 3 : 1);
       else if (e.kind === 'geyser') clear(e.x - 1, e.y - 1, 3, 3, 1);
+      else if (e.kind === 'obelisk') clear(e.x, e.y, 1, 1, 1);
     }
     for (const [x, y] of v.residences) clear(x, y, 4, 4, 0);
-
-    const lots = { trunk: [], crown: [], pine: [], pineTop: [], bush: [], rock: [], flower: [], tuft: [] };
-    const put = (kind, x, z, scale, color, turn) => lots[kind].push([x, z, scale, color, turn]);
-    const island = (x, y) => x >= 0 && y >= 0 && x < WORLD && y < WORLD && v.terrain[y * WORLD + x] === ISLAND;
-    for (let y = 0; y < WORLD; y++) {
-      for (let x = 0; x < WORLD; x++) {
-        const i = y * WORLD + x;
-        if (v.terrain[i] !== ISLAND || keep[i] || v.occupant[i]) continue;
-        // near the rim the trees stand thicker
-        let rim = 0;
-        for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [1, 1], [-1, -1], [1, -1], [-1, 1]]) if (!island(x + dx, y + dy)) rim++;
-        const pal = PALETTE[v.owner[i] ? playerTheme(v.owner[i]) : 'sun'] ?? PALETTE.sun;
-        const r = hash(x, y, 1), jx = (hash(x, y, 2) - 0.5) * 0.6, jz = (hash(x, y, 3) - 0.5) * 0.6;
-        const cx = wx(x + 0.5) + jx, cz = wz(y + 0.5) + jz, turn = hash(x, y, 4) * Math.PI * 2;
-        const size = 0.8 + hash(x, y, 5) * 0.55, pick = (list, s) => list[Math.floor(hash(x, y, s) * list.length)];
-        const trees = 0.03 + Math.min(rim, 3) * 0.035;
-        if (r < trees) {
-          const tone = pick(pal.leaves, 6);
-          if (hash(x, y, 7) < (pal === PALETTE.wind || pal === PALETTE.thunder ? 0.55 : 0.25)) {
-            put('trunk', cx, cz, size * 0.8, TRUNK, turn);
-            put('pine', cx, cz, size, tone, turn);
-            put('pineTop', cx, cz, size, tone, turn);
-          } else {
-            put('trunk', cx, cz, size, TRUNK, turn);
-            put('crown', cx, cz, size, tone, turn);
-          }
-        } else if (r < trees + 0.035) put('bush', cx, cz, size, pick(pal.leaves, 8), turn);
-        else if (r < trees + 0.055) put('rock', cx, cz, size, pick(ROCKS, 9), turn);
-        else if (r < trees + 0.09) {
-          for (let k = 0; k < 3; k++) put('flower', cx + (hash(x, y, 20 + k) - 0.5) * 0.5, cz + (hash(x, y, 30 + k) - 0.5) * 0.5, 1, pick(pal.flowers, 40 + k), 0);
-        } else if (r < trees + 0.2) {
-          for (let k = 0; k < 3; k++) put('tuft', cx + (hash(x, y, 50 + k) - 0.5) * 0.4, cz + (hash(x, y, 60 + k) - 0.5) * 0.4, 0.8 + hash(x, y, 70 + k) * 0.5, pal.grass, hash(x, y, 80 + k) * 6);
-        }
-      }
-    }
-
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color();
-    for (const [kind, list] of Object.entries(lots)) {
-      if (!list.length) continue;
-      const mesh = new THREE.InstancedMesh(GEO[kind], MAT, list.length);
-      list.forEach(([x, z, scale, color, turn], n) => {
-        m4.compose(p.set(x, 0.02, z), q.setFromAxisAngle(up, turn), s.setScalar(scale));
-        mesh.setMatrixAt(n, m4);
-        mesh.setColorAt(n, c.set(color));
+    for (const { mesh, items } of Object.values(this.meshes)) {
+      let changed = false;
+      items.forEach((item, n) => {
+        const hidden = keep[item.cell] === 1;
+        if (hidden === item.hidden) return;
+        item.hidden = hidden;
+        mesh.setMatrixAt(n, this.matrix(item, hidden));
+        changed = true;
       });
-      mesh.castShadow = SHADOWS.has(kind);
-      mesh.receiveShadow = false;
-      mesh.computeBoundingSphere();
-      this.meshes.push(mesh);
-      this.group.add(mesh);
+      if (changed) mesh.instanceMatrix.needsUpdate = true;
+    }
+  },
+
+  /** Colour each plant in the greens of the Fury that holds its island. */
+  recolor(owners) {
+    const v = G.view;
+    this.owners = owners;
+    for (const { mesh, items } of Object.values(this.meshes)) {
+      items.forEach((item, n) => {
+        const pal = PALETTE[v.owner[item.cell] ? playerTheme(v.owner[item.cell]) : 'sun'] ?? PALETTE.sun;
+        const list = item.role === 'leaves' ? pal.leaves : item.role === 'flowers' ? pal.flowers : item.role === 'rock' ? ROCKS : null;
+        mesh.setColorAt(n, C.set(list ? list[Math.floor(item.pick * list.length)] : item.role === 'grass' ? pal.grass : TRUNK));
+      });
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
   },
 });
