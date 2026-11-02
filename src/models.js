@@ -735,7 +735,8 @@ export const MODELS = {
       part(body, sph(0.12, 6, 4), team(rep), 0, 0.65, 0);
       band(rep, body, 0.56, 0.56);
     } else if (f === 'rain') {
-      // the Man o'War: a jellyfish of the air, its tentacles swaying
+      // the Man o'War: a jellyfish of the air, its tentacles swaying; twice the others' size
+      body.scale.setScalar(2);
       part(body, dome(0.45), see('#d7a8ff', 0.8, { emissive: '#8a5cff', emissiveIntensity: 0.35 }));
       part(body, sph(0.12, 6, 4), team(rep), 0, 0.35, 0);
       const tails = holder(body);
