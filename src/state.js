@@ -47,6 +47,7 @@ export const G = {
   span: 100,
   /** Orders that wait for a carrier to bank the crystal it holds: carrier id → command. */
   afterDelivery: new Map(),
+  group: [], // the selected carriers when more than one is (G.selected is the first of them)
   hoverPick: null, // an Aerial Transport under the cursor, picked by its body above the ground
   holdEnd: 0, // performance.now() before which the battle's end is not shown (a Sacrifice being heard out)
 };

@@ -298,6 +298,7 @@ export class Hud {
 
   renderSelection() {
     const box = $('sel');
+    if (this.game.selectedIds().length > 1) { this.renderGroup(box); return; }
     const e = G.selected === null ? null : G.view.entities.get(G.selected);
     if (!e) {
       box.style.display = 'none';
@@ -580,6 +581,25 @@ export class Hud {
       { label: 'Controls', act: () => this.help(true) }, { label: 'Start', main: true, act: () => this.begin() }]);
   }
 
+  /** The card of several carriers selected together: what they are, what they do. */
+  renderGroup(box) {
+    const units = this.game.selectedIds().map((id) => G.view.entities.get(id));
+    const count = (list, plural = false) => [...list.reduce((m, k) => m.set(k, (m.get(k) ?? 0) + 1), new Map())]
+      .map(([k, n]) => `${n} ${k}${plural && n > 1 ? 's' : ''}`).join(' · ');
+    const doing = { idle: 'waiting', collect: 'collecting', pickup: 'fetching a crystal', home: 'carrying Storm Power home', capture: 'going for the enemy Priest', altar: 'carrying a captive', obelisk: 'fetching a spell' };
+    const lines = [
+      count(units.map((e) => defs.get(e.type)?.name ?? e.type), true),
+      count(units.map((e) => doing[e.goal] ?? e.goal)),
+      'Click a geyser, a crystal, a downed enemy Priest or ground: they all go. Shift-click one to add or remove it; Esc clears.',
+    ];
+    const html = `<h4>${units.length} selected</h4>${lines.map((l) => `<div class="line">${escapeHtml(l)}</div>`).join('')}`;
+    if (box.dataset.html !== html) {
+      box.innerHTML = html;
+      box.dataset.html = html;
+    }
+    box.style.display = 'block';
+  }
+
   /** The names of the units of `theme` the player knows, for the briefing. */
   furyUnits(theme) {
     return [...G.world.players.get(ME).tech].map((id) => defs.get(id)).filter((d) => d?.theme === theme && BUILDABLE.has(d.cls))
@@ -603,6 +623,7 @@ export class Hud {
     this.modal(`<h2>Controls</h2><ol style="list-style:none;padding:0">
       <li><b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>Q</kbd><kbd>E</kbd> turn</li>
       <li><b>Select:</b> click a unit or building. With a Golem or air ship selected, click a geyser to collect, a downed enemy Priest to capture him, or ground to send it there. With your Priest selected, click ground to walk, or your Altar to perform a sacrifice.</li>
+      <li><b>Several at once:</b> <kbd>Shift</kbd>-click Golems and air ships to add or remove them · double-click one for all of its kind on the screen · <kbd>Ctrl</kbd>-drag (<kbd>⌘</kbd>-drag on a Mac) a box around them. An order then goes to all. <kbd>I</kbd> picks the next idle one.</li>
       <li><b>Bridges:</b> click a piece (or <kbd>1</kbd>–<kbd>6</kbd>), then the map. <kbd>R</kbd> rotates. Pieces join only by their ends; the yellow dot marks the cell under the cursor.</li>
       <li><b>Build:</b> click a card, then the map. <kbd>R</kbd> turns cannons. Hold <kbd>Shift</kbd> to build several. Rings in each Fury’s colour show your Energy (the ones that count for the spot light up, and the tip says what is missing); yellow, the gun’s range. The dots on a card are the Energy it needs.</li>
       <li><b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <b>Salvage:</b> <kbd>Delete</kbd></li>

@@ -143,6 +143,7 @@
 body.tabletop #bar, body.tabletop #sel, body.tabletop #goal { display: none !important; }
 
 /* the top bar's ⋯ menu: on a wide screen its buttons stand in the bar (Help and Restart last) */
+#selBox { position: fixed; z-index: 9; display: none; border: 1.5px solid var(--accent); background: rgba(242, 193, 78, 0.12); border-radius: 3px; pointer-events: none; }
 #more { display: contents; }
 .tail { order: 2; }
 #moreBtn, .tb.phone { display: none; }

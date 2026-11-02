@@ -8,7 +8,7 @@ import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
 import { Minimap } from '../minimap.js';
-import { groundCell, unit, localRay } from '../space.js';
+import { groundCell, unit, localRay, lookAtCell } from '../space.js';
 import { energyAt, missingAdvice } from '../energy.js';
 import * as models from '../models.js';
 
@@ -27,6 +27,7 @@ AFRAME.registerSystem('ns-game', {
       watchForUpdates((version) => this.hud.newVersion(version));
       this.el.systems.shadow?.setShadowMapEnabled(true);
       this.el.addEventListener('ns-tap', (e) => this.onTap(e.detail));
+      this.el.addEventListener('ns-box', (e) => this.onBox(e.detail));
       this.el.addEventListener('ns-hover', (e) => this.onHover(e.detail));
       window.addEventListener('keydown', (e) => this.onKey(e));
       this.start(G.setup, { menu: true });
@@ -303,7 +304,116 @@ AFRAME.registerSystem('ns-game', {
       G.mouse = d;
       if (!same) return;
     }
-    this.primary(cell.x, cell.y, d.shift, this.pickAt(ray));
+    this.primary(cell.x, cell.y, d.shift, this.pickAt(ray), d.double);
+  },
+
+  /* ------------------------------------- selecting several ------------------------------------ */
+  /** Select these units (ids): one, several (a group of carriers), or none. */
+  select(ids) {
+    G.group = ids.length > 1 ? [...ids] : [];
+    G.selected = ids[0] ?? null;
+    this.hud.dirty = true;
+  },
+
+  /** The selected units still on the battlefield: the group, or the one selected. */
+  selectedIds() {
+    if (G.group.length > 1) {
+      G.group = G.group.filter((id) => G.view.entities.has(id));
+      if (G.group.length > 1) return G.group;
+      G.selected = G.group[0] ?? null;
+      G.group = [];
+    }
+    return G.selected !== null && G.view.entities.has(G.selected) ? [G.selected] : [];
+  },
+
+  /** A carrier of the player's, the units that are selected several at once. */
+  isCarrier(e) { return !!e && e.owner === ME && e.kind === 'transport'; },
+
+  /** Where on the screen a unit is drawn (its middle, a little above the ground), or null when off it. */
+  onScreen(e) {
+    const el = this.units()?.byId.get(e.id), cam = this.el.camera;
+    if (!el || !cam) return null;
+    const v = el.object3D.localToWorld(new THREE.Vector3(0, NS.flies(defs.get(e.type)) ? 3 : 0.6, 0)).project(cam);
+    if (v.z > 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1) return null;
+    const r = this.el.canvas.getBoundingClientRect();
+    return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
+  },
+
+  /** Ctrl- (Cmd-) drag: a box on the screen; the player's carriers inside it are selected (with
+   * Shift, added to those selected). */
+  onBox(d) {
+    const box = document.getElementById('selBox');
+    const x0 = Math.min(d.x0, d.x1), y0 = Math.min(d.y0, d.y1), x1 = Math.max(d.x0, d.x1), y1 = Math.max(d.y0, d.y1);
+    if (!d.done) {
+      Object.assign(box.style, { display: 'block', left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px` });
+      return;
+    }
+    box.style.display = 'none';
+    if (!G.started || this.hud.modalOpen() || G.tool.kind !== 'select') return;
+    const inside = [...G.view.entities.values()].filter((e) => {
+      if (!this.isCarrier(e)) return false;
+      const p = this.onScreen(e);
+      return p && p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
+    }).map((e) => e.id);
+    const ids = d.shift ? [...new Set([...this.selectedIds().filter((id) => this.isCarrier(G.view.entities.get(id))), ...inside])] : inside;
+    this.select(ids);
+    if (ids.length) this.sound().voice(G.view.entities.get(ids[0]), 'move');
+  },
+
+  /** The next of the player's carriers with nothing to do ("I"): selected, and the view goes to it. */
+  nextIdle() {
+    const idle = [...G.view.entities.values()].filter((e) => this.isCarrier(e) && e.goal === 'idle' && !e.path?.length
+      && G.view.entities.get(e.carrying)?.kind !== 'priest').sort((a, b) => a.id - b.id);
+    if (!idle.length) { this.hud.toast('No Golem or air ship of yours is idle', 'good'); return; }
+    const next = idle.find((e) => e.id > (this.lastIdle ?? -1)) ?? idle[0];
+    this.lastIdle = next.id;
+    this.select([next.id]);
+    lookAtCell(wx(next.x + 0.5), wz(next.y + 0.5));
+    this.sound().voice(next, 'move');
+  },
+
+  /**
+   * An order for every carrier selected: each goes as it would alone (to the geyser, the crystal,
+   * the downed Priest), sent to ground they spread over the cells around the one clicked. One
+   * toast tells how many go, and why the others can't. False when it is no order (the sky).
+   */
+  orderGroup(x, y, target) {
+    const ids = this.selectedIds(), lead = G.selected, said = [], toast = this.hud.toast;
+    const cells = target ? null : this.spread(x, y, ids.length);
+    if (cells && !cells.length) return false;
+    let sent = 0, refused = 0;
+    this.hud.toast = (text, kind) => said.push({ text, kind });
+    try {
+      ids.forEach((id, i) => {
+        G.selected = id;
+        const [cx, cy] = cells ? cells[i % cells.length] : [x, y];
+        const r = this.order(cx, cy, target);
+        if (r === true) sent++;
+        else if (r === 'refused') refused++;
+      });
+    } finally {
+      this.hud.toast = toast;
+      G.selected = lead;
+    }
+    if (!sent && !refused) return false;
+    const where = target?.kind === 'geyser' ? 'off to the geyser' : target?.kind === 'crystal' ? 'off to fetch the crystal'
+      : target?.kind === 'priest' ? 'off to capture the enemy Priest' : 'on their way';
+    const why = said.find((s) => s.kind === 'bad')?.text;
+    if (!sent) toast.call(this.hud, why ?? 'None of them can go there', 'bad');
+    else toast.call(this.hud, `${sent} ${where}${refused ? `; ${refused} can't: ${why ?? 'no way there'}` : ''}`, refused ? 'bad' : 'good');
+    return sent ? true : 'refused';
+  },
+
+  /** Up to n cells of ground around (x, y), nearest first, for a group sent there. */
+  spread(x, y, n) {
+    const out = [];
+    for (let r = 0; r < 6 && out.length < n; r++) {
+      const ring = [];
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === r) ring.push([x + dx, y + dy]);
+      ring.sort((a, b) => Math.hypot(a[0] - x, a[1] - y) - Math.hypot(b[0] - x, b[1] - y));
+      for (const c of ring) if (out.length < n && G.view.walkable(ME, c[0], c[1]) && !NS.entityAt(G.view, c[0], c[1])) out.push(c);
+    }
+    return out;
   },
 
   /**
@@ -362,7 +472,7 @@ AFRAME.registerSystem('ns-game', {
 
   /** A click on map cell (x, y), as netstorm-web's controls.ts reads it; `picked` is a unit hit
    * above the ground (an Aerial Transport), which counts before what stands on the cell. */
-  primary(x, y, shift = false, picked = null) {
+  primary(x, y, shift = false, picked = null, double = false) {
     const tool = G.tool;
     if (tool.kind === 'piece') {
       if (!G.world.players.get(ME).hand[tool.hand]) return;
@@ -381,6 +491,25 @@ AFRAME.registerSystem('ns-game', {
       return;
     }
     const target = picked ?? NS.entityAt(G.view, x, y);
+    // Shift and a click on a carrier of yours: it joins those selected, or leaves them
+    if (shift && this.isCarrier(target)) {
+      const ids = this.selectedIds().filter((id) => this.isCarrier(G.view.entities.get(id)));
+      this.select(ids.includes(target.id) ? ids.filter((id) => id !== target.id) : [...ids, target.id]);
+      this.sound().voice(target, 'move');
+      return;
+    }
+    // a double click on a carrier of yours: every one of its kind on the screen
+    if (double && this.isCarrier(target)) {
+      this.select([...G.view.entities.values()].filter((e) => this.isCarrier(e) && e.type === target.type && this.onScreen(e)).map((e) => e.id));
+      this.sound().voice(target, 'move');
+      return;
+    }
+    // several selected: the order goes to all of them
+    if (this.selectedIds().length > 1 && !(target && target.owner === ME)) {
+      const group = this.orderGroup(x, y, target);
+      if (group === true) this.sound().voice(G.view.entities.get(G.selected), target && target.owner !== ME ? 'pickup' : 'move');
+      if (group) return;
+    }
     const done = this.order(x, y, target);
     if (done === 'refused') return; // said why in a toast; the unit does not answer
     if (done) {
@@ -388,9 +517,8 @@ AFRAME.registerSystem('ns-game', {
       this.sound().voice(G.view.entities.get(G.selected), target && target.owner !== ME ? 'pickup' : 'move');
       return;
     }
-    G.selected = target?.id ?? null;
+    this.select(target ? [target.id] : []);
     this.sound().voice(target, 'move');
-    this.hud.dirty = true;
   },
 
   /** An order for the selected unit; false when the click is a selection instead. */
@@ -577,7 +705,7 @@ AFRAME.registerSystem('ns-game', {
   },
   cancel() {
     if (G.tool.kind !== 'select') this.setTool({ kind: 'select' });
-    else if (G.selected !== null) { G.selected = null; this.hud.dirty = true; }
+    else if (G.selected !== null) this.select([]);
   },
   /** Turn the bridge piece in hand, or the cannon about to be built. */
   rotate() {
@@ -609,6 +737,7 @@ AFRAME.registerSystem('ns-game', {
       p: () => this.minimap.toPriest(),
       f: () => this.minimap.toggleFollow(),
       t: () => this.xr().toggle(),
+      i: () => this.nextIdle(),
     }[k];
     if (!act) return;
     e.preventDefault();

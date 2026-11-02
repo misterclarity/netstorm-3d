@@ -79,6 +79,8 @@ AFRAME.registerComponent('orbit-rig', {
       this.pointers.set(e.pointerId, {
         x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), button: e.button,
         pan: e.button === 2 || e.button === 1 || e.shiftKey, moved: 0,
+        // Ctrl (Cmd on a Mac) and drag: a box to select units in, not a turn of the view
+        box: e.button === 0 && (e.ctrlKey || e.metaKey) && e.pointerType !== 'touch',
       });
       this.pinch = null;
       if (this.pointers.size > 1) for (const p of this.pointers.values()) p.moved = 99; // a pinch is no tap
@@ -87,8 +89,16 @@ AFRAME.registerComponent('orbit-rig', {
       const p = this.pointers.get(e.pointerId);
       this.pointers.delete(e.pointerId);
       this.pinch = null;
+      if (p?.box && p.moved >= 7) {
+        scene.emit('ns-box', { x0: p.sx, y0: p.sy, x1: e.clientX, y1: e.clientY, shift: e.shiftKey, done: true }, false);
+        return;
+      }
       if (p && e.type === 'pointerup' && p.moved < 7 && performance.now() - p.t < 700) {
-        scene.emit('ns-tap', { x: e.clientX, y: e.clientY, button: p.button, touch: e.pointerType === 'touch', shift: e.shiftKey }, false);
+        // a second tap soon after the first, on the same spot, is a double click
+        const now = performance.now(), last = this.lastTap;
+        const double = !!last && now - last.t < 380 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 12;
+        this.lastTap = double ? null : { t: now, x: e.clientX, y: e.clientY };
+        scene.emit('ns-tap', { x: e.clientX, y: e.clientY, button: p.button, touch: e.pointerType === 'touch', shift: e.shiftKey, double }, false);
       }
     };
     canvas.addEventListener('pointerup', end);
@@ -116,6 +126,7 @@ AFRAME.registerComponent('orbit-rig', {
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
       p.x = e.clientX; p.y = e.clientY;
       if (p.moved < 7) return;
+      if (p.box) { scene.emit('ns-box', { x0: p.sx, y0: p.sy, x1: e.clientX, y1: e.clientY, shift: e.shiftKey, done: false }, false); return; }
       if (p.pan || e.shiftKey) this.pan(dx, dy);
       else {
         this.goal.th -= dx * 0.006;

@@ -197,6 +197,18 @@ AFRAME.registerComponent('ns-placement', {
       mesh.scale.setScalar(r * (pulse ? 1 + Math.sin(performance.now() / 200) * 0.04 : 1));
     };
     ringUnder(this.selRing, G.selected, true);
+    // a ring under each of several carriers selected together
+    const group = G.group.length > 1 ? G.group.slice(1) : [];
+    this.groupRings ??= [];
+    group.forEach((id, i) => {
+      if (!this.groupRings[i]) {
+        this.groupRings[i] = new THREE.Mesh(this.selRing.geometry, this.selRing.material);
+        this.groupRings[i].rotation.x = -Math.PI / 2;
+        this.root.add(this.groupRings[i]);
+      }
+      ringUnder(this.groupRings[i], id, true);
+    });
+    for (let i = group.length; i < this.groupRings.length; i++) this.groupRings[i].visible = false;
     ringUnder(this.hoverRing, hov && hov.id !== G.selected ? hov.id : null, false);
     if (hov) tip = game.hud.describe(hov);
     // the tabletop panel shows it too, where there is no mouse

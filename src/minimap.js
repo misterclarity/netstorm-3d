@@ -48,6 +48,7 @@ export class Minimap {
     const p = G.world?.priestOf(ME);
     if (!p) return;
     G.selected = p.id;
+    G.group = [];
     G.follow = p.id;
     this.game.hud.dirty = true;
     lookAtCell(wx(p.x + 0.5), wz(p.y + 0.5), 32);

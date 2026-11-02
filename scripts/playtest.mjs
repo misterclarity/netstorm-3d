@@ -77,12 +77,10 @@ const fastForward = (page, n) => page.evaluate((ticks) => {
   return G.world.tick;
 }, n);
 
-/** Wait until the camera has stopped gliding, so that a point aimed at stays where it was. */
-const cameraStill = (page) => page.waitForFunction(() => {
-  const c = document.querySelector('a-scene').camera.el.object3D.position, last = window.lastCam;
-  window.lastCam = c.clone();
-  return last && last.distanceTo(c) < 0.001;
-}, null, { polling: 250, timeout: 15000 });
+/** Wait until the camera has stopped gliding, so that a point aimed at stays where it was (the
+ * rig knows: comparing its position between polls fails where no frame was drawn in between). */
+const cameraStill = (page) => page.waitForFunction(() => !document.getElementById('camera').components['orbit-rig'].moving(),
+  null, { polling: 200, timeout: 30000 });
 
 const SCENARIOS = {
   /** The opening: a Workshop (with the cursor resting on its new site), a Golem sent to a geyser,
@@ -449,6 +447,85 @@ SCENARIOS.autocollect = async () => {
   const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('netstorm-3d:play') ?? '{}').autoCollect);
   if (kept !== false) throw new Error(`the setting was not kept: ${kept}`);
   await page.click('#autoCollect'); // as it was, for the pages after
+  return errors;
+};
+
+/**
+ * Several carriers at once, with the mouse and keys as a player does it: a Ctrl-drag box selects
+ * three Golems, a click on a geyser sends all three, Shift-click takes one out, Esc clears, "I"
+ * picks an idle one, and a double click selects every Golem on the screen.
+ */
+SCENARIOS.group = async () => {
+  const { page, errors } = await open({ width: 1100, height: 700 });
+  await startMission(page);
+  const setup = await page.evaluate(() => {
+    const { G } = window.NS3D, w = G.world, t = w.templeOf(1), p = G.view.priestOf(1);
+    G.worker?.terminate(); G.worker = null;
+    const free = (x, y) => w.terrain[w.at(x, y)] === 1 && !w.occupant[w.at(x, y)] && !w.priestAt(x, y) && !w.residenceAt(x, y);
+    const geyser = [...G.view.entities.values()].filter((e) => e.kind === 'geyser' && e.stock > 0 && G.view.owner[G.view.at(e.x, e.y)] === 1)
+      .sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0];
+    const ids = [];
+    for (let r = 3; r < 14 && ids.length < 3; r++) for (let dx = -r; dx <= r && ids.length < 3; dx += 2) {
+      const x = t.x + dx, y = t.y + t.fy + r;
+      if (free(x, y) && ids.every((id) => Math.hypot(w.entities.get(id).x - x, w.entities.get(id).y - y) > 1.5)) ids.push(w.spawnTransport('sunwalker', 1, x, y).id);
+    }
+    G.paused = true;
+    const cx = ids.reduce((s, id) => s + w.entities.get(id).x, 0) / ids.length, cy = ids.reduce((s, id) => s + w.entities.get(id).y, 0) / ids.length;
+    document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(cx + 0.5), window.NS3D.wz(cy + 0.5), 34);
+    return { ids, geyser: geyser.id };
+  });
+  if (setup.ids.length < 3) throw new Error('no room for three Golems');
+  await page.waitForFunction((ids) => ids.every((id) => window.NS3D.game.units()?.byId.get(id)?.components['ns-unit']?.rep), setup.ids, { timeout: 15000 });
+  await cameraStill(page);
+  const at = (id) => page.evaluate((uid) => window.NS3D.game.onScreen(window.NS3D.G.view.entities.get(uid)), id);
+  const spots = await Promise.all(setup.ids.map(at));
+  if (spots.some((s) => !s)) throw new Error('a Golem is off the screen');
+  const x0 = Math.min(...spots.map((s) => s.x)) - 30, y0 = Math.min(...spots.map((s) => s.y)) - 30;
+  const x1 = Math.max(...spots.map((s) => s.x)) + 30, y1 = Math.max(...spots.map((s) => s.y)) + 30;
+  // Ctrl-drag a box around them
+  await page.evaluate(() => { window.boxes = []; document.querySelector('a-scene').addEventListener('ns-box', (e) => window.boxes.push(e.detail)); });
+  await page.keyboard.down('Control');
+  await page.mouse.move(x0, y0); await page.mouse.down();
+  await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 }); await page.mouse.move(x1, y1, { steps: 4 });
+  await page.mouse.up(); await page.keyboard.up('Control');
+  const boxed = await page.evaluate(() => [...window.NS3D.G.group]);
+  if (boxed.length !== 3 || !setup.ids.every((id) => boxed.includes(id))) throw new Error(`the box did not select the three Golems: ${JSON.stringify(boxed)}; spots ${JSON.stringify(spots)}; box events ${JSON.stringify(await page.evaluate(() => window.boxes.slice(-2)))}`);
+  const card = await page.waitForFunction(() => document.querySelector('#sel h4')?.textContent === '3 selected', null, { timeout: 10000 })
+    .then(() => '3 selected', () => page.evaluate(() => document.querySelector('#sel h4')?.textContent));
+  if (card !== '3 selected') throw new Error(`the card does not show the group: "${card}"`);
+  // a click on the geyser sends all three
+  await page.evaluate((g) => { const { G, game } = window.NS3D, e = G.view.entities.get(g); game.primary(e.x, e.y, false, e); }, setup.geyser);
+  await page.evaluate(() => { const { stepWorld, flushPendingAi } = window.NS3D; for (let i = 0; i < 2; i++) if (!stepWorld()) { flushPendingAi(); stepWorld(); } });
+  const goals = await page.evaluate((ids) => ids.map((id) => { const t = window.NS3D.G.world.entities.get(id); return [t.goal, t.target]; }), setup.ids);
+  if (!goals.every(([g, tg]) => g === 'collect' && tg === setup.geyser)) throw new Error(`not all three went to the geyser: ${JSON.stringify(goals)}`);
+  // Shift-click takes one out
+  const one = await at(setup.ids[1]);
+  await page.keyboard.down('Shift'); await page.mouse.click(one.x, one.y); await page.keyboard.up('Shift');
+  const left = await page.evaluate(() => [...window.NS3D.G.group]);
+  if (left.length !== 2 || left.includes(setup.ids[1])) throw new Error(`Shift-click did not take one out: ${JSON.stringify(left)}`);
+  // Esc clears
+  await page.keyboard.press('Escape');
+  const cleared = await page.evaluate(() => [window.NS3D.G.selected, window.NS3D.G.group.length]);
+  if (cleared[0] !== null || cleared[1]) throw new Error(`Esc did not clear the selection: ${JSON.stringify(cleared)}`);
+  // "I": an idle Golem (a fourth, waiting)
+  const idle = await page.evaluate((ids) => {
+    const { G } = window.NS3D, w = G.world, a = w.entities.get(ids[0]);
+    for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [3, 1]]) { const x = a.x + dx, y = a.y + dy; if (w.terrain[w.at(x, y)] === 1 && !w.occupant[w.at(x, y)]) return w.spawnTransport('sunwalker', 1, x, y).id; }
+    return null;
+  }, setup.ids);
+  await page.waitForTimeout(400);
+  await page.keyboard.press('i');
+  const picked = await page.evaluate(() => window.NS3D.G.selected);
+  if (picked !== idle) throw new Error(`"I" did not pick the idle Golem ${idle}: ${picked}`);
+  // a double click on a Golem: all Golems on the screen
+  await page.waitForFunction((id) => !!window.NS3D.game.units()?.byId.get(id)?.components['ns-unit']?.rep, idle, { timeout: 15000 });
+  await cameraStill(page);
+  const g0 = await at(setup.ids[0]);
+  await page.mouse.click(g0.x, g0.y);
+  await page.waitForTimeout(80);
+  await page.mouse.click(g0.x, g0.y);
+  const all = await page.evaluate(() => [...window.NS3D.G.group]);
+  if (all.length < 4) throw new Error(`a double click did not select every Golem on the screen: ${JSON.stringify(all)}`);
   return errors;
 };
 
