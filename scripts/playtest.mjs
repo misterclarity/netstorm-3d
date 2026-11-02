@@ -416,6 +416,43 @@ SCENARIOS.refuse = async () => {
 };
 
 /**
+ * "Auto-collect": a Golem built with it on goes to a geyser it can reach by itself; with it off,
+ * one waits for orders. The setting is a button in the top bar and is kept.
+ */
+SCENARIOS.autocollect = async () => {
+  const { page, errors } = await open({ width: 1280, height: 720 });
+  await startMission(page);
+  const build = () => page.evaluate(() => {
+    const { G, NS, game, submit, stepWorld, flushPendingAi } = window.NS3D, w = G.world, t = w.templeOf(1);
+    G.worker?.terminate(); G.worker = null;
+    w.players.get(1).storm += 1000;
+    // the same unit is built again only after a while
+    for (let i = 0; i < 900 && w.players.get(1).refresh.some((r) => r.type === 'sunwalker'); i++) if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+    game.handleEvents();
+    let at = null;
+    for (let y = t.y - 10; y < t.y + 14 && !at; y++) for (let x = t.x - 10; x < t.x + 14 && !at; x++) {
+      const a = NS.anchorFor(w.def('sunwalker'), x, y);
+      if (G.view.canBuild({ player: 1, type: 'sunwalker', ...a }) === null) at = a;
+    }
+    const before = new Set([...w.entities.keys()]);
+    submit({ t: 'build', type: 'sunwalker', ...at });
+    for (let i = 0; i < 3; i++) { if (!stepWorld()) { flushPendingAi(); stepWorld(); } game.handleEvents(); }
+    for (let i = 0; i < 3; i++) { if (!stepWorld()) { flushPendingAi(); stepWorld(); } }
+    const golem = [...w.entities.values()].find((e) => !before.has(e.id) && e.kind === 'transport');
+    return golem ? { goal: golem.goal, target: golem.target, geyser: w.entities.get(golem.target)?.kind ?? null } : null;
+  });
+  const on = await build();
+  if (!on || on.goal !== 'collect' || on.geyser !== 'geyser') throw new Error(`with Auto-collect on, a new Golem did not go to a geyser: ${JSON.stringify(on)}`);
+  await page.click('#autoCollect');
+  const off = await build();
+  if (!off || off.goal !== 'idle') throw new Error(`with Auto-collect off, a new Golem did not wait for orders: ${JSON.stringify(off)}`);
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('netstorm-3d:play') ?? '{}').autoCollect);
+  if (kept !== false) throw new Error(`the setting was not kept: ${kept}`);
+  await page.click('#autoCollect'); // as it was, for the pages after
+  return errors;
+};
+
+/**
  * A Priest who holds a crystal (sent for a walk while carrying one home) and is sent to a geyser:
  * he banks it at the Temple first and then collects, instead of the order being refused.
  */

@@ -72,6 +72,15 @@ export const HARDEN = 60; // ticks a bridge piece takes to harden in the hand
 export const PX = 16; // sprite pixels per cell
 export const SPEEDS = [1, 2, 3];
 export const FACING_NAMES = ['north', 'east', 'south', 'west'];
+
+/** The player's choices about play, kept between visits (sound and music are ns-sound's). */
+const PLAY_KEY = 'netstorm-3d:play';
+export const PLAY = { autoCollect: true };
+try { Object.assign(PLAY, JSON.parse(localStorage.getItem(PLAY_KEY) ?? '{}')); } catch { /* no storage */ }
+export function setPlay(key, value) {
+  PLAY[key] = value;
+  try { localStorage.setItem(PLAY_KEY, JSON.stringify(PLAY)); } catch { /* no storage */ }
+}
 /** How the way a unit was laid reads: the Wind Tower's facing is the side its shield guards. */
 export const facingText = (def, f) => def.id === 'windblocker' ? `shielded on the ${FACING_NAMES[f]}` : `faces ${FACING_NAMES[f]}`;
 /** Turns a part pointing +Z (south) to face N, E, S, W. */

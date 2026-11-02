@@ -3,7 +3,7 @@
  * commands, and passes the simulation's events on to the HUD and the effects. The scene's
  * components draw what it holds in `G`.
  */
-import { NS, THREE, G, ME, defs, origin, wx, wz, errorText, keysOff } from '../state.js';
+import { NS, THREE, G, ME, defs, origin, wx, wz, errorText, keysOff, PLAY } from '../state.js';
 import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
@@ -214,7 +214,16 @@ AFRAME.registerSystem('ns-game', {
         }
         case 'bridge fell': fx?.fall(ev.data.x, ev.data.y, 1, 1, true); break;
         case 'islet fell': fx?.fall(ev.data.x, ev.data.y, ev.data.w, ev.data.h, false); break;
-        case 'build': if (mine && ev.data.type === 'sunwalker') hud.toast('A Golem is ready. Select it, then click a geyser.', 'good'); break;
+        case 'build': {
+          const d = defs.get(ev.data.type);
+          if (!mine || !['Ground Transport', 'Aerial Transport'].includes(d?.cls)) break;
+          const geyser = PLAY.autoCollect ? this.nearestGeyser(G.world.entities.get(ev.data.id)) : null;
+          if (geyser) {
+            submit({ t: 'collect', transport: ev.data.id, geyser: geyser.id });
+            hud.toast(`${d.name} is ready and goes to the nearest geyser`, 'good');
+          } else hud.toast(PLAY.autoCollect ? `${d.name} is ready, but no geyser with Storm Power is in its reach: lay a bridge to one, then send it` : `${d.name} is ready. Select it, then click a geyser.`, 'good');
+          break;
+        }
         case 'captured': {
           if (!mine) { hud.toast('Your Priest has been captured!', 'bad'); break; }
           const p = G.world.entities.get(ev.data.priest), t = p && G.world.entities.get(p.carriedBy);
@@ -433,6 +442,29 @@ AFRAME.registerSystem('ns-game', {
       return true;
     }
     return false;
+  },
+
+  /**
+   * The geyser a new carrier goes to by itself ("Auto-collect"): of those with Storm Power left,
+   * the one with the shortest way, a geyser that others of the player's carriers already work
+   * counting as further (each as ten more cells), so that new carriers spread out. The ways to the
+   * nearest few are searched as the rules search them; null if none is in reach.
+   */
+  nearestGeyser(t) {
+    const w = G.world;
+    if (!t || !w.templeOf(ME)) return null;
+    const working = new Map();
+    for (const e of w.entities.values()) if (e.kind === 'transport' && e.owner === ME && e.goal === 'collect') working.set(e.target, (working.get(e.target) ?? 0) + 1);
+    const near = [...w.entities.values()].filter((e) => e.kind === 'geyser' && e.stock > 0)
+      .sort((a, b) => Math.hypot(a.x - t.x, a.y - t.y) - Math.hypot(b.x - t.x, b.y - t.y)).slice(0, 6);
+    let best = null, score = Infinity;
+    for (const g of near) {
+      const way = w.wayOf(t, (c) => Math.abs(c[0] - g.x) + Math.abs(c[1] - g.y) === 1);
+      if (!way) continue;
+      const s = way.length + 10 * (working.get(g.id) ?? 0);
+      if (s < score) { score = s; best = g; }
+    }
+    return best;
   },
 
   /**

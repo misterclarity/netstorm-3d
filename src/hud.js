@@ -2,7 +2,7 @@
  * The HUD, in plain DOM over the scene: the top bar, the bottom bar of bridge pieces and buildings,
  * the card of the selected thing, the next-step card, toasts and the dialogs.
  */
-import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, facingText, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml } from './state.js';
+import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, facingText, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml, PLAY, setPlay } from './state.js';
 import { needOf, needText, iconsHtml, iconName, sourceOf } from './energy.js';
 import { submit, SKIRMISH_DEFAULTS } from './game.js';
 import { modelKind } from './models.js';
@@ -31,6 +31,8 @@ export class Hud {
       b.classList.toggle('on', sound.settings[key]);
       b.onclick = () => { sound.set(key, !sound.settings[key]); b.classList.toggle('on', sound.settings[key]); };
     }
+    $('autoCollect').classList.toggle('on', PLAY.autoCollect);
+    $('autoCollect').onclick = () => { setPlay('autoCollect', !PLAY.autoCollect); $('autoCollect').classList.toggle('on', PLAY.autoCollect); };
     $('restart').onclick = () => this.confirmRestart();
     // a phone's ⋯ menu: open and shut, shut by a choice in it or a tap elsewhere
     const menu = (open) => { $('top').classList.toggle('open', open); $('moreBtn').setAttribute('aria-expanded', String(open)); };
