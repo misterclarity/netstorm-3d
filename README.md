@@ -276,7 +276,10 @@ none waits for two minutes after one that waited is shot (Hard had lost all four
 a carrier left standing with a crystal (one that found no way home when it set out, and that
 netstorm-web's opponent never gave another order: at Hard all three stood so from the 24th minute,
 eight cells from the Temple) sets it down to be picked up and taken home;
-a carrier fetches a loose crystal only if it would live to bring it home (one
+a carrier fetches a loose crystal only if it would live to bring it home, a gun's first hit
+counted in full (it carries seconds of the gun's damage: Hard lost three Sail Skaters in a minute
+and a half going for crystals under a row of cannons that the damage per second along the way
+made look safe) (one
 killed under the enemy's guns dropped its crystal there, the next walked in for it and died, a
 carrier lost every minute and a half on both sides for fifteen minutes); and a gun short of
 Energy at a bridge head that already has some gets

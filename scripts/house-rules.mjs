@@ -407,6 +407,11 @@ CHANGES.push({
 {
   file: 'ai.ts',
   why: 'capture runs a carrier would survive',
+  was: `import { facesWhenLaid } from './rules/combat.js';`,
+  now: `import { facesWhenLaid, shotInterval } from './rules/combat.js';`,
+}, {
+  file: 'ai.ts',
+  why: 'capture runs a carrier would survive',
   was: `  const runners = transports
     .filter((t) => t.carrying === null && t.goal !== 'capture')
     .map((t) => ({
@@ -438,9 +443,82 @@ CHANGES.push({
   was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
   now: `/** (netstorm-3d) Whether a carrier lives through the enemy's fire along a way: the damage per
  * second on each cell, at its pace, against its hit points (as netstorm-web weighs a way to a
- * geyser). */
+ * geyser). Only the way there: weighing the way back with the captive as well (and a gun's first
+ * hit) sent fewer carriers, and in the arena won fewer battles than the risk does. */
 function survives(world: WorldView, move: Move, t: View<Transport>, path: readonly (readonly [number, number])[]): boolean {
-  return path.reduce((sum, [x, y]) => sum + move.threat[world.at(x, y)]!, 0) / world.def(t.type).speed < t.hp;
+  return wayFire(world, move, world.def(t.type), path, 1, false) < t.hp;
+}
+
+/** (netstorm-3d) The damage a carrier of a kind takes along a way, walked \`trips\` times: the
+ * enemy's damage per second on each cell at its pace, and, since a gun's first hit carries a whole
+ * interval of its damage (rules/combat.ts), the heaviest such hit where it walks into fire. */
+function wayFire(world: WorldView, move: Move, def: Readonly<UnitDef>, path: readonly (readonly [number, number])[], trips = 1, withHits = true): number {
+  const hits = withHits ? shotMap(world, move) : null;
+  let dps = 0;
+  let hit = 0;
+
+  for (const [x, y] of path) {
+    const i = world.at(x, y);
+    dps += move.threat[i]!;
+    hit = hits ? Math.max(hit, hits[i]!) : 0;
+  }
+
+  return trips * (dps / def.speed + hit);
+}
+
+const shotMaps = new WeakMap<Move, Float32Array>();
+
+/** (netstorm-3d) On each cell, the damage of one hit of each enemy gun that reaches it, a cannon
+ * along its line (all four for the Sun Cannon), any other over the square of its range; made once
+ * a move. */
+function shotMap(world: WorldView, move: Move): Float32Array {
+  let grid = shotMaps.get(move);
+
+  if (grid) {
+    return grid;
+  }
+
+  grid = new Float32Array(W * H);
+
+  for (const e of world.entities.values()) {
+    if (e.kind !== 'building' || !world.hostile(e.owner, move.me) || e.invisible > 0 || e.hp <= 0) {
+      continue;
+    }
+
+    const def = world.def(e.type);
+
+    if (def.dps <= 0 || def.range <= 0 || def.group === 'fence' || e.type === 'thunderarcher') {
+      continue;
+    }
+
+    const hit = (def.dps * shotInterval(def)) / TPS;
+
+    if (def.group === 'cannon') {
+      for (const f of e.type === 'suncannon' ? [0, 1, 2, 3] : [e.facing]) {
+        const [dx, dy] = DIRS[f]!;
+        let x = f === 1 ? e.x + e.fx : f === 3 ? e.x - 1 : e.x + (e.fx >> 1);
+        let y = f === 0 ? e.y - 1 : f === 2 ? e.y + e.fy : e.y + (e.fy >> 1);
+
+        for (let r = 0; r < def.range && world.inside(x, y); r++, x += dx, y += dy) {
+          grid[world.at(x, y)]! += hit;
+        }
+      }
+    } else {
+      const cx = e.x + (e.fx >> 1);
+      const cy = e.y + (e.fy >> 1);
+
+      for (let y = cy - def.range; y <= cy + def.range; y++) {
+        for (let x = cx - def.range; x <= cx + def.range; x++) {
+          if (world.inside(x, y)) {
+            grid[world.at(x, y)]! += hit;
+          }
+        }
+      }
+    }
+  }
+
+  shotMaps.set(move, grid);
+  return grid;
 }
 
 /** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
@@ -746,11 +824,9 @@ function fetcherFor(
     return 0;
   }
 
-  // The fire on the way to him: the least on any own carrier's way, or on the Priest's from home.
+  // The fire on the way to him: on an own carrier's way, or on the Priest's from home.
   const goal = ([x, y]: [number, number]): boolean => distance(x, y, foe.x, foe.y) <= 1;
-  const fireOn = (path: readonly (readonly [number, number])[]): number =>
-    path.reduce((sum, [x, y]) => sum + move.threat[world.at(x, y)]!, 0);
-  let fire = Infinity;
+  let way: [number, number][] | null = null;
 
   for (const t of transports) {
     const path = t.carrying === null && !flies(world.def(t.type)) ? world.findPath(move.me, t.x, t.y, goal) : null;
@@ -759,15 +835,15 @@ function fetcherFor(
       return 0; // one of them can go
     }
 
-    fire = Math.min(fire, path ? fireOn(path) : Infinity);
+    way ??= path;
   }
 
   const own = world.priestOf(move.me);
-  const walk = own && fire === Infinity ? world.findPath(move.me, own.x, own.y, goal) : null;
-  fire = walk ? fireOn(walk) : fire;
+  way ??= own ? world.findPath(move.me, own.x, own.y, goal) : null;
+  const way2 = way;
 
-  const def = fire < Infinity
-    ? transportKinds(world, move.me).filter((d) => !flies(d) && fire / d.speed < d.hp)
+  const def = way2
+    ? transportKinds(world, move.me).filter((d) => !flies(d) && makerError(world, move.me, d) === null && wayFire(world, move, d, way2, 1, false) < d.hp)
       .sort((a, b) => a.cost - b.cost || a.id.localeCompare(b.id))[0]
     : undefined;
 
@@ -880,7 +956,10 @@ function feeding(world: WorldView, me: number, at: { x: number; y: number; }): n
 // arena: a carrier killed under the enemy's guns drops its crystal there, the next one walks in for
 // it and dies, and so on, a carrier lost every minute and a half on both sides for fifteen minutes.
 // A carrier now fetches only a crystal it would live to bring home: the fire on the way there and
-// back, at its pace, against its hit points, as the opponent already weighs a way to a geyser.
+// back, at its pace, against its hit points, as the opponent already weighs a way to a geyser,
+// and a gun's first hit counted in full (wayFire): it carries seconds of the gun's damage, and
+// three Sail Skaters died in a minute and a half for crystals under a row of cannons that the
+// damage per second along the way made look safe.
 CHANGES.push({
   file: 'ai.ts',
   why: 'no crystal fetched from under the guns',
@@ -890,7 +969,7 @@ CHANGES.push({
   now: `    // (netstorm-3d) only one it would live to bring home: the fire there and back, at its pace
     const crystal = loose.find((c) => {
       const way = world.findPath(move.me, t.x, t.y, ([x, y]) => distance(x, y, c.x, c.y) <= 1);
-      return way !== null && (!avoidDanger || flies(world.def(t.type)) || 2 * fire(t, way) < t.hp);
+      return way !== null && (!avoidDanger || flies(world.def(t.type)) || wayFire(world, move, world.def(t.type), way, 2) < t.hp);
     });`,
 });
 
