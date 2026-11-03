@@ -944,7 +944,7 @@ function pace(def: Readonly<UnitDef>): number {
  * short (\`short\`), it buys it, or keeps the move's Storm Power for it when it cannot pay yet and it
  * is half as fast again as the best it could buy now. With its carriers all there, it buys one in
  * place of its slowest without cargo, which is salvaged, when that is half as slow and the price
- * leaves TRANSPORT_SAVINGS over. A carrier above level 1 wants Energy by the Temple that the
+ * leaves SWAP_SAVINGS over. A carrier above level 1 wants Energy by the Temple that the
  * computer's Temple alone does not give: a Generator of its Fury comes first. Returns what the move
  * keeps, and whether it saw to the carrier short.
  */
@@ -996,7 +996,7 @@ function swiftCarriers(
       && t.goal !== 'altar' && pace(world.def(t.type)) * SWIFT_RATIO <= pace(swift))
     .sort((a, b) => pace(world.def(a.type)) - pace(world.def(b.type)) || a.id - b.id)[0];
 
-  if (slow && move.budget >= swift.cost + TRANSPORT_SAVINGS && buy()) {
+  if (slow && move.budget >= swift.cost + SWAP_SAVINGS && buy()) {
     move.commands.push({ t: 'salvage', player: move.me, target: slow.id });
   }
 
@@ -1013,6 +1013,9 @@ function generatorOf(world: WorldView, move: Move, def: Readonly<UnitDef>, at: {
 
 /** How much swifter a carrier has to be to be waited for, or traded for (invented). */
 const SWIFT_RATIO = 1.5;
+/** Storm Power left over after a trade of a slow carrier for a swift one (invented): the slow one
+ * salvaged gives some back, and the swift one pays for itself in a few trips. */
+const SWAP_SAVINGS = 200;
 
 /** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
 }, {
@@ -1036,6 +1039,35 @@ function swiftSlot(move: Move, def: Readonly<UnitDef>): boolean {
 const GOLEM_PACE = 1.8;
 
 /** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+});
+
+// A crystal left in a carrier's hands goes home (a fix, for every level). A carrier with a crystal
+// that finds no way to the Temple when it sets out for it stops where it is, and netstorm-web's
+// opponent only ever gives orders to carriers with empty hands. Traced in the arena: at Hard, all
+// three carriers stood idle beside its island with a crystal each from the 24th minute on, eight
+// cells from the Temple once the way was open again, and the side earned nothing more. Now such a
+// carrier sets its crystal down, and the next move sends a carrier to pick it up, which takes it
+// home.
+CHANGES.push({
+  file: 'ai.ts',
+  why: 'a crystal left in a carrier\'s hands goes home',
+  was: `  for (const t of transports) {
+    if (t.goal !== 'idle' || t.carrying !== null) {
+      continue;
+    }
+`,
+  now: `  for (const t of transports) {
+    // (netstorm-3d) one standing with a crystal sets it down, to be picked up and taken home
+    if (t.goal === 'idle' && t.carrying !== null && world.entities.get(t.carrying)?.kind === 'crystal'
+      && !t.aloft && t.climbing === 0) {
+      move.commands.push({ t: 'dropCargo', player: move.me, transport: t.id });
+      continue;
+    }
+
+    if (t.goal !== 'idle' || t.carrying !== null) {
+      continue;
+    }
+`,
 });
 
 // The first carrier paid for (a fix, for every level). Traced in the arena: Normal lost its last

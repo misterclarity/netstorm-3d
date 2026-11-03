@@ -268,6 +268,9 @@ with Golems all battle, never its Sail Skaters, and its income fell from 34 crys
 five minutes to 4 to 7 as its geysers came to lie 60 to 110 cells away; now it brings 42 in the
 second five minutes); two carriers always keep mining while others wait by an enemy Priest, and
 none waits for two minutes after one that waited is shot (Hard had lost all four Sail Skaters so);
+a carrier left standing with a crystal (one that found no way home when it set out, and that
+netstorm-web's opponent never gave another order: at Hard all three stood so from the 24th minute,
+eight cells from the Temple) sets it down to be picked up and taken home;
 a carrier fetches a loose crystal only if it would live to bring it home (one
 killed under the enemy's guns dropped its crystal there, the next walked in for it and died, a
 carrier lost every minute and a half on both sides for fifteen minutes); and a gun short of

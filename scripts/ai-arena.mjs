@@ -100,6 +100,17 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
         }
       }
       console.log('DIAG home', JSON.stringify(near), 'Storm', world.players.get(1).storm);
+      // and side 1's carriers, and the geysers on its ground with the fire on them
+      const threat1 = NS.threatMap(view, 1);
+      for (const t of [...world.entities.values()].filter((e) => e.kind === 'transport' && e.owner === 1)) {
+        const depots = world.depotsOf(1);
+        const homeWay = world.wayOf(t, (cell) => depots.some((d) => world.adjacentTo(cell[0], cell[1], d)));
+        console.log('DIAG carrier', t.id, t.type, t.x, t.y, t.goal, t.target, 'cargo', t.carrying, 'way home', homeWay?.length ?? 'none', 'depots', depots.map((d) => \`\${d.type}@\${d.x},\${d.y}\`).join(' '));
+      }
+      for (const g of [...world.entities.values()].filter((e) => e.kind === 'geyser' && e.stock > 0 && world.owner[world.at(e.x, e.y)] === 1)) {
+        const way = view.findPath(1, home.x + home.fx, home.y + home.fy, ([x, y]) => Math.abs(x - g.x) + Math.abs(y - g.y) === 1);
+        console.log('DIAG geyser', g.id, g.x, g.y, 'stock', g.stock, 'fire', threat1[world.at(g.x, g.y)], 'way', way?.length ?? 'none', 'fire on way', way ? way.reduce((a, [x, y]) => a + threat1[world.at(x, y)], 0) : '-');
+      }
       // and, with the enemy Priest down, each of side 1's carriers: its way to him, and the fire on it
       const down = world.priestOf(2);
       if (down?.state === 'down') {
