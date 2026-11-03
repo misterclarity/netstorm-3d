@@ -164,7 +164,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run dev` | Builds in watch mode and serves the page on port 8080 (set `PORT` to change it). |
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
 | `npm run lint` | ESLint over the client and the scripts (`eslint.config.mjs`): undefined or unused names, unreachable code, shadowed names; any warning fails it. CI runs it. |
-| `npm run ai:arena` | Matches of the computer against itself or against an idle side, on skirmish maps as the menu makes them, with this game's rules: wins, minutes to win, when a Priest first falls, crystals, guns, time per move. `PAIRS=hard:easy,normal:idle SEEDS=1,2,3,4 MINUTES=30`; `TRACE=1` follows one match minute by minute with every capture event; `TUNE='{"hard":{…}}'` turns a level's knobs for a trial. |
+| `npm run ai:arena` | Matches of the computer against itself or against an idle side, on skirmish maps as the menu makes them, with this game's rules: wins, minutes to win, when a Priest first falls, crystals, guns, time per move. `PAIRS=hard:easy,normal:idle SEEDS=1,2,3,4 MINUTES=30`; `TRACE=1` follows one match minute by minute with every capture event and lost carrier, `EXPLAIN=<minute>` adds side 1's reasons, `ECON=1` each side's income every five minutes; `TUNE='{"hard":{…}}'` turns a level's knobs for a trial. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error, then compares the HUD's account of Energy (`src/energy.js`) with the rules' own answer at every site of a map, with units and Generators of every Fury and level. CI runs it. |
 | `npm run ai-check` | Plays eight minutes of a skirmish at each level twice, with and without the AI worker's cache (below), and fails unless the computer makes the same moves both ways; prints how long a move takes. CI runs it. |
 | `npm run playtest` | Plays the built page in headless Chromium (Playwright), failing on any page error: the mission's opening; a staged endgame, whose Victory waits for the Sacrifice to be heard out; a downed Priest captured with no Altar yet and carried there once one stands; an order the rules would refuse refused at once, without the unit answering; Auto-collect on and off; several Golems selected with a box, sent together, Shift-clicked out, cleared, an idle one picked with I and all picked with a double click; an air ship clicked by its body and sent across the island; a Golem sent to a geyser by a click on its steam; a Priest sent to a geyser while holding a crystal; five minutes of a skirmish (with its Residences and greenery); five minutes of a battle the computer plays on both sides, in both art styles and on the table, checked for any warning, any unit drawn out of place or out of step with the world, and "NaN" in the HUD; and the tabletop (with the mouse, then with faked VR controllers). Run one with `node scripts/playtest.mjs <name>`. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
@@ -261,7 +261,14 @@ once that happens; where every carrier Normal or Hard has would die on the way t
 it buys (saving up, and salvaging a spare gun) the cheapest that would live through it, a Sail
 Skater where Golems fall; carriers also wait while the enemy Temple is under fire, since its fall knocks
 the Priest out; at every level a side left with no carrier and too little Storm Power for one
-salvages a spare gun for it; a carrier fetches a loose crystal only if it would live to bring it home (one
+salvages a spare gun for it; **Normal and Hard
+mine with their swiftest carriers**: the first Workshop slot of its Fury goes to a carrier half as
+fast again as a Golem, they save up for it and trade Golems for it (Hard, playing Wind, had carried
+with Golems all battle, never its Sail Skaters, and its income fell from 34 crystals in the first
+five minutes to 4 to 7 as its geysers came to lie 60 to 110 cells away; now it brings 42 in the
+second five minutes); two carriers always keep mining while others wait by an enemy Priest, and
+none waits for two minutes after one that waited is shot (Hard had lost all four Sail Skaters so);
+a carrier fetches a loose crystal only if it would live to bring it home (one
 killed under the enemy's guns dropped its crystal there, the next walked in for it and died, a
 carrier lost every minute and a half on both sides for fifteen minutes); and a gun short of
 Energy at a bridge head that already has some gets

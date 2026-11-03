@@ -308,8 +308,10 @@ CHANGES.push({
  * (netstorm-3d) While the enemy Priest is shot at (up, below his full health), or his Temple is,
  * whose fall knocks him out, and he stands within eight cells of ground the AI's carriers walk to,
  * the level's number of carriers wait at the nearest cell of that ground out of enemy fire, so
- * that one is by him the moment he falls. Those already
- * waiting stay; the others are the nearest without cargo. Returns the carriers kept waiting.
+ * that one is by him the moment he falls. Those already waiting stay; the others are the nearest
+ * without cargo. Two carriers are always left to carry crystals, and once one that waited is lost
+ * (traced in the arena: Hard lost all four of its Sail Skaters so, and its income with them), none
+ * waits for two minutes. Returns the carriers kept waiting.
  */
 function stage(
   world: WorldView,
@@ -319,8 +321,16 @@ function stage(
   reached: Uint8Array | null,
 ): Set<number> {
   const kept = new Set<number>();
-  const mem = memory as { staged?: number[]; } | undefined;
-  const want = move.params.stageCarriers ?? 0;
+  const mem = memory as { staged?: number[]; stageLost?: number; } | undefined;
+
+  // One that waited and is gone was shot where it stood: none waits for a while after.
+  if (mem?.staged?.some((id) => !world.entities.has(id))) {
+    mem.stageLost = world.tick;
+  }
+
+  const cooling = mem?.stageLost !== undefined && world.tick - mem.stageLost < STAGE_COOLDOWN * TPS;
+  // and never so many that fewer than two are left to carry crystals
+  const want = cooling ? 0 : Math.min(move.params.stageCarriers ?? 0, transports.length - STAGE_KEEP);
   const foe = enemyPriest(world, move.me, 'normal');
   let spot: [number, number] | null = null;
 
@@ -367,6 +377,11 @@ function stage(
   if (mem) mem.staged = [...kept];
   return kept;
 }
+
+/** Seconds no carrier waits by the enemy Priest after one that waited was lost, and carriers kept
+ * carrying crystals (invented). */
+const STAGE_COOLDOWN = 120;
+const STAGE_KEEP = 2;
 
 /** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
 });
@@ -877,6 +892,150 @@ CHANGES.push({
       const way = world.findPath(move.me, t.x, t.y, ([x, y]) => distance(x, y, c.x, c.y) <= 1);
       return way !== null && (!avoidDanger || flies(world.def(t.type)) || 2 * fire(t, way) < t.hp);
     });`,
+});
+
+// Swift carriers (a level's `swiftCarriers`). netstorm-web's opponent buys the fastest carrier it can
+// pay for the moment one is short, and keeps whatever it has. Traced in the arena: Hard, playing
+// Wind, made do with Golems (1.8 cells a second, 50 hit points) all battle, never the Sail Skater
+// (4.2, 180) its Fury knows, and its income fell from 34 crystals in the first five minutes to 4
+// to 7 as its geysers came to lie 60 to 110 cells from the Temple. A level with swift carriers waits
+// for the Storm Power for its swiftest when that is half as fast again as what it could buy now,
+// and once it has its carriers, trades its slowest for a swift one when it can spare the price.
+// A Bulf's pace counts double: it carries two crystals.
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'swift carriers',
+  was: `  chaseDowned: boolean;
+}`,
+  now: `  chaseDowned: boolean;
+  /** (netstorm-3d) The swiftest carrier waited for, and slow ones traded for it. */
+  swiftCarriers: boolean;
+}`,
+}, ...perLevel('swift carriers', 'swiftCarriers', [false, true, true]), {
+  file: 'ai.ts',
+  why: 'swift carriers',
+  was: `import { takesSlot } from './rules/building.js';`,
+  now: `import { makerError, takesSlot } from './rules/building.js';`,
+}, {
+  file: 'ai.ts',
+  why: 'swift carriers',
+  was: `  if (options.collect !== false && !firstTransport && transports.length < wanted) {
+    newTransport(world, move, geysers.length === 0, 0);`,
+  now: `  // (netstorm-3d) a level with swift carriers trades its slowest for its swiftest, or saves for it
+  const swift = params.swiftCarriers && options.collect !== false && !firstTransport
+    ? swiftCarriers(world, move, transports, transports.length < wanted)
+    : { keep: 0, done: false };
+  move.budget -= swift.keep;
+  saving += swift.keep;
+
+  if (options.collect !== false && !firstTransport && transports.length < wanted && !swift.done) {
+    newTransport(world, move, geysers.length === 0, 0);`,
+}, {
+  file: 'ai.ts',
+  why: 'swift carriers',
+  was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+  now: `/** (netstorm-3d) Crystals a carrier brings home a second: its pace, twice a Bulf's. */
+function pace(def: Readonly<UnitDef>): number {
+  return def.speed * (def.id === 'bulf' ? 2 : 1);
+}
+
+/**
+ * (netstorm-3d) The swiftest carrier on foot the side knows, for a level with swift carriers. One
+ * short (\`short\`), it buys it, or keeps the move's Storm Power for it when it cannot pay yet and it
+ * is half as fast again as the best it could buy now. With its carriers all there, it buys one in
+ * place of its slowest without cargo, which is salvaged, when that is half as slow and the price
+ * leaves TRANSPORT_SAVINGS over. A carrier above level 1 wants Energy by the Temple that the
+ * computer's Temple alone does not give: a Generator of its Fury comes first. Returns what the move
+ * keeps, and whether it saw to the carrier short.
+ */
+function swiftCarriers(
+  world: WorldView,
+  move: Move,
+  transports: View<Transport>[],
+  short: boolean,
+): { keep: number; done: boolean; } {
+  const home = world.templeOf(move.me);
+  // Only one a Workshop of the side makes now: a Fury's carrier wants its Workshop, with it in a slot.
+  const kinds = transportKinds(world, move.me).filter((d) => !flies(d) && makerError(world, move.me, d) === null);
+  const swift = [...kinds].sort((a, b) => pace(b) - pace(a) || a.cost - b.cost || a.id.localeCompare(b.id))[0];
+  const none = { keep: 0, done: false };
+
+  if (!home || !swift) {
+    return none;
+  }
+
+  const around = { x: home.x + home.fx, y: home.y + home.fy };
+  // Bought, or Energy laid for it: the move keeps the rest for it.
+  const buy = (): boolean => {
+    const got = place(world, move, swift, around);
+
+    if (!got.placed && got.noEnergy && !move.energized && generatorOf(world, move, swift, around)) {
+      move.energized = true;
+      move.actions++;
+    }
+
+    return got.placed;
+  };
+
+  if (short) {
+    const now = kinds.filter((d) => d.cost <= move.budget).reduce((most, d) => Math.max(most, pace(d)), 0);
+
+    if (pace(swift) < SWIFT_RATIO * now && move.budget < swift.cost) {
+      return none;
+    }
+
+    if (move.budget >= swift.cost && buy()) {
+      return { keep: 0, done: true };
+    }
+
+    return { keep: Math.max(0, move.budget), done: true };
+  }
+
+  const slow = transports
+    .filter((t) => !flies(world.def(t.type)) && t.carrying === null && t.goal !== 'capture'
+      && t.goal !== 'altar' && pace(world.def(t.type)) * SWIFT_RATIO <= pace(swift))
+    .sort((a, b) => pace(world.def(a.type)) - pace(world.def(b.type)) || a.id - b.id)[0];
+
+  if (slow && move.budget >= swift.cost + TRANSPORT_SAVINGS && buy()) {
+    move.commands.push({ t: 'salvage', player: move.me, target: slow.id });
+  }
+
+  return none;
+}
+
+/** (netstorm-3d) A Generator for a unit short of Energy at a place: of the unit's Fury first. */
+function generatorOf(world: WorldView, move: Move, def: Readonly<UnitDef>, at: { x: number; y: number; }): boolean {
+  const own = batteries(world, move.me).sort((a, b) =>
+    Number(b.theme === def.theme) - Number(a.theme === def.theme) || a.id.localeCompare(b.id));
+
+  return own.some((battery) => place(world, move, battery, at).placed);
+}
+
+/** How much swifter a carrier has to be to be waited for, or traded for (invented). */
+const SWIFT_RATIO = 1.5;
+
+/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+}, {
+  file: 'ai.ts',
+  why: 'swift carriers',
+  was: `      .sort(slotOrder);`,
+  now: `      // (netstorm-3d) a level with swift carriers gives the first slot to its swiftest, if half as
+      // fast again as a Golem
+      .sort((a, b) => Number(swiftSlot(move, b)) - Number(swiftSlot(move, a)) || slotOrder(a, b));`,
+}, {
+  file: 'ai.ts',
+  why: 'swift carriers',
+  was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+  now: `/** (netstorm-3d) Whether a unit is a carrier on foot worth a level's first slot: half as fast
+ * again as a Golem, where the level has swift carriers. */
+function swiftSlot(move: Move, def: Readonly<UnitDef>): boolean {
+  return move.params.swiftCarriers && def.cls === 'Ground Transport' && pace(def) >= SWIFT_RATIO * GOLEM_PACE;
+}
+
+/** A Golem's pace, cells a second (its .type file). */
+const GOLEM_PACE = 1.8;
+
+/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
 });
 
 // The first carrier paid for (a fix, for every level). Traced in the arena: Normal lost its last

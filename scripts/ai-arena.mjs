@@ -10,6 +10,7 @@
  *   PAIRS=hard:easy SEEDS=2 TRACE=1 npm run ai:arena        # one match, a line a minute
  *   … TRACE=1 EXPLAIN=12 EXPLAIN_FOR=0.5                  # and side 1's reasons from minute 12
  *   … TRACE=1 DIAG=16                                      # why no gun of side 1 stands by the Temple
+ *   … TRACE=1 ECON=1                                       # each side's income every five minutes
  *
  * A side is a level (easy, normal, hard, and any added to the table) or idle. Side 1 plays Wind,
  * side 2 Rain, on four islands with 2000 Storm Power, as the menu's defaults. Each move is worked
@@ -46,6 +47,7 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
   const stats = { 1: stat(), 2: stat() };
   const ticks = Math.round(minutes * 60 * NS.TPS);
   let firstDown = null;
+  const econ = { 1: 0, 2: 0 };
   for (let i = 0; i < ticks && world.winner === null; i++) {
     const commands = [];
     for (const p of [1, 2]) {
@@ -89,6 +91,15 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
         }
       }
       console.log('DIAG', JSON.stringify(tally));
+      // and what side 1 may lay beside its Temple, as the opponent lays a carrier
+      const home = world.templeOf(1), near = {};
+      for (const id of ['sunwalker', 'windwalker', 'windBattery', 'sunBattery']) {
+        for (let y = home.y - 3; y <= home.y + home.fy + 3; y++) for (let x = home.x - 3; x <= home.x + home.fx + 3; x++) {
+          const key = id + ' ' + (view.canBuild({ player: 1, type: id, x, y }) ?? 'ok');
+          near[key] = (near[key] ?? 0) + 1;
+        }
+      }
+      console.log('DIAG home', JSON.stringify(near), 'Storm', world.players.get(1).storm);
       // and, with the enemy Priest down, each of side 1's carriers: its way to him, and the fire on it
       const down = world.priestOf(2);
       if (down?.state === 'down') {
@@ -99,6 +110,24 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
           console.log('DIAG carrier', t.id, t.type, 'at', t.x, t.y, t.goal, 'way', path?.length ?? 'none', 'fire', fire, 'hp', t.hp, 'speed', world.def(t.type).speed, 'Priest at', down.x, down.y);
         }
       }
+    }
+    // ECON=1: every five minutes each side's income, carriers, depots, and how far its geysers lie
+    // from the nearest place a crystal is handed in
+    if (process.env.ECON === '1' && world.tick % (300 * NS.TPS) === 0) {
+      const line = [];
+      for (const p of [1, 2]) {
+        const mine = [...world.entities.values()].filter((e) => e.owner === p);
+        const kinds = {};
+        for (const t of mine.filter((e) => e.kind === 'transport')) kinds[world.def(t.type).name] = (kinds[world.def(t.type).name] ?? 0) + 1;
+        const depots = world.depotsOf(p);
+        const far = mine.filter((e) => e.kind === 'transport' && e.target !== null && world.entities.get(e.target)?.kind === 'geyser').map((t) => {
+          const g = world.entities.get(t.target);
+          return Math.min(...depots.map((d) => Math.abs(d.x + d.fx / 2 - g.x) + Math.abs(d.y + d.fy / 2 - g.y)));
+        });
+        line.push(\`S\${p}: +\${econ[p]} crystals, carriers \${JSON.stringify(kinds)}, depots \${depots.length}, geysers worked \${far.length ? Math.round(far.reduce((a, b) => a + b, 0) / far.length) : '-'} cells from a depot\`);
+        econ[p] = 0;
+      }
+      console.log(\`\${(world.tick / NS.TPS / 60).toFixed(0).padStart(2)} min  \${line.join('  |  ')}\`);
     }
     if (trace && world.tick % (60 * NS.TPS) === 0) {
       const line = [];
@@ -115,7 +144,7 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
     for (const ev of world.drainEvents()) {
       const s = stats[ev.who];
       if (!s) continue;
-      if (ev.what === 'delivered') s.crystals++;
+      if (ev.what === 'delivered') { s.crystals++; econ[ev.who]++; }
       else if (ev.what === 'build') { s.built++; if (['Shooter', 'Anti-Air'].includes(world.def(ev.data.type).cls)) s.guns++; }
       else if (ev.what === 'bridge') s.pieces++;
       else if (ev.what === 'destroyed') s.lost++;
