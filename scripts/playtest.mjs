@@ -644,9 +644,9 @@ SCENARIOS.carrier = async () => {
 };
 
 /**
- * Guns and flyers as they fight, in 3D: a Disc Thrower whirls its arm and lets its disc go, a
- * Vander Tower's orb flashes as it fires, and a Man o'War's sting is seen and heard. Set up beside
- * the player's Temple in the mission: the guns his, an enemy Golem and two Man o'Wars the enemy's.
+ * Guns and flyers as they fight, in 3D: a Disc Thrower whirls its arm and lets its disc go at an
+ * enemy Golem, then a Vander Tower's orb flashes as it fires at two Man o'Wars, whose stings are seen
+ * and heard. Set up beside the player's Temple in the mission.
  * SHOT=dir saves pictures of it there.
  */
 SCENARIOS.models = async () => {
@@ -678,9 +678,9 @@ SCENARIOS.models = async () => {
       if (free(x, y, 1)) foe = w.spawnTransport('sunwalker', 2, x, y);
     }
     if (!foe) return { fail: 'no room for the enemy Golem' };
-    const stingers = [w.spawnFlyer('rainflyer', 2, foe), w.spawnFlyer('rainflyer', 2, foe)];
     document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(d[0] + 1.5), window.NS3D.wz(d[1] + 1.5), 16);
-    return { thrower: thrower.id, tower: tower.id, generator: generator.id, stingers: stingers.map((f) => f.id) };
+    G.paused = true; // until the camera is there and the watch begins: the first disc may be the last
+    return { thrower: thrower.id, tower: tower.id, generator: generator.id, foe: foe.id };
   });
   if (setup.fail) throw new Error(setup.fail);
   await page.evaluate(() => document.querySelector('a-scene').systems['ns-art'].setMode('models'));
@@ -688,51 +688,68 @@ SCENARIOS.models = async () => {
   await cameraStill(page);
   const shot = async (name) => { if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/${name}.png` }); };
   await shot('models-start');
-  // the battle runs: the arm is watched, the orb, and what is heard
-  const seen = { turned: 0, unloaded: false, flash: false, zap: false, sting: false, thrown: false };
-  let last = null;
-  for (let i = 0; i < 120 && !(seen.turned > 6 * Math.PI && seen.unloaded && seen.flash && seen.sting && seen.zap); i++) {
+  // the Disc Thrower at the enemy Golem: once it has begun a spin (a shot of its waits to leave),
+  // the battle is held and stepped to the tick before the disc leaves; the arm then stands wound
+  // round about four times, and a moment later the disc is in the air
+  const disc = await page.evaluate(({ thrower }) => new Promise((done) => {
+    const { G, game, stepWorld, flushPendingAi } = window.NS3D, fx = document.querySelector('[ns-effects]').components['ns-effects'];
+    const end = performance.now() + 40000;
+    G.paused = false;
+    const look = () => {
+      const throwing = G.view.shots.find((s) => s.gun.id === thrower && s.land > s.leave && s.leave > G.world.tick);
+      if (throwing) {
+        G.paused = true;
+        G.worker?.terminate();
+        G.worker = null;
+        while (G.world.tick < throwing.leave - 1) if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+        // two frames for the arm to be drawn where the world now is
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const rep = game.units().byId.get(thrower)?.components['ns-unit'].rep;
+          fx.shots(1.5);
+          done({ wound: rep.spin ? rep.discArm.rotation.y - rep.spin.start : 0, flying: fx.discs.some((m) => m.visible), leave: throwing.leave, land: throwing.land });
+        }));
+        return;
+      }
+      if (performance.now() > end) return done({ timeout: true });
+      requestAnimationFrame(look);
+    };
+    look();
+  }), setup);
+  await page.evaluate(() => { window.NS3D.G.paused = false; });
+  if (disc.timeout || !disc.flying) throw new Error(`no disc was seen leaving the Disc Thrower: ${JSON.stringify(disc)}`);
+  if (disc.wound < 6 * Math.PI) throw new Error(`the Disc Thrower's arm did not whirl before it threw: ${JSON.stringify(disc)}`);
+  // and its hook is empty after the throw, until the arm has come to rest
+  const emptied = await page.waitForFunction((id) => window.NS3D.game.units().byId.get(id)?.components['ns-unit'].rep.discOnArm.visible === false,
+    setup.thrower, { polling: 50, timeout: 15000 }).then(() => true, () => false);
+  if (!emptied) throw new Error('the disc stayed in the Disc Thrower\'s hook after the throw');
+  // then two Man o'Wars: the Vander Tower fires at them (its orb flashes), and their stings on the
+  // guns are seen and heard
+  await page.evaluate(({ foe, thrower }) => {
+    const w = window.NS3D.G.world, from = w.entities.get(foe) ?? w.entities.get(thrower);
+    for (let i = 0; i < 2; i++) w.spawnFlyer('rainflyer', 2, from);
+  }, setup);
+  const seen = { flash: false, zap: false, sting: false };
+  for (let i = 0; i < 100 && !(seen.flash && seen.sting && seen.zap); i++) {
     await page.waitForTimeout(200);
-    const now = await page.evaluate(({ thrower, tower }) => {
-      const { game } = window.NS3D, units = game.units().byId;
-      const arm = units.get(thrower)?.components['ns-unit'].rep, orb = units.get(tower)?.components['ns-unit'].rep.orb;
-      const effects = document.querySelector('[ns-effects]')?.components['ns-effects'];
+    const now = await page.evaluate(({ tower }) => {
+      const orb = window.NS3D.game.units().byId.get(tower)?.components['ns-unit'].rep.orb;
+      const effects = document.querySelector('[ns-effects]').components['ns-effects'];
       return {
-        yaw: arm?.discArm.rotation.y ?? 0, loaded: arm?.discOnArm.visible ?? true, flash: (orb?.material.emissiveIntensity ?? 0) > 2,
-        zap: effects?.fx.some((f) => f.obj.isGroup && f.obj.children.length >= 3) ?? false,
-        disc: effects?.discs.some((m) => m.visible) ?? false,
+        flash: (orb?.material.emissiveIntensity ?? 0) > 2,
+        zap: effects.fx.some((f) => f.obj.isGroup && f.obj.children.length >= 3),
         sting: document.querySelector('a-scene').systems['ns-sound'].played.includes('manowarfire'),
       };
     }, setup);
-    if (last !== null) seen.turned += Math.abs(now.yaw - last);
-    last = now.yaw;
-    if (!now.loaded && !seen.unloaded) await shot('models-thrown');
     if (now.zap && !seen.zap && process.env.SHOT) {
       // held for the picture: a software renderer draws too few frames to catch a bolt that fades in a moment
       await page.evaluate(() => { for (const f of document.querySelector('[ns-effects]').components['ns-effects'].fx) f.life = 60; });
       await shot('models-sting');
     }
-    if (now.disc && !seen.thrown) await shot('models-disc');
-    seen.unloaded ||= !now.loaded;
-    seen.thrown ||= now.disc;
     seen.flash ||= now.flash;
     seen.zap ||= now.zap;
     seen.sting ||= now.sting;
   }
-  // the disc itself in flight, watched frame by frame (it is in the air for a moment only), the
-  // battle held still where it is seen for the picture
-  const flew = await page.evaluate(() => new Promise((done) => {
-    const { G } = window.NS3D, fx = document.querySelector('[ns-effects]').components['ns-effects'], end = performance.now() + 20000;
-    const look = () => {
-      if (fx.discs.some((m) => m.visible)) { G.paused = true; done(true); } else if (performance.now() > end) done(false); else requestAnimationFrame(look);
-    };
-    look();
-  }));
-  if (flew) await shot('models-disc');
-  await page.evaluate(() => { window.NS3D.G.paused = false; });
   await shot('models-end');
-  if (!flew) throw new Error('no disc was seen leaving the Disc Thrower');
-  if (seen.turned < 6 * Math.PI || !seen.unloaded) throw new Error(`the Disc Thrower's arm did not whirl and throw: ${JSON.stringify(seen)}`);
   if (!seen.flash) throw new Error(`the Vander Tower's orb did not flash as it fired: ${JSON.stringify(seen)}`);
   if (!seen.sting || !seen.zap) throw new Error(`a Man o'War's sting was not seen or heard: ${JSON.stringify(seen)}`);
   return errors;
