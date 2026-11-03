@@ -174,7 +174,7 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
         const flyers = [...world.entities.values()].filter((e) => e.kind === 'flyer' && e.owner !== ev.who && Math.hypot(e.px / NS.FLYER_SCALE - pr.x, e.py / NS.FLYER_SCALE - pr.y) < 6);
         console.log(\`      the Priest of side \${ev.who} at \${pr.x},\${pr.y} (\${temple ? Math.round(Math.hypot(pr.x - temple.x - 2, pr.y - temple.y - 2)) : '-'} from his Temple), errand \${pr.goal}; guns in reach: \${guns.map((g) => g.type).join(' ') || 'none'}; flyers near: \${flyers.map((f) => f.type).join(' ') || 'none'}\`);
       }
-      if (trace && ['priest down', 'captured', 'released', 'chained', 'sacrifice', 'too early', 'rune'].includes(ev.what)) {
+      if (trace && ['priest down', 'captured', 'released', 'chained', 'sacrifice', 'too early', 'rune', 'spell', 'cast'].includes(ev.what)) {
         console.log(\`   \${(world.tick / NS.TPS / 60).toFixed(1)} min: \${ev.what} (side \${ev.who})\`);
       }
       else if (ev.what === 'captured') s.captures++;

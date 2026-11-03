@@ -2,10 +2,19 @@
  * Shells in flight (from the world's list of shots), their impacts, explosions of what is
  * destroyed and the debris of fallen bridges and islets.
  */
-import { G, defs, FURY_COLOR, wx, wz } from '../state.js';
+import { G, NS, defs, FURY_COLOR, wx, wz } from '../state.js';
 import { mat, part, box, ico } from '../models.js';
 
 const { THREE } = AFRAME;
+/** How far from the Disc Thrower's middle its disc leaves, at the hook of its arm (models.js). */
+const DISC_REACH = Math.hypot(0.42, 1.62);
+/** Flyers that strike (rules/flyers.ts), the colour of their strike and the height it comes from. */
+const STING = { rainflyer: { color: '#8ff6ff', from: 2.6 }, sunflyer: { color: '#ffe08a', from: 3.9 } };
+const ZAP_STEPS = 4;
+/** The height a flyer's model hangs at (models.js, its body at 4.2) where shots at it hit. */
+const FLYER_Y = 3.8;
+const ZAP_GEO = new THREE.CylinderGeometry(0.08, 0.08, 1, 4);
+const UP = new THREE.Vector3(0, 1, 0);
 
 AFRAME.registerComponent('ns-effects', {
   init() {
@@ -13,17 +22,21 @@ AFRAME.registerComponent('ns-effects', {
     this.el.setObject3D('effects', this.root);
     this.fx = [];
     this.shells = [];
+    this.discs = [];
+    this.stings = new Map(); // flyer → its strike cooldown at the last step
     this.inFlight = new Map();
     this.el.sceneEl.addEventListener('ns-new-game', () => {
       for (const f of this.fx) this.end(f);
       this.fx = [];
       this.inFlight.clear();
+      this.stings.clear();
     });
   },
 
   tick(t, dt) {
     if (!G.view) return;
     this.shots(G.paused ? 0 : G.clock.alpha);
+    this.strikes();
     const s = Math.min(dt, 250) / 1000;
     this.fx = this.fx.filter((f) => {
       f.age += s;
@@ -44,15 +57,27 @@ AFRAME.registerComponent('ns-effects', {
   /** Each shot arcs from its gun to where it lands; a puff where it came down. */
   shots(alpha) {
     const now = G.world.tick + alpha, live = new Set();
-    let n = 0;
+    let n = 0, nd = 0;
     for (const shot of G.view.shots) {
       const key = `${shot.gun.id}:${shot.leave}:${shot.target}`, gun = shot.gun;
       live.add(key);
       const from = new THREE.Vector3(wx(gun.x + gun.fx / 2), 1.4, wz(gun.y + gun.fy / 2));
-      const to = new THREE.Vector3(wx(shot.x + 0.5), 0.6, wz(shot.y + 0.5));
+      // a shot at a flyer goes up to it, at the height its model flies (models.js)
+      const aloft = G.view.entities.get(shot.target)?.kind === 'flyer' && !shot.blocked;
+      const to = new THREE.Vector3(wx(shot.x + 0.5), aloft ? FLYER_Y : 0.6, wz(shot.y + 0.5));
       this.inFlight.set(key, to);
       if (now < shot.leave) continue;
       const k = THREE.MathUtils.clamp((now - shot.leave) / Math.max(1, shot.land - shot.leave), 0, 1);
+      // the Disc Thrower's disc leaves the hook of its arm (models.js), whirling, low and flat
+      if (gun.type === 'sunarcher') {
+        const dir = to.clone().sub(from).setY(0).normalize();
+        from.addScaledVector(dir, DISC_REACH).setY(1.95);
+        const d = this.disc(nd++);
+        d.position.lerpVectors(from, to, k);
+        d.position.y += Math.sin(k * Math.PI) * from.distanceTo(to) * 0.08;
+        d.rotation.set(0.25, now * 1.2, 0);
+        continue;
+      }
       let m = this.shells[n];
       if (!m) {
         m = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), new THREE.MeshBasicMaterial({ color: '#ffd27a' }));
@@ -68,11 +93,79 @@ AFRAME.registerComponent('ns-effects', {
       n++;
     }
     for (let i = n; i < this.shells.length; i++) this.shells[i].visible = false;
+    for (let i = nd; i < this.discs.length; i++) this.discs[i].visible = false;
     for (const [key, to] of this.inFlight) {
       if (live.has(key)) continue;
       this.inFlight.delete(key);
       this.puff(to, '#ffb347', 0.5, 0.35);
     }
+  },
+
+  /**
+   * A flyer's strike, which the world deals without a shot or an event (rules/flyers.ts): seen as
+   * its strike cooldown starts over, once a step. A Man o'War stings with a crackling discharge
+   * down its tentacles, a Whirligig with a flash of its gun, each onto what it strikes.
+   */
+  strikes() {
+    if (G.world.tick === this.struck) return;
+    this.struck = G.world.tick;
+    for (const e of G.view.entities.values()) {
+      if (e.kind !== 'flyer' || !STING[e.type]) continue;
+      const was = this.stings.get(e.id);
+      this.stings.set(e.id, e.cooldown);
+      const target = e.target === null ? undefined : G.view.entities.get(e.target);
+      if (was === undefined || e.cooldown <= was || !target) continue;
+      const { color, from: high } = STING[e.type];
+      const big = target.kind === 'building';
+      const from = new THREE.Vector3(wx(e.px / NS.FLYER_SCALE), high, wz(e.py / NS.FLYER_SCALE));
+      const to = new THREE.Vector3(wx(target.x + (big ? target.fx / 2 : 0.5)), big ? 1.2 : 0.8, wz(target.y + (big ? target.fy / 2 : 0.5)));
+      this.zap(from, to, color);
+      this.zap(from, to, '#ffffff');
+      this.puff(to, color, 1.1, 0.4);
+    }
+    for (const id of this.stings.keys()) if (!G.view.entities.has(id)) this.stings.delete(id);
+  },
+
+  /** A crackling bolt from one point to another: a few jagged strokes that fade within a moment. */
+  zap(from, to, color) {
+    const bolt = new THREE.Group(), material = new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false });
+    const points = [from];
+    for (let i = 1; i < ZAP_STEPS; i++) {
+      const k = i / ZAP_STEPS;
+      points.push(from.clone().lerp(to, k).add(new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.5)));
+    }
+    points.push(to);
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1], b = points[i], len = a.distanceTo(b);
+      const stroke = new THREE.Mesh(ZAP_GEO, material);
+      stroke.position.copy(a).lerp(b, 0.5);
+      stroke.scale.set(1, len, 1);
+      stroke.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize());
+      bolt.add(stroke);
+    }
+    this.root.add(bolt);
+    this.fx.push({ obj: bolt, own: false, age: 0, life: 0.45, update: (f, k) => { material.opacity = 1 - k; if (k >= 1) material.dispose(); } });
+  },
+
+  /** The i-th disc in flight: a golden sun disc with eight points, made once and kept. */
+  disc(i) {
+    let d = this.discs[i];
+    if (!d) {
+      d = new THREE.Group();
+      const gold = new THREE.MeshBasicMaterial({ color: '#ffd84a' });
+      d.add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.07, 16), gold));
+      for (let j = 0; j < 8; j++) {
+        const a = (j / 8) * Math.PI * 2, ray = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.26, 4), gold);
+        ray.position.set(Math.cos(a) * 0.4, 0, Math.sin(a) * 0.4);
+        ray.rotation.set(0, -a, -Math.PI / 2);
+        d.add(ray);
+      }
+      d.add(new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 6), new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0.28, depthWrite: false })));
+      this.root.add(d);
+      this.discs[i] = d;
+    }
+    d.visible = true;
+    return d;
   },
 
   puff(at, color, size, life) {

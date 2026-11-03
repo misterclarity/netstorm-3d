@@ -643,6 +643,101 @@ SCENARIOS.carrier = async () => {
   return errors;
 };
 
+/**
+ * Guns and flyers as they fight, in 3D: a Disc Thrower whirls its arm and lets its disc go, a
+ * Vander Tower's orb flashes as it fires, and a Man o'War's sting is seen and heard. Set up beside
+ * the player's Temple in the mission: the guns his, an enemy Golem and two Man o'Wars the enemy's.
+ * SHOT=dir saves pictures of it there.
+ */
+SCENARIOS.models = async () => {
+  const { page, errors } = await open({ width: 1000, height: 700 });
+  await startMission(page);
+  await page.waitForTimeout(800);
+  const setup = await page.evaluate(() => {
+    const { G } = window.NS3D, w = G.world, t = w.templeOf(1);
+    const free = (x0, y0, n) => {
+      for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) {
+        const i = w.inside(x, y) ? w.at(x, y) : -1;
+        if (i < 0 || w.terrain[i] !== 1 || w.owner[i] !== 1 || w.occupant[i] || w.priestAt(x, y) || w.residenceAt(x, y)) return false;
+      }
+      return true;
+    };
+    const spots = [];
+    for (let y = t.y - 16; y < t.y + 20; y++) for (let x = t.x - 16; x < t.x + 22; x++) {
+      if (free(x, y, 3) && !spots.some(([a, b]) => Math.abs(a - x) < 4 && Math.abs(b - y) < 4)) spots.push([x, y]);
+    }
+    const [d] = spots, near = spots.filter(([x, y]) => Math.max(Math.abs(x - d[0]), Math.abs(y - d[1])) <= 9 && (x !== d[0] || y !== d[1]));
+    if (near.length < 2) return { fail: `no room for the guns: ${spots.length} spots` };
+    const thrower = w.spawnBuilding('sunarcher', 1, d[0], d[1], 0);
+    const tower = w.spawnBuilding('thunderarcher', 1, near[0][0], near[0][1], 0);
+    const generator = w.spawnBuilding('thunderbattery', 1, near[1][0], near[1][1], 0);
+    for (const b of [thrower, tower, generator]) b.rising = 0;
+    let foe = null;
+    for (let r = 3; r <= 6 && !foe; r++) for (let dx = -r; dx <= r && !foe; dx++) {
+      const x = d[0] + 1 + dx, y = d[1] + 1 + r;
+      if (free(x, y, 1)) foe = w.spawnTransport('sunwalker', 2, x, y);
+    }
+    if (!foe) return { fail: 'no room for the enemy Golem' };
+    const stingers = [w.spawnFlyer('rainflyer', 2, foe), w.spawnFlyer('rainflyer', 2, foe)];
+    document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(d[0] + 1.5), window.NS3D.wz(d[1] + 1.5), 16);
+    return { thrower: thrower.id, tower: tower.id, generator: generator.id, stingers: stingers.map((f) => f.id) };
+  });
+  if (setup.fail) throw new Error(setup.fail);
+  await page.evaluate(() => document.querySelector('a-scene').systems['ns-art'].setMode('models'));
+  await page.waitForFunction((ids) => ids.every((id) => window.NS3D.game.units()?.byId.get(id)?.components['ns-unit']?.rep), [setup.thrower, setup.tower], { timeout: 15000 });
+  await cameraStill(page);
+  const shot = async (name) => { if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/${name}.png` }); };
+  await shot('models-start');
+  // the battle runs: the arm is watched, the orb, and what is heard
+  const seen = { turned: 0, unloaded: false, flash: false, zap: false, sting: false, thrown: false };
+  let last = null;
+  for (let i = 0; i < 120 && !(seen.turned > 6 * Math.PI && seen.unloaded && seen.flash && seen.sting && seen.zap); i++) {
+    await page.waitForTimeout(200);
+    const now = await page.evaluate(({ thrower, tower }) => {
+      const { game } = window.NS3D, units = game.units().byId;
+      const arm = units.get(thrower)?.components['ns-unit'].rep, orb = units.get(tower)?.components['ns-unit'].rep.orb;
+      const effects = document.querySelector('[ns-effects]')?.components['ns-effects'];
+      return {
+        yaw: arm?.discArm.rotation.y ?? 0, loaded: arm?.discOnArm.visible ?? true, flash: (orb?.material.emissiveIntensity ?? 0) > 2,
+        zap: effects?.fx.some((f) => f.obj.isGroup && f.obj.children.length >= 3) ?? false,
+        disc: effects?.discs.some((m) => m.visible) ?? false,
+        sting: document.querySelector('a-scene').systems['ns-sound'].played.includes('manowarfire'),
+      };
+    }, setup);
+    if (last !== null) seen.turned += Math.abs(now.yaw - last);
+    last = now.yaw;
+    if (!now.loaded && !seen.unloaded) await shot('models-thrown');
+    if (now.zap && !seen.zap && process.env.SHOT) {
+      // held for the picture: a software renderer draws too few frames to catch a bolt that fades in a moment
+      await page.evaluate(() => { for (const f of document.querySelector('[ns-effects]').components['ns-effects'].fx) f.life = 60; });
+      await shot('models-sting');
+    }
+    if (now.disc && !seen.thrown) await shot('models-disc');
+    seen.unloaded ||= !now.loaded;
+    seen.thrown ||= now.disc;
+    seen.flash ||= now.flash;
+    seen.zap ||= now.zap;
+    seen.sting ||= now.sting;
+  }
+  // the disc itself in flight, watched frame by frame (it is in the air for a moment only), the
+  // battle held still where it is seen for the picture
+  const flew = await page.evaluate(() => new Promise((done) => {
+    const { G } = window.NS3D, fx = document.querySelector('[ns-effects]').components['ns-effects'], end = performance.now() + 20000;
+    const look = () => {
+      if (fx.discs.some((m) => m.visible)) { G.paused = true; done(true); } else if (performance.now() > end) done(false); else requestAnimationFrame(look);
+    };
+    look();
+  }));
+  if (flew) await shot('models-disc');
+  await page.evaluate(() => { window.NS3D.G.paused = false; });
+  await shot('models-end');
+  if (!flew) throw new Error('no disc was seen leaving the Disc Thrower');
+  if (seen.turned < 6 * Math.PI || !seen.unloaded) throw new Error(`the Disc Thrower's arm did not whirl and throw: ${JSON.stringify(seen)}`);
+  if (!seen.flash) throw new Error(`the Vander Tower's orb did not flash as it fired: ${JSON.stringify(seen)}`);
+  if (!seen.sting || !seen.zap) throw new Error(`a Man o'War's sting was not seen or heard: ${JSON.stringify(seen)}`);
+  return errors;
+};
+
 SCENARIOS.levels = async () => {
   const { page, errors } = await open();
   // each choice of level has its line, and the mission is played at the level chosen for it

@@ -537,30 +537,67 @@ export const MODELS = {
       part(turret, cone(0.12, 0.38, 4), metal('#c0c0c0'), 0, 1.2, 1.7).rotation.x = Math.PI / 2;
       part(turret, box(0.04, 0.22, 0.25), team(rep), 0, 1.3, -0.4);
     } else {
-      // the Disc Thrower: a throwing arm with a golden disc that whirls, a counterweight behind
-      part(turret, dome(0.85), mat('#ece6d6'), 0, -0.05, 0);
-      part(turret, cyl(0.9, 0.9, 0.12, 16), p.trim, 0, 0.02, 0);
-      part(turret, cyl(0.12, 0.16, 1.0, 6), p.dark, 0, 0.75, 0);
-      part(turret, box(0.16, 0.16, 1.9), mat('#8a6040'), 0, 1.25, 0.1);
-      part(turret, sph(0.28, 8, 6), p.dark, 0, 1.25, -0.8);
-      const disc = moving(part(turret, cyl(0.38, 0.38, 0.07, 16), glow('#ffe48a', '#e8a33a', 0.5), 0, 1.25, 1.1));
-      rep.anim.push((s) => { disc.rotation.y = s * 6; });
+      // the Disc Thrower, after its sprite: a white dome on a toothed rim, and on top a hooked
+      // throwing arm that a spring whirls round about four times before it flings the golden disc
+      // held in its hook (ns-units turns it, as the world's spin runs: rep.discArm)
+      g.remove(turret);
+      rep.turret = null;
+      part(g, cyl(0.98, 1.02, 0.18, 16), p.accent, 0, 0.52, 0);
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2;
+        part(g, box(0.2, 0.16, 0.24), p.trim, Math.cos(a) * 1.02, 0.52, Math.sin(a) * 1.02).rotation.y = -a;
+      }
+      part(g, dome(0.82), mat('#ece6d6'), 0, 0.6, 0);
+      part(g, cyl(0.86, 0.86, 0.06, 16), p.trim, 0, 0.62, 0);
+      part(g, cyl(0.1, 0.16, 0.7, 6), metal('#6b5a44'), 0, 1.6, 0);
+      const arm = holder(g, 0, 1.95, 0);
+      rep.discArm = arm;
+      part(arm, sph(0.2, 8, 6), metal('#4a3a2c'));
+      // the arm: out from the hub, bending as it goes, to a hook that cups the disc
+      const wood = mat('#7a5a3c');
+      for (const [x, z, len, turn] of [[0, 0.42, 0.62, 0], [0.12, 0.95, 0.5, 0.45], [0.36, 1.32, 0.42, 1.0]]) {
+        part(arm, box(0.12, 0.12, len), wood, x, 0, z).rotation.y = turn;
+      }
+      part(arm, sph(0.09, 6, 4), metal('#c9a14a'), 0.06, 0, 0.7);
+      part(arm, shape('dischook', () => new THREE.TorusGeometry(0.26, 0.05, 5, 10, Math.PI * 1.3)), metal('#c9a14a'), 0.42, 0, 1.62).rotation.set(Math.PI / 2, 0, -0.6);
+      const disc = moving(part(arm, cyl(0.26, 0.26, 0.06, 14), glow('#ffe48a', '#e8a33a', 0.6), 0.42, 0, 1.62));
+      rep.discOnArm = disc;
+      rep.anim.push((s) => { disc.rotation.y = s * 5; });
     }
   },
   antiair(rep, g, e) {
-    const p = kit({ type: e.type ?? 'thunderarcher' });
-    part(g, cyl(1.0, 1.15, 0.45, 8), p.dark, 0, 0.22, 0);
-    band(rep, g, 1.02, 0.47, 8);
-    part(g, cyl(0.45, 0.65, 2.4, 8), p.stone, 0, 1.6, 0);
-    for (let i = 0; i < 2; i++) part(g, ring(0.55 - i * 0.07, 0.07, 14), p.trim, 0, 1.2 + i * 0.9, 0).rotation.x = Math.PI / 2;
-    for (let i = 0; i < 3; i++) {
-      const a = (i / 3) * Math.PI * 2;
-      const rod = part(g, cyl(0.04, 0.07, 1.6, 5), metal('#c27a3e'), Math.cos(a) * 0.4, 3.3, Math.sin(a) * 0.4);
-      rod.rotation.z = -Math.cos(a) * 0.35;
-      rod.rotation.x = Math.sin(a) * 0.35;
-      part(g, sph(0.09, 6, 4), p.glow, Math.cos(a) * 0.68, 4.05, Math.sin(a) * 0.68);
+    // the Vander Tower, after its sprite: twice the height of a Generator, a heavy square foot
+    // with copper chevrons, a ribbed shaft, and four claws up round a great silver orb that
+    // flashes as the tower fires (ns-units: rep.orb), nothing like the Thunder Generator's coil
+    const dark = mat('#3a2c33'), stone = mat('#5e4852'), copper = metal('#c27a3e');
+    part(g, cyl(1.5, 1.62, 0.5, 4), dark, 0, 0.25, 0).rotation.y = Math.PI / 4;
+    part(g, cyl(0.95, 1.38, 1.35, 4), stone, 0, 1.17, 0).rotation.y = Math.PI / 4;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2, x = Math.sin(a) * 0.86, z = Math.cos(a) * 0.86;
+      for (const s of [-1, 1]) {
+        const v = part(g, box(0.42, 0.1, 0.06), copper, x + Math.cos(a) * s * 0.15, 1.05, z - Math.sin(a) * s * 0.15);
+        v.rotation.set(-0.3, a, s * 0.55, 'YXZ');
+      }
     }
-    pulsing(rep, part(g, ico(0.36, 1), p.glow, 0, 3.05, 0), 0.6, 1.6, 4);
+    band(rep, g, 1.12, 0.52, 8);
+    part(g, cyl(0.72, 0.8, 0.26, 12), copper, 0, 1.97, 0);
+    part(g, cyl(0.46, 0.52, 1.5, 10), dark, 0, 2.85, 0);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      part(g, box(0.13, 1.5, 0.13), stone, Math.cos(a) * 0.52, 2.85, Math.sin(a) * 0.52);
+    }
+    part(g, cyl(0.82, 0.58, 0.32, 12), copper, 0, 3.72, 0);
+    for (let i = 0; i < 4; i++) {
+      const claw = holder(g);
+      claw.rotation.y = -((i / 4) * Math.PI * 2 + Math.PI / 4);
+      part(claw, box(0.15, 0.8, 0.15), dark, 0.72, 4.18, 0).rotation.z = -0.42;
+      part(claw, box(0.13, 0.78, 0.13), dark, 0.68, 4.86, 0).rotation.z = 0.55;
+      part(claw, cone(0.08, 0.32, 4), copper, 0.42, 5.3, 0).rotation.z = 0.9;
+    }
+    const orb = moving(part(g, sph(0.64, 16, 12), mat('#f1f0f4', { metalness: 0.6, roughness: 0.22, emissive: '#8a86c8', emissiveIntensity: 0.15 }), 0, 4.62, 0));
+    orb.material = orb.material.clone();
+    rep.own.push(orb.material);
+    rep.orb = orb;
   },
 
   /* --------------------------------------- Defences ----------------------------------------- */

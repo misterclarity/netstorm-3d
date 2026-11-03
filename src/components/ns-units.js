@@ -4,8 +4,13 @@
  * crystals, geysers) and one <a-entity ns-residence> for each Residence; `ns-unit` draws its entity
  * as a model or a sprite card, moves it smoothly from cell to cell and shows its health.
  */
-import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, playerTheme, defs } from '../state.js';
+import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, playerTheme, defs, hash } from '../state.js';
 import { MODELS, heightOf, modelKind, spriteKey, cargoModel, part, ico, glow, bake } from '../models.js';
+
+/** The Disc Thrower's arm (models.js): its hook lies this far round from the arm's line, and its
+ * spring winds it round this many times before each throw (rules/guns.ts: "about four"). */
+const DISC_TIP_YAW = Math.atan2(0.42, 1.62);
+const DISC_TURNS = 4;
 
 const { THREE } = AFRAME;
 
@@ -218,6 +223,9 @@ AFRAME.registerComponent('ns-unit', {
       if (this.card) this.card.scale.y = grow;
       if (rep.turret) rep.turret.rotation.y = FACING_YAW[e.facing ?? 2];
       if (rep.barrel) rep.barrel.position.z = (rep.barrelZ ?? 0.95) - (e.lastShot >= 0 && G.world.tick - e.lastShot < 3 ? 0.25 : 0);
+      if (rep.discArm) this.discArm(e);
+      // the Vander Tower's orb flashes as it fires, and glows faintly between shots
+      if (rep.orb) rep.orb.material.emissiveIntensity = e.lastShot >= 0 && G.world.tick - e.lastShot < 4 ? 2.4 : 0.15 + 0.08 * Math.sin(s * 2 + rep.id);
       if (rep.slotsMark) this.markSlots(e);
     }
     if (rep.steam) this.steam(e, s);
@@ -304,6 +312,47 @@ AFRAME.registerComponent('ns-unit', {
     this.card = makeCard(img, 0, front);
     this.cardKey = key;
     this.el.object3D.add(this.card);
+  },
+
+  /**
+   * The Disc Thrower's arm, as the world spins it (rules/guns.ts): from the tick the gun fires its
+   * spring winds the arm round about four times, faster and faster, and flings the disc when the
+   * shot leaves (the shot's `leave`), its hook toward the target; then it runs down to rest by the
+   * end of the cycle (the gun's cooldown). The disc sits in the hook until the throw, and again
+   * once the arm has come to rest.
+   */
+  discArm(e) {
+    const rep = this.rep, arm = rep.discArm, TAU = Math.PI * 2;
+    const now = G.world.tick + (G.paused ? 0 : G.clock.alpha);
+    rep.armYaw ??= hash(e.x, e.y, e.id) * TAU;
+    if (e.lastShot !== rep.spinOf) {
+      rep.spinOf = e.lastShot;
+      const shot = e.lastShot >= 0 ? G.view.shots.find((s) => s.gun.id === e.id && s.leave >= e.lastShot) : undefined;
+      if (shot) {
+        const aim = Math.atan2(shot.x + 0.5 - (e.x + e.fx / 2), shot.y + 0.5 - (e.y + e.fy / 2)) - DISC_TIP_YAW;
+        rep.spin = {
+          from: e.lastShot, throwAt: shot.leave, end: Math.max(shot.leave + 5, G.world.tick + e.cooldown),
+          start: rep.armYaw, turns: ((((aim - rep.armYaw) % TAU) + TAU) % TAU) + DISC_TURNS * TAU,
+        };
+      }
+    }
+    const spin = rep.spin;
+    let yaw = rep.armYaw, flung = 0, loaded = true;
+    if (spin && now >= spin.from) {
+      const wind = Math.max(1, spin.throwAt - spin.from), speed = (2 * spin.turns) / wind;
+      if (now < spin.throwAt) {
+        yaw = spin.start + spin.turns * ((now - spin.from) / wind) ** 2;
+      } else {
+        const run = Math.max(1, spin.end - spin.throwAt), tau = Math.min(now - spin.throwAt, run);
+        yaw = spin.start + spin.turns + speed * tau - (speed / run / 2) * tau * tau;
+        flung = Math.exp(-(((now - spin.throwAt) / 2.5) ** 2));
+        loaded = now >= spin.end;
+        if (now >= spin.end) { rep.armYaw = yaw % TAU; rep.spin = null; }
+      }
+    }
+    arm.rotation.y = yaw;
+    arm.scale.set(1, 1, 1 + 0.18 * flung); // the arm springs out as it lets go
+    rep.discOnArm.visible = loaded;
   },
 
   steam(e, s) {

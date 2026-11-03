@@ -36,6 +36,7 @@ AFRAME.registerSystem('ns-sound', {
     this.voices = new Map();
     this.building = new Map(); // building id → stop its construction loop
     this.shots = new Map(); // shots in flight → where they land
+    this.strikes = new Map(); // flyer → its strike cooldown at the last step
     this.echoes = [];
     this.played = []; // the last few sounds, for tests and the console
     this.settings = { sound: true, music: true };
@@ -231,6 +232,7 @@ AFRAME.registerSystem('ns-sound', {
     for (const stop of this.building.values()) stop();
     this.building.clear();
     this.shots.clear();
+    this.strikes.clear();
     this.echoes = [];
     this.scanned = -1;
     this.alarm = NS.createAlarm(G.view);
@@ -351,6 +353,17 @@ AFRAME.registerSystem('ns-sound', {
         if (s.shooter === 'raincannon') this.play(`icecannonimpact${1 + (G.world.tick % 4)}`, s.to);
       } else this.play('impact', s.to);
     }
+    // flyers: a Man o'War's sting, a Whirligig's shot, heard as the strike cooldown starts over
+    // (rules/flyers.ts strikes without a shot or an event)
+    for (const e of v.entities.values()) {
+      if (e.kind !== 'flyer') continue;
+      const was = this.strikes.get(e.id);
+      this.strikes.set(e.id, e.cooldown);
+      if (was !== undefined && e.cooldown > was && e.target !== null) {
+        this.unit(e.type, 'fire', new THREE.Vector3(wx(e.px / NS.FLYER_SCALE), 0, wz(e.py / NS.FLYER_SCALE)));
+      }
+    }
+    for (const id of this.strikes.keys()) if (!v.entities.has(id)) this.strikes.delete(id);
     // "Your island is under attack", at most once in 30 s
     if (!G.paused && !G.ended && this.alarm(ME)) {
       this.play('islandunderattack');
