@@ -299,6 +299,8 @@ CHANGES.push({
   was: `    collect(world, move, transports, geysers, options.avoidDanger !== false);`,
   now: `    // (netstorm-3d) the carriers waiting by an enemy Priest under fire are not sent collecting
     const waiting = stage(world, move, memory, transports, reached);
+    // (netstorm-3d) and those a level sends to cast a Spell where it strikes the most (strikeRun)
+    for (const id of move.params.spellUse >= 2 ? strikeRun(world, move, transports, reached) : []) waiting.add(id);
     collect(world, move, transports.filter((t) => !waiting.has(t.id)), geysers, options.avoidDanger !== false);`,
 }, {
   file: 'ai.ts',
@@ -1147,6 +1149,146 @@ CHANGES.push({
       continue;
     }
 `,
+});
+
+// Spells by level (a level's `spellUse`). netstorm-web's opponent uses Spells alike at every level:
+// its Priest prays for the Devastation when idle, an idle carrier fetches a Spell from an Obelisk,
+// and a caster casts where it happens to stand once enough enemies are in reach. Measured in the
+// arena (seeds 1-4, each Spells setting), a side had one or two Spells a battle and cast less than
+// one, which destroyed nothing. Now Easy (0) neither prays nor fetches Spells: a beginner meets no
+// blast; Normal (1) plays as netstorm-web's; Hard (2) also sends a carrier holding a Spell to the
+// ground in its reach where the Spell would strike the most of the enemy, on a way and a stand it
+// would live through, and casts it there. And with Spells by prayer, where the Devastation is not
+// to be had, the Priest of Normal and Hard prays for another blast (it prayed for nothing then).
+CHANGES.push({
+  file: 'ai/params.ts',
+  why: 'spells by level',
+  was: `  swiftCarriers: boolean;
+}`,
+  now: `  swiftCarriers: boolean;
+  /** (netstorm-3d) 0: no Spells; 1: prayed for, fetched and cast where the caster stands; 2: and a
+   * carrier with a Spell goes where it strikes the most of the enemy. */
+  spellUse: number;
+}`,
+}, ...perLevel('spells by level', 'spellUse', [0, 1, 2]), {
+  file: 'ai.ts',
+  why: 'spells by level',
+  was: `    !p || !prayable(world).includes(DEVASTATION) || p.state !== 'normal' || p.praying > 0`,
+  now: `    !p || move.params.spellUse === 0 || !prayerOf(world) || p.state !== 'normal' || p.praying > 0`,
+}, {
+  file: 'ai.ts',
+  why: 'spells by level',
+  was: `  move.commands.push({ t: 'pray', player: move.me, spell: DEVASTATION });`,
+  now: `  move.commands.push({ t: 'pray', player: move.me, spell: prayerOf(world)! });`,
+}, {
+  file: 'ai.ts',
+  why: 'spells by level',
+  was: `  if (!free || transports.some((t) => t.spell !== null || t.goal === 'obelisk')) {`,
+  now: `  if (!free || move.params.spellUse === 0 || transports.some((t) => t.spell !== null || t.goal === 'obelisk')) {`,
+}, {
+  file: 'ai.ts',
+  why: 'spells by level',
+  was: `  castSpells(world, move, transports);`,
+  now: `  castSpells(world, move, transports);
+  because('a carrier holds a Spell: it goes where the Spell strikes the most of the enemy');`,
+}, {
+  file: 'ai.ts',
+  why: 'spells by level',
+  was: `/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
+  now: `/**
+ * (netstorm-3d) A carrier holding a Spell the AI casts, idle or on its way to a geyser with no
+ * cargo (not already on its way to cast), goes to the ground its side walks on where the Spell, cast, would be worth it (SPELL_USE) and
+ * strike the most enemies: looked for about each enemy building and carrier within the Spell's
+ * reach, on a coarse grid; on a way it would live through, and a stand of the cast time there; and
+ * only with the Storm Power to cast it. castSpells casts it once it stands there. Returns the
+ * carriers on such a run or standing for the cast, which are not sent collecting meanwhile.
+ */
+function strikeRun(world: WorldView, move: Move, transports: View<Transport>[], reached: Uint8Array | null): Set<number> {
+  const claimed = new Set<number>();
+  const storm = world.players.get(move.me)!.storm;
+
+  if (!reached) {
+    return claimed;
+  }
+
+  for (const t of transports) {
+    const def = t.spell === null ? undefined : world.defs.get(t.spell);
+    const wanted = t.spell === null ? undefined : SPELL_USE[t.spell];
+
+    if (!def || !wanted || t.casting > 0 || t.carrying !== null || flies(world.def(t.type))) {
+      continue;
+    }
+
+    // on its way to cast, or standing where it is worth it: it stays for the cast
+    if ((t.goal === 'idle' && t.path.length > 0) || (t.goal === 'idle' && wanted(inRange(world, t, def.range)))) {
+      claimed.add(t.id);
+      continue;
+    }
+
+    // a run only with the Storm Power to cast at the end of it
+    if ((t.goal !== 'idle' && t.goal !== 'collect') || def.cost > storm) {
+      continue;
+    }
+
+    const step = def.range > 6 ? 2 : 1;
+    const seen = new Set<number>();
+    const spots: { x: number; y: number; foes: number; }[] = [];
+
+    for (const e of world.entities.values()) {
+      if ((e.kind !== 'building' && e.kind !== 'transport') || !world.hostile(e.owner, move.me)) {
+        continue;
+      }
+
+      for (let dy = -def.range; dy <= def.range; dy += step) {
+        for (let dx = -def.range; dx <= def.range; dx += step) {
+          const x = e.x + dx;
+          const y = e.y + dy;
+          const i = world.inside(x, y) ? world.at(x, y) : -1;
+
+          if (i < 0 || seen.has(i) || reached[i] !== 1 || world.occupant[i] || world.priestAt(x, y)) {
+            continue;
+          }
+
+          seen.add(i);
+          const there = { ...t, x, y } as View<Transport>;
+          const reach = inRange(world, there, def.range);
+
+          if (wanted(reach)) {
+            spots.push({ x, y, foes: reach.foes + reach.foesAir });
+          }
+        }
+      }
+    }
+
+    spots.sort((a, b) => b.foes - a.foes || Math.abs(a.x - t.x) + Math.abs(a.y - t.y) - (Math.abs(b.x - t.x) + Math.abs(b.y - t.y)));
+
+    for (const s of spots.slice(0, STRIKE_TRIES)) {
+      const way = world.findPath(move.me, t.x, t.y, ([x, y]) => x === s.x && y === s.y);
+      const stand = (move.threat[world.at(s.x, s.y)]! + shotMap(world, move)[world.at(s.x, s.y)]!) * def.castTime;
+
+      if (way && wayFire(world, move, world.def(t.type), way) + stand < t.hp) {
+        move.commands.push({ t: 'moveTransport', player: move.me, transport: t.id, x: s.x, y: s.y } as unknown as Command);
+        claimed.add(t.id);
+        break;
+      }
+    }
+  }
+
+  return claimed;
+}
+
+/** The best spots a strike run weighs the way to (invented). */
+const STRIKE_TRIES = 4;
+
+/** (netstorm-3d) The Spell the Priest prays for: the Devastation where it is to be had; with Spells
+ * by prayer, where it is not, the first of a few blasts the AI casts (netstorm-web's opponent only
+ * ever prays for the Devastation, so with that setting it had no Spell at all). */
+function prayerOf(world: WorldView): string | undefined {
+  const can = prayable(world);
+  return [DEVASTATION, 'bombexplodelarge', 'bombmeteor', 'bombexplodemedium'].find((id) => can.includes(id));
+}
+
+/** Send one transport for a downed enemy priest, unless one is already on its way to him. */`,
 });
 
 // The first carrier paid for (a fix, for every level). Traced in the arena: Normal lost its last

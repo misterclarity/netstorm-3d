@@ -29,7 +29,8 @@ The main menu offers two kinds of battle against netstorm-web's computer opponen
   original's other ways: **Obelisks** (Spells rise on Obelisks during the battle; a carrier sent
   to one takes its Spell and casts it from its card; the Devastation is still prayed for) or **Any,
   by prayer** (the Priest prays for any but the Thunder ones). Each Spell's blast is drawn: a fireball, bolts from the sky,
-  falling rocks, a ring of its colour. The computer prays and casts by the same rules.
+  falling rocks, a ring of its colour. How to play lists every Spell: what it does, its cost,
+  reach, cast time and prayer. The computer prays and casts by the same rules, by its level (below).
 
 In the mission:
 
@@ -108,7 +109,9 @@ Two art styles can be switched in the top bar:
   own model, and each carries its owner's colour: a banner, a ring round its base, a belt. Guns
   move as the world fires them: a cannon's barrel recoils; the Disc Thrower's hooked arm whirls
   round about four times as the world's spring spins it and flings its disc as the shot leaves,
-  then runs down; the Vander Tower's orb flashes. A shot at a flyer flies up to it, and a Man
+  then runs down; the Vander Tower's orb flashes; the Thunder Cannon, the mightiest gun, is a
+  silver dragon's torso with its bat wings spread (after its sprite): its eyes kindle and its jaw
+  drops as it charges, and as the shot leaves it spits fire and a fireball flies. A shot at a flyer flies up to it, and a Man
   o'War's or a Whirligig's strike, which the world deals without a shot, is seen (a crackling bolt)
   and heard (its own sound, from the original).
 - **Sprites**: the original game's sprites as cards standing in the 3D world, with its grass
@@ -182,7 +185,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run ai:arena` | Matches of the computer against itself or against an idle side, on skirmish maps as the menu makes them, with this game's rules: wins, minutes to win, when a Priest first falls, crystals, guns, time per move. `PAIRS=hard:easy,normal:idle SEEDS=1,2,3,4 MINUTES=30`; `TRACE=1` follows one match minute by minute with every capture event and lost carrier, `EXPLAIN=<minute>` adds side 1's reasons, `ECON=1` each side's income every five minutes; `TUNE='{"hard":{…}}'` turns a level's knobs for a trial. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error, then compares the HUD's account of Energy (`src/energy.js`) with the rules' own answer at every site of a map, with units and Generators of every Fury and level. CI runs it. |
 | `npm run ai-check` | Plays eight minutes of a skirmish at each level twice, with and without the AI worker's cache (below), and fails unless the computer makes the same moves both ways; prints how long a move takes. CI runs it. |
-| `npm run playtest` | Plays the built page in headless Chromium (Playwright), failing on any page error: the mission's opening; a staged endgame, whose Victory waits for the Sacrifice to be heard out; a downed Priest captured with no Altar yet and carried there once one stands; an order the rules would refuse refused at once, without the unit answering; Auto-collect on and off; several Golems selected with a box, sent together, Shift-clicked out, cleared, an idle one picked with I and all picked with a double click; an air ship clicked by its body and sent across the island; a Golem sent to a geyser by a click on its steam; a Priest sent to a geyser while holding a crystal; five minutes of a skirmish (with its Residences and greenery); the opponent's level chosen for the mission; the Priest praying for the Devastation and casting it (the enemy Golem beside him gone), and a carrier taking an Obelisk's Spell and casting it; a Disc Thrower whirling its arm and throwing its disc, a Vander Tower's orb flashing as it fires and a Man o'War's sting seen and heard (`SHOT=dir` saves pictures of it); five minutes of a battle the computer plays on both sides, in both art styles and on the table, checked for any warning, any unit drawn out of place or out of step with the world, and "NaN" in the HUD; and the tabletop (with the mouse, then with faked VR controllers). Run one with `node scripts/playtest.mjs <name>`. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
+| `npm run playtest` | Plays the built page in headless Chromium (Playwright), failing on any page error: the mission's opening; a staged endgame, whose Victory waits for the Sacrifice to be heard out; a downed Priest captured with no Altar yet and carried there once one stands; an order the rules would refuse refused at once, without the unit answering; Auto-collect on and off; several Golems selected with a box, sent together, Shift-clicked out, cleared, an idle one picked with I and all picked with a double click; an air ship clicked by its body and sent across the island; a Golem sent to a geyser by a click on its steam; a Priest sent to a geyser while holding a crystal; five minutes of a skirmish (with its Residences and greenery); the opponent's level chosen for the mission; the Priest praying for the Devastation and casting it (the enemy Golem beside him gone), and a carrier taking an Obelisk's Spell and casting it; a Disc Thrower whirling its arm and throwing its disc, a Vander Tower's orb flashing as it fires and a Man o'War's sting seen and heard; the Thunder Cannon's dragon spitting fire as its shot leaves (`SHOT=dir` saves pictures of them); How to play's table of every Spell; five minutes of a battle the computer plays on both sides, in both art styles and on the table, checked for any warning, any unit drawn out of place or out of step with the world, and "NaN" in the HUD; and the tabletop (with the mouse, then with faked VR controllers). Run one with `node scripts/playtest.mjs <name>`. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
 
 ## How it is built
 
@@ -275,7 +278,13 @@ it has three more Generators than guns** (sides had 25 to 37 to 5 to 11 guns; No
 lay its guns, came later to the enemy without them, so it keeps them);
 **Normal and Hard lay their next bridge piece to a downed Priest** no ground of theirs leads to
 (Hard had knocked Easy's out seven cells from its bridge, and he lay there a minute);
-**Hard fetches a downed Priest by air** where no bridge of its leads, and buys a flying carrier
+**Spells by level**: Easy neither prays for nor fetches Spells, Normal uses them as
+netstorm-web's opponent does (its Priest prays when idle, a carrier fetches from an Obelisk, a
+caster casts where it stands once enough enemies are in reach), and Hard also sends a carrier
+holding a Spell to the ground in reach where it strikes the most of the enemy, on a way and a
+stand it would live through, and casts it there; with Spells by prayer, where the Devastation is
+not to be had, Normal's and Hard's Priest prays for another blast (netstorm-web's prayed for
+nothing then); **Hard fetches a downed Priest by air** where no bridge of its leads, and buys a flying carrier
 once that happens; where every carrier Normal or Hard has would die on the way to a downed Priest,
 it buys (saving up, and salvaging a spare gun) the cheapest that would live through it, a Sail
 Skater where Golems fall; carriers also wait while the enemy Temple is under fire, since its fall knocks
