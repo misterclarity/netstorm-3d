@@ -6,7 +6,7 @@ import { NS, DATA, G, MISSION, TPS, ME, WORLD, defs, origin } from './state.js';
 import { settleResidences } from './residences.js';
 
 /** Skirmish settings the menu starts from. */
-export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, seed: 42 };
+export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, spells: 'none', seed: 42 };
 
 /**
  * What the player knows in a skirmish beyond a multiplayer battle's start (the Sun's Golem, Disc
@@ -32,7 +32,7 @@ export function newGame(setup = G.setup) {
     ? { ...base, mode: 'mission', mission: MISSION.id, storm: MISSION.storm, difficulty: setup.difficulty ?? 'normal' }
     : {
       ...base, mode: 'skirmish', opponent: 'ai', theme: setup.theme, enemyTheme: setup.enemyTheme, islands: setup.islands,
-      difficulty: setup.difficulty, storm: setup.storm, seed: setup.seed,
+      difficulty: setup.difficulty, storm: setup.storm, seed: setup.seed, spells: setup.spells ?? 'none',
     };
   G.options = options;
   const known = G.mission ? [] : furyKnowledge(setup.theme);

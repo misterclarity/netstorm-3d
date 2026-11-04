@@ -1,7 +1,8 @@
 /**
  * Build-time data, read from the netstorm-web submodule:
  *  - build/game-data.json: the units, the maps and the missions this client plays, trimmed by
- *    netstorm-web's own game-data.ts as its client trims them;
+ *    netstorm-web's own game-data.ts as its client trims them (and the Spells' prayer times put
+ *    back, which that trimming leaves out);
  *  - build/art.json: where the original sprites and grass tiles chosen for "Sprites" mode lie in
  *    netstorm-web's repository, at the commit the submodule pins, and the frames of every unit's
  *    animation with their hot spots (the pixel that stands on the unit's place). Not copied here;
@@ -19,7 +20,13 @@ const read = (path) => JSON.parse(readFileSync(`${VENDOR}/${path}`, 'utf8'));
 
 mkdirSync('build', { recursive: true });
 
-const units = slimUnits(read('data/units.json'));
+const rawUnits = read('data/units.json');
+const units = slimUnits(rawUnits);
+// netstorm-web's trimming leaves out `praytime`, which its simulation reads (defs.ts prayTime): a
+// Priest would have his Spell in a tenth of a second instead of the original's 40 s of prayer for
+// the Devastation. Put back from the same data.
+const prayers = new Map(rawUnits.filter((u) => typeof u.praytime === 'number').map((u) => [u.id, u.praytime]));
+for (const unit of units) if (prayers.has(unit.id)) unit.praytime = prayers.get(unit.id);
 const maps = slimMaps(read('data/maps.json'));
 const missions = slimMissions(read('data/missions.json'), maps).filter((m) => MISSIONS.includes(m.id));
 writeFileSync('build/game-data.json', JSON.stringify({ units, maps: mapsOf(missions, maps), missions }));

@@ -8,6 +8,7 @@ import { submit, SKIRMISH_DEFAULTS } from './game.js';
 import { modelKind } from './models.js';
 import { describeBuild, loadNewer } from './version.js';
 import { toScene } from './space.js';
+import { SPELL_MODES, spellText, spellName } from './spells.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -52,6 +53,8 @@ export class Hud {
     $('logToggle').onclick = () => this.toggleLog();
     $('rangesToggle').onclick = () => game.placement().toggleEnemyReach();
     $('sel').addEventListener('click', (e) => this.selClick(e));
+    // the Spell chosen to pray for is kept while the card is drawn anew
+    $('sel').addEventListener('change', (e) => { if (e.target.matches('[data-prayer]')) this.prayerChoice = e.target.value; });
     this.scene.addEventListener('ns-art-mode', ({ detail }) => {
       $('artSprites').classList.toggle('on', detail.mode === 'sprites');
       $('artModels').classList.toggle('on', detail.mode !== 'sprites');
@@ -314,8 +317,12 @@ export class Hud {
       return;
     }
     const d = e.type ? defs.get(e.type) : null, owner = e.owner ? G.world.players.get(e.owner) : null;
-    const name = e.kind === 'priest' ? 'High Priest' : e.kind === 'geyser' ? 'Geyser' : e.kind === 'crystal' ? 'Storm crystal' : d?.name ?? e.kind;
+    const name = e.kind === 'priest' ? 'High Priest' : e.kind === 'geyser' ? 'Geyser' : e.kind === 'crystal' ? 'Storm crystal' : e.kind === 'obelisk' ? 'Obelisk' : d?.name ?? e.kind;
     const lines = [], acts = [];
+    if (e.kind === 'obelisk') {
+      lines.push(`Holds the ${spellName(e.spell)}: it ${spellText(e.spell)}.`);
+      lines.push('Select one of your carriers, then click the Obelisk: it walks there and takes the Spell.');
+    }
     if (e.kind === 'geyser') lines.push(e.stock > 0 ? `${e.stock} Storm Power left` : 'Spent');
     if (e.kind === 'building') {
       if (e.rising > 0) lines.push(`Under construction: ${Math.ceil(e.rising / TPS)} s`);
@@ -357,8 +364,9 @@ export class Hud {
           acts.push(`<button data-sel="toAltar" ${altar ? '' : 'disabled title="Build an Altar first: your Priest builds it"'}>Carry to the Altar</button>`);
         }
         if (e.carrying !== null) acts.push(`<button data-sel="drop">${captive ? 'Let the captive go' : 'Drop cargo'}</button>`);
-        acts.push('<button data-sel="salvage">Salvage</button>');
       }
+      this.spellCard(e, lines, acts);
+      if (e.owner === ME) acts.push('<button data-sel="salvage">Salvage</button>');
     }
     if (e.kind === 'priest') {
       const doing = { build: 'Building', collect: 'Collecting Storm Power', home: 'Carrying Storm Power home', pickup: 'Fetching a crystal' }[e.goal] ?? 'Standing';
@@ -370,6 +378,7 @@ export class Hud {
       }
       if (e.owner === ME && e.state === 'normal') lines.push('Click ground to walk, a geyser to collect, or your Altar to perform a sacrifice. “Priest builds” below has Workshops and the Altar.');
       if (e.owner !== ME && e.state !== 'down') lines.push('Knock him out (below half health) with cannons, then send a Golem.');
+      if (e.state === 'normal') this.spellCard(e, lines, acts);
     }
     const hp = e.hp !== undefined && e.hpMax ? `<div class="hp"><i style="width:${Math.max(0, 100 * e.hp / e.hpMax)}%"></i></div>` : '';
     const html = `<h4>${name}</h4><div class="who" style="color:${owner ? OWNER_COLOR[e.owner] : 'var(--muted)'}">${owner ? owner.name : 'Neutral'}${e.hp !== undefined ? ` · ${Math.ceil(e.hp)}/${e.hpMax}` : ''}</div>${hp}${lines.map((l) => `<div class="line">${l}</div>`).join('')}${acts.length ? `<div class="acts">${acts.join('')}</div>` : ''}`;
@@ -387,6 +396,11 @@ export class Hud {
     if (b.dataset.sel === 'produce') submit({ t: 'produce', workshop: id, type: b.dataset.type });
     if (b.dataset.sel === 'upgrade') submit({ t: 'upgradeWorkshop', workshop: id });
     if (b.dataset.sel === 'drop') submit({ t: 'dropCargo', transport: id });
+    if (b.dataset.sel === 'cast') submit({ t: 'castSpell', transport: id });
+    if (b.dataset.sel === 'pray') {
+      const spell = b.dataset.spell ?? b.closest('.acts')?.querySelector('[data-prayer]')?.value;
+      if (spell) submit({ t: 'pray', spell });
+    }
     if (b.dataset.sel === 'toAltar') {
       const t = G.view.entities.get(id);
       if (t?.carrying !== null && t?.carrying !== undefined) submit({ t: 'capturePriest', transport: id, target: t.carrying });
@@ -401,6 +415,40 @@ export class Hud {
       if (altar) this.game.priestToAltar(altar);
     }
     this.dirty = true;
+  }
+
+  /**
+   * A caster's Spell on its card: a Priest's prayer and the Spells he may pray for (in a skirmish),
+   * the Spell a Priest or a carrier holds and the button that casts it, and the cast under way. Of
+   * an enemy's, what he holds, as a warning.
+   */
+  spellCard(e, lines, acts) {
+    const secs = (ticks) => Math.ceil(ticks / TPS);
+    const mine = e.owner === ME, who = e.kind === 'priest' ? 'He' : 'It';
+    if (e.casting > 0) {
+      lines.push(`${mine ? '' : '⚠ '}Casting the ${spellName(e.spell)}: it goes off in ${secs(e.casting)} s${mine ? '' : `. Get your units out of ${defs.get(e.spell)?.range} cells of ${who.toLowerCase() === 'he' ? 'him' : 'it'}!`}`);
+      return;
+    }
+    if (e.praying > 0) lines.push(`Praying for the ${spellName(e.prayer)}: ${secs(e.praying)} s left${mine ? ' (walking or a hit breaks the prayer off)' : ''}`);
+    if (e.spell) {
+      const def = defs.get(e.spell);
+      if (mine) {
+        lines.push(`${who} holds the ${def.name}: it ${spellText(e.spell)}. Casting takes ${def.castTime} s, standing still.`);
+        const storm = G.world.players.get(ME)?.storm ?? 0;
+        const err = storm < def.cost ? 'no storm power' : e.aloft ? 'not ready' : null;
+        acts.push(`<button data-sel="cast" ${err ? `disabled title="${errorText(err)}"` : `title="Cast it round ${who === 'He' ? 'him' : 'it'}: everything within ${def.range} cells"`}>Cast the ${def.name} (⚡${def.cost})</button>`);
+      } else lines.push(`⚠ ${who} holds the ${def.name}, which ${spellText(e.spell)}: keep your units more than ${def.range} cells away.`);
+    }
+    if (!mine || e.kind !== 'priest' || e.praying > 0 || e.spell === 'bombspecialone') return;
+    const prayers = NS.prayable(G.view);
+    if (prayers.length <= 3) {
+      for (const id of prayers) {
+        if (id === e.spell) continue;
+        acts.push(`<button data-sel="pray" data-spell="${id}" title="${escapeHtml(`The ${spellName(id)} ${spellText(id)}.`)}">Pray for the ${spellName(id)} (${defs.get(id).prayTime} s)</button>`);
+      }
+    } else if (prayers.length) {
+      acts.push(`<select data-prayer>${prayers.map((id) => `<option value="${id}" ${id === this.prayerChoice ? 'selected' : ''}>${spellName(id)} (${defs.get(id).prayTime} s, ⚡${defs.get(id).cost} to cast)</option>`).join('')}</select>`, '<button data-sel="pray">Pray</button>');
+    }
   }
 
   salvage() {
@@ -539,6 +587,7 @@ export class Hud {
             <label>Islands ${pick('skIslands', [2, 4, 6, 9], s.islands)}</label>
             ${level('skLevel', s.difficulty)}
             <label>Storm Power ${pick('skStorm', [1000, 2000, 5000, 10000], s.storm)}</label>
+            <label>Spells ${pick('skSpells', Object.keys(SPELL_MODES), s.spells, (x) => SPELL_MODES[x])}</label>
             <label>Map <span class="seed"><input id="skSeed" type="number" min="0" max="99999" value="${s.seed}"><button type="button" id="skDice" title="Another map">🎲</button></span></label>
           </div>
           <p class="level" id="skLevelNote"></p>
@@ -566,6 +615,7 @@ export class Hud {
         islands: Number(box.querySelector('#skIslands').value),
         difficulty: box.querySelector('#skLevel').value,
         storm: Number(box.querySelector('#skStorm').value),
+        spells: box.querySelector('#skSpells').value,
         seed: Math.max(0, Math.min(99999, Math.floor(Number(box.querySelector('#skSeed').value) || 0))),
       };
       try { localStorage.setItem('netstorm-3d:skirmish', JSON.stringify(setup)); } catch { /* no storage */ }
@@ -602,7 +652,8 @@ export class Hud {
       <p class="text">You are ${cap(s.theme)}; ${escapeHtml(enemy?.name ?? 'the computer')} is ${cap(s.enemyTheme)} and plays at ${s.difficulty} level. ${s.islands} islands, map ${s.seed}.</p>
       <ol><li>Win by capturing the enemy’s Priest and sacrificing him at your Altar; lose if he does it to you.</li>
       <li>You know the ${cap(s.theme)} units (${escapeHtml(this.furyUnits(s.theme))}) and the Sun’s first ones. Your Priest builds the Workshops that make them (a ${cap(s.theme)} Workshop for the ${cap(s.theme)} units), and an Altar.</li>
-      <li>New geysers appear during the battle. Golems carry their Storm Power home.</li></ol>`,
+      <li>New geysers appear during the battle. Golems carry their Storm Power home.</li>
+      <li>Spells: ${{ none: 'your Priest can pray for the Devastation (select him: “Pray”), and cast it round him.', obelisks: 'Obelisks with Spells rise during the battle (send a carrier to take one); your Priest can pray for the Devastation.', prayer: 'your Priest can pray for any Spell (select him: “Pray”), and cast it round him.' }[s.spells ?? 'none']} See How to play.</li></ol>`,
     [{ label: 'Main menu', act: () => this.menu() }, { label: 'How to play', act: () => this.howToPlay(() => this.briefing()) },
       { label: 'Controls', act: () => this.help(true) }, { label: 'Start', main: true, act: () => this.begin() }]);
   }
@@ -712,6 +763,16 @@ export class Hud {
         runes standing beside it; protect both until the last. In a skirmish nobody can be chained in the
         first two minutes.</li></ol>
       <p>The enemy will try the same: if your Priest is knocked out, shoot the carriers that come for him.</p>
+      <h3>Spells</h3>
+      <p>In a skirmish your Priest can <b>pray</b> for the <b>Devastation</b>: select him and press “Pray” on
+        his card; he stands still for 40 s (walking or a hit breaks the prayer off). Then he holds it, a
+        glowing orb over his head, and “Cast” sets it off round him for ⚡100, five seconds later:
+        everything on the ground within 3 cells is destroyed, <b>yours too</b>, Temples and Workshops lose
+        a third of their hit points, and bridges there fall. Selected, he shows the ring it will reach.
+        With the skirmish setting <b>Spells: Obelisks</b>, Obelisks with other Spells rise during the battle: send a
+        carrier to one (select it, click the Obelisk) and cast the Spell from its card. With <b>Spells: Any,
+        by prayer</b>, the Priest prays for any of them instead. The enemy prays too: an orb over his
+        Priest warns you, and a pulsing ring round a caster shows where his Spell is about to strike.</p>
       <h3>The computer’s levels</h3>
       <p>Chosen in the main menu, for the mission and the skirmish alike. <b>Easy</b>: ${LEVELS.easy}
         <b>Normal</b>: ${LEVELS.normal} <b>Hard</b>: ${LEVELS.hard} All three pay the same prices and

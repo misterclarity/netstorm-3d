@@ -2,7 +2,8 @@
  * Shells in flight (from the world's list of shots), their impacts, explosions of what is
  * destroyed and the debris of fallen bridges and islets.
  */
-import { G, NS, defs, FURY_COLOR, wx, wz } from '../state.js';
+import { G, NS, ME, defs, FURY_COLOR, wx, wz } from '../state.js';
+import { spellLook } from '../spells.js';
 import { mat, part, box, ico } from '../models.js';
 
 const { THREE } = AFRAME;
@@ -15,6 +16,11 @@ const ZAP_STEPS = 4;
 const FLYER_Y = 3.8;
 const ZAP_GEO = new THREE.CylinderGeometry(0.08, 0.08, 1, 4);
 const UP = new THREE.Vector3(0, 1, 0);
+/** A Spell's orb, the ring of its reach (1 across, scaled to it), its fireball and a falling rock. */
+const ORB_GEO = new THREE.OctahedronGeometry(0.36, 0);
+const RING_GEO = new THREE.RingGeometry(0.9, 1, 48);
+const BALL_GEO = new THREE.SphereGeometry(1, 20, 14);
+const ROCK_GEO = new THREE.DodecahedronGeometry(0.35, 0);
 
 AFRAME.registerComponent('ns-effects', {
   init() {
@@ -24,12 +30,15 @@ AFRAME.registerComponent('ns-effects', {
     this.shells = [];
     this.discs = [];
     this.stings = new Map(); // flyer → its strike cooldown at the last step
+    this.held = new Map(); // caster → the orb of its Spell and the ring of its reach
     this.inFlight = new Map();
     this.el.sceneEl.addEventListener('ns-new-game', () => {
       for (const f of this.fx) this.end(f);
       this.fx = [];
       this.inFlight.clear();
       this.stings.clear();
+      for (const held of this.held.values()) for (const m of [held.orb, held.ring]) { this.root.remove(m); m.material.dispose(); }
+      this.held.clear();
     });
   },
 
@@ -37,6 +46,7 @@ AFRAME.registerComponent('ns-effects', {
     if (!G.view) return;
     this.shots(G.paused ? 0 : G.clock.alpha);
     this.strikes();
+    this.casters(t / 1000);
     const s = Math.min(dt, 250) / 1000;
     this.fx = this.fx.filter((f) => {
       f.age += s;
@@ -124,6 +134,114 @@ AFRAME.registerComponent('ns-effects', {
       this.puff(to, color, 1.1, 0.4);
     }
     for (const id of this.stings.keys()) if (!G.view.entities.has(id)) this.stings.delete(id);
+  },
+
+  /**
+   * Whoever holds a Spell, a Priest or a carrier, has its orb glowing over its head; while one
+   * casts, a ring on the ground pulses round it as far as the Spell will reach, and the player's
+   * own caster, selected, shows that ring faintly, to aim by.
+   */
+  casters(s) {
+    const units = this.el.sceneEl.querySelector('[ns-units]')?.components['ns-units'];
+    const live = new Set();
+    for (const e of G.view.entities.values()) {
+      if ((e.kind !== 'priest' && e.kind !== 'transport') || !e.spell || (e.kind === 'priest' && e.state !== 'normal')) continue;
+      const el = units?.byId.get(e.id), rep = el?.components['ns-unit']?.rep;
+      if (!el) continue;
+      live.add(e.id);
+      const { color } = spellLook(e.spell), at = el.object3D.position;
+      let held = this.held.get(e.id);
+      if (!held) {
+        const orb = new THREE.Mesh(ORB_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }));
+        const ring = new THREE.Mesh(RING_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2;
+        this.root.add(orb, ring);
+        held = { orb, ring };
+        this.held.set(e.id, held);
+      }
+      held.orb.position.set(at.x, Math.min(rep?.height ?? 2, 3) + 0.5 + Math.sin(s * 3 + e.id) * 0.12, at.z);
+      held.orb.scale.setScalar(1 + 0.15 * Math.sin(s * 5 + e.id));
+      held.orb.rotation.y = s * 2;
+      const reach = (defs.get(e.spell)?.range ?? 1) + 0.5, aiming = e.owner === ME && G.selected === e.id;
+      held.ring.visible = e.casting > 0 || aiming;
+      held.ring.position.set(at.x, 0.18, at.z);
+      held.ring.scale.setScalar(reach);
+      held.ring.material.opacity = e.casting > 0 ? 0.45 + 0.4 * Math.sin(s * 10) : 0.3;
+    }
+    for (const [id, held] of this.held) {
+      if (live.has(id)) continue;
+      for (const m of [held.orb, held.ring]) { this.root.remove(m); m.material.dispose(); }
+      this.held.delete(id);
+    }
+  },
+
+  /**
+   * A Spell going off round its caster (rules/spells.ts casts it there): a fireball and a shock
+   * wave for the blasts, bolts out of the sky for the Thunder Spells, rocks for the Bombardment,
+   * a sphere that falls in on itself for the Graviton, a swirl for the Summons, and for the rest a
+   * ring of the Spell's colour spreading as far as it reaches.
+   */
+  cast(at, spell) {
+    const reach = (defs.get(spell)?.range ?? 1) + 0.5, { look, color } = spellLook(spell);
+    const ground = at.clone().setY(0.3), spot = () => {
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * (reach - 0.5);
+      return ground.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
+    };
+    this.wave(ground, reach, color);
+    if (look === 'blast') {
+      this.fireball(ground, reach, color);
+      for (let i = 0; i < 6; i++) this.puff(spot().setY(0.6), '#5a5048', 1.4, 1.6);
+    } else if (look === 'lightning') {
+      for (let i = 0; i < 8; i++) {
+        const to = spot();
+        this.zap(to.clone().setY(14).add(new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5)), to, color);
+        this.puff(to, color, 0.8, 0.4);
+      }
+    } else if (look === 'rocks') {
+      for (let i = 0; i < 12; i++) this.rock(spot(), i * 0.06);
+    } else if (look === 'implode') {
+      this.fireball(ground.clone().setY(2), reach, color, true);
+    } else if (look === 'summon') {
+      for (let i = 0; i < 5; i++) this.puff(spot().setY(1.5 + i * 0.5), color, 1.2, 1.0);
+    } else {
+      for (let i = 0; i < 5; i++) this.puff(spot().setY(0.8), color, 0.9, 0.9);
+    }
+  },
+
+  /** A flat ring that spreads over the ground to `reach` and fades. */
+  wave(at, reach, color) {
+    const m = new THREE.Mesh(RING_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.copy(at);
+    this.root.add(m);
+    this.fx.push({ obj: m, own: true, age: 0, life: 0.9, update: (f, k) => { m.scale.setScalar(0.3 + reach * Math.min(1, k * 1.6)); m.material.opacity = 1 - k; } });
+  },
+
+  /** A ball of fire that swells to `reach` and fades, or, falling in, shrinks from it. */
+  fireball(at, reach, color, inward = false) {
+    const m = new THREE.Mesh(BALL_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }));
+    m.position.copy(at);
+    this.root.add(m);
+    this.fx.push({ obj: m, own: true, age: 0, life: inward ? 0.8 : 1.1, update: (f, k) => {
+      const grow = inward ? 1 - k : Math.min(1, k * 2.5);
+      m.scale.setScalar(Math.max(0.05, reach * grow));
+      m.material.opacity = inward ? 0.7 * (1 - k * 0.5) : 0.85 * (1 - k);
+    } });
+  },
+
+  /** A rock falling out of the sky onto a spot, with a puff where it lands. */
+  rock(to, delay) {
+    const m = new THREE.Mesh(ROCK_GEO, new THREE.MeshBasicMaterial({ color: '#4a3a2c' }));
+    m.position.copy(to).setY(16);
+    m.visible = false;
+    this.root.add(m);
+    let landed = false;
+    this.fx.push({ obj: m, own: true, age: 0, life: 0.7 + delay, update: (f, k) => {
+      const t = Math.max(0, f.age - delay) / 0.7;
+      m.visible = f.age >= delay && t < 1;
+      m.position.y = 16 - 15.7 * Math.min(1, t) ** 2;
+      if (t >= 1 && !landed) { landed = true; this.puff(to.clone().setY(0.5), '#6b5a48', 0.9, 0.6); }
+    } });
   },
 
   /** A crackling bolt from one point to another: a few jagged strokes that fade within a moment. */

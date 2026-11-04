@@ -755,6 +755,99 @@ SCENARIOS.models = async () => {
   return errors;
 };
 
+/**
+ * Spells in a skirmish: the Priest's card offers the prayer for the Devastation; prayed for (40 s),
+ * he holds it and his card casts it; five seconds later it goes off round him, the enemy Golem by
+ * him is gone, the log says so and the blast is drawn. SHOT=dir saves pictures of it.
+ */
+SCENARIOS.spells = async () => {
+  const { page, errors } = await open({ width: 1000, height: 700 });
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  await page.click('#modal button.main');
+  await page.waitForTimeout(500);
+  const shot = async (name) => { if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/${name}.png` }); };
+  await page.evaluate(() => {
+    const { G, game } = window.NS3D, p = G.world.priestOf(1);
+    G.paused = true;
+    document.querySelector('a-scene').systems['ns-art'].setMode('models');
+    game.select([p.id]);
+    document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(p.x + 0.5), window.NS3D.wz(p.y + 0.5), 14);
+  });
+  const pray = await page.waitForSelector('#sel [data-sel="pray"]', { timeout: 10000 }).catch(() => null);
+  if (!pray) throw new Error(`no prayer on the Priest's card: ${await page.evaluate(() => document.getElementById('sel').textContent)}`);
+  await page.click('#sel [data-sel="pray"]');
+  const praying = await page.evaluate(() => { window.NS3D.flushPendingAi?.(); window.NS3D.stepWorld(); return window.NS3D.G.world.priestOf(1).praying; });
+  if (!(praying > 300)) throw new Error(`the Priest is not praying for 40 s: ${praying} ticks`);
+  // the prayer answered; the enemy Golem beside him
+  await fastForward(page, praying + 2);
+  const held = await page.evaluate(() => {
+    const { G } = window.NS3D, w = G.world, p = w.priestOf(1);
+    let golem = null;
+    for (let d = 1; d <= 2 && !golem; d++) for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d], [d, d], [-d, -d]]) {
+      const x = p.x + dx, y = p.y + dy, i = w.at(x, y);
+      if (!golem && w.terrain[i] === 1 && !w.occupant[i] && !w.priestAt(x, y)) golem = w.spawnTransport('sunwalker', 2, x, y);
+    }
+    w.players.get(1).storm = Math.max(w.players.get(1).storm, 500);
+    return { spell: p.spell, golem: golem?.id ?? null };
+  });
+  if (held.spell !== 'bombspecialone' || held.golem === null) throw new Error(`the prayer was not answered, or no room for the Golem: ${JSON.stringify(held)}`);
+  const cast = await page.waitForSelector('#sel [data-sel="cast"]:not([disabled])', { timeout: 10000 }).catch(() => null);
+  if (!cast) throw new Error(`no Cast on the Priest's card: ${await page.evaluate(() => document.getElementById('sel').textContent)}`);
+  await shot('spells-held');
+  await page.click('#sel [data-sel="cast"]:not([disabled])');
+  const casting = await page.evaluate(() => { window.NS3D.stepWorld(); return window.NS3D.G.world.priestOf(1).casting; });
+  if (!(casting > 0)) throw new Error('the Priest is not casting');
+  await fastForward(page, casting + 1);
+  // the next frames: the blast drawn, the log written
+  await page.waitForFunction(() => /Devastation went off/.test(document.getElementById('log')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
+  const after = await page.evaluate((golem) => {
+    const { G } = window.NS3D, fx = document.querySelector('[ns-effects]').components['ns-effects'];
+    for (const f of fx.fx) f.life = 60; // held for the picture
+    return {
+      golem: G.world.entities.has(golem), spell: G.world.priestOf(1).spell, casting: G.world.priestOf(1).casting, tick: G.world.tick,
+      cast: window.__casts ?? null,
+      log: document.getElementById('log')?.textContent ?? '', drawn: fx.fx.length,
+    };
+  }, held.golem);
+  await shot('spells-cast');
+  if (after.golem) throw new Error('the enemy Golem beside the Priest outlived the Devastation');
+  if (!/Devastation went off/.test(after.log)) throw new Error(`the log does not tell of the Devastation: ${JSON.stringify({ ...after, log: after.log.slice(0, 160) })}; ${errors.join('; ')}`);
+  if (after.drawn < 3) throw new Error(`the blast was not drawn: ${after.drawn} effects`);
+  // an Obelisk by one of the player's carriers: clicked with the carrier selected, it walks there
+  // and takes the Spell, and its card casts it
+  const fetch = await page.evaluate(() => {
+    const { G, game } = window.NS3D, w = G.world;
+    const p = w.priestOf(1);
+    let carrier = null;
+    for (let d = 1; d <= 4 && !carrier; d++) for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d]]) {
+      const x = p.x + dx, y = p.y + dy, i = w.at(x, y);
+      if (!carrier && w.terrain[i] === 1 && !w.occupant[i] && !w.priestAt(x, y)) carrier = w.spawnTransport('sunwalker', 1, x, y);
+    }
+    if (!carrier) return { fail: 'no room for a carrier' };
+    let o = null;
+    for (let d = 2; d <= 5 && !o; d++) for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d]]) {
+      const x = carrier.x + dx, y = carrier.y + dy, i = w.at(x, y);
+      if (!o && w.terrain[i] === 1 && !w.occupant[i] && !w.priestAt(x, y)) o = w.addObelisk(x, y, 'bombheal');
+    }
+    if (!o) return { fail: 'no room for the Obelisk' };
+    game.select([carrier.id]);
+    return { ordered: game.order(o.x, o.y, o), carrier: carrier.id, obelisk: o.id };
+  });
+  if (fetch.fail || fetch.ordered !== true) throw new Error(`a carrier was not sent to the Obelisk: ${JSON.stringify(fetch)}`);
+  await fastForward(page, 120);
+  const got = await page.evaluate((id) => window.NS3D.G.world.entities.get(id)?.spell ?? null, fetch.carrier);
+  if (got !== 'bombheal') throw new Error(`the carrier did not take the Obelisk's Spell: ${got}`);
+  const heal = await page.waitForSelector('#sel [data-sel="cast"]:not([disabled])', { timeout: 10000 }).catch(() => null);
+  if (!heal) throw new Error(`no Cast on the carrier's card: ${await page.evaluate(() => document.getElementById('sel').textContent)}`);
+  await page.click('#sel [data-sel="cast"]:not([disabled])');
+  await page.evaluate(() => window.NS3D.stepWorld());
+  await fastForward(page, 40);
+  const healed = await page.waitForFunction(() => /Heal went off/.test(document.getElementById('log')?.textContent ?? ''), null, { timeout: 15000 }).then(() => true, () => false);
+  if (!healed) throw new Error('the carrier\'s Heal did not go off');
+  return errors;
+};
+
 SCENARIOS.levels = async () => {
   const { page, errors } = await open();
   // each choice of level has its line, and the mission is played at the level chosen for it

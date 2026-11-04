@@ -10,6 +10,7 @@ import { watchForUpdates } from '../version.js';
 import { Minimap } from '../minimap.js';
 import { groundCell, unit, localRay, lookAtCell } from '../space.js';
 import { energyAt, missingAdvice } from '../energy.js';
+import { spellName } from '../spells.js';
 import * as models from '../models.js';
 
 const AIR_BOX = new THREE.Box3(), AIR_HIT = new THREE.Vector3(), PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -215,6 +216,19 @@ AFRAME.registerSystem('ns-game', {
           break;
         }
         case 'geyser': hud.log('A new geyser has risen'); break;
+        // a Spell had (a prayer answered, an Obelisk reached) and cast: told, and its blast drawn
+        case 'spell': {
+          const caster = G.view.entities.get(ev.data.transport), who = caster?.kind === 'priest' ? 'Priest' : defs.get(caster?.type)?.name ?? 'carrier';
+          if (mine) hud.toast(`Your ${who} holds the ${spellName(ev.data.spell)}: select him to cast it`.replace('him', caster?.kind === 'priest' ? 'him' : 'it'), 'good');
+          else if (G.world.hostile(ME, ev.who)) hud.log(`The enemy ${who} holds the ${spellName(ev.data.spell)}`, 'bad');
+          break;
+        }
+        case 'cast': {
+          const at = positionOf(ev.data.transport);
+          if (at) fx?.cast(at, ev.data.spell);
+          hud.log(mine ? `Your ${spellName(ev.data.spell)} went off` : `The enemy cast the ${spellName(ev.data.spell)}`, mine ? 'good' : 'bad');
+          break;
+        }
         case 'delivered': {
           const next = mine && G.afterDelivery.get(ev.data.transport);
           if (next) {
@@ -560,6 +574,14 @@ AFRAME.registerSystem('ns-game', {
         } else return this.afterCargo(sel, cmd) ? true : 'refused';
         return true;
       }
+      // a carrier sent to an Obelisk takes its Spell, "displacing the previous one"
+      if (sel.kind === 'transport' && target.kind === 'obelisk') {
+        const cmd = { t: 'takeSpell', transport: sel.id, obelisk: target.id };
+        if (this.refuse(sel, cmd)) return 'refused';
+        submit(cmd);
+        this.hud.toast(`Off to fetch the ${spellName(target.spell)}`, 'good');
+        return true;
+      }
       if (sel.kind === 'transport' && target.kind === 'priest') {
         if (target.state !== 'down') { this.hud.toast(errorText('target not incapacitated'), 'bad'); return 'refused'; }
         if (G.view.entities.get(sel.carrying)?.kind === 'priest') { this.hud.toast(`The ${defs.get(sel.type)?.name ?? 'carrier'} already holds a captive`, 'bad'); return 'refused'; }
@@ -636,6 +658,11 @@ AFRAME.registerSystem('ns-game', {
       if (!p) return false;
       goal = near(p, 1);
       what = 'the enemy Priest';
+    } else if (cmd.t === 'takeSpell') {
+      const o = w.entities.get(cmd.obelisk);
+      if (!o) return false;
+      goal = near(o, 1);
+      what = 'that Obelisk';
     } else if (cmd.t === 'moveTransport' || cmd.t === 'movePriest') {
       if (t.kind === 'priest' && t.state !== 'normal') { this.hud.toast(errorText('priest unavailable'), 'bad'); return true; }
       goal = (c) => c[0] === cmd.x && c[1] === cmd.y;

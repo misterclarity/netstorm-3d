@@ -20,6 +20,16 @@ The main menu offers two kinds of battle against netstorm-web's computer opponen
   your Fury's units (the original's alignment of that name) and the Sun's first ones; the
   computer plays an alignment drawn from the seed. New geysers rise during the battle. The same
   seed gives the same map, so a map can be replayed or shared.
+- **Spells**, in a skirmish as in the original's multiplayer battles. The Priest's card offers his
+  prayer for the **Devastation** (40 s standing still; walking or a hit breaks it off); then he
+  holds it, an orb glowing over his head, and his card casts it round him for ⚡100, five seconds
+  later: everything on the ground within 3 cells is destroyed, the caster's own too, Temples and
+  Workshops lose a third, and bridges there fall. Selected, he shows the ring it will reach; a
+  caster casting shows it pulsing, the enemy's too. The skirmish's **Spells** setting adds the
+  original's other ways: **Obelisks** (Spells rise on Obelisks during the battle; a carrier sent
+  to one takes its Spell and casts it from its card; the Devastation is still prayed for) or **Any,
+  by prayer** (the Priest prays for any but the Thunder ones). Each Spell's blast is drawn: a fireball, bolts from the sky,
+  falling rocks, a ring of its colour. The computer prays and casts by the same rules.
 
 In the mission:
 
@@ -172,7 +182,7 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run ai:arena` | Matches of the computer against itself or against an idle side, on skirmish maps as the menu makes them, with this game's rules: wins, minutes to win, when a Priest first falls, crystals, guns, time per move. `PAIRS=hard:easy,normal:idle SEEDS=1,2,3,4 MINUTES=30`; `TRACE=1` follows one match minute by minute with every capture event and lost carrier, `EXPLAIN=<minute>` adds side 1's reasons, `ECON=1` each side's income every five minutes; `TUNE='{"hard":{…}}'` turns a level's knobs for a trial. |
 | `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error, then compares the HUD's account of Energy (`src/energy.js`) with the rules' own answer at every site of a map, with units and Generators of every Fury and level. CI runs it. |
 | `npm run ai-check` | Plays eight minutes of a skirmish at each level twice, with and without the AI worker's cache (below), and fails unless the computer makes the same moves both ways; prints how long a move takes. CI runs it. |
-| `npm run playtest` | Plays the built page in headless Chromium (Playwright), failing on any page error: the mission's opening; a staged endgame, whose Victory waits for the Sacrifice to be heard out; a downed Priest captured with no Altar yet and carried there once one stands; an order the rules would refuse refused at once, without the unit answering; Auto-collect on and off; several Golems selected with a box, sent together, Shift-clicked out, cleared, an idle one picked with I and all picked with a double click; an air ship clicked by its body and sent across the island; a Golem sent to a geyser by a click on its steam; a Priest sent to a geyser while holding a crystal; five minutes of a skirmish (with its Residences and greenery); the opponent's level chosen for the mission; a Disc Thrower whirling its arm and throwing its disc, a Vander Tower's orb flashing as it fires and a Man o'War's sting seen and heard (`SHOT=dir` saves pictures of it); five minutes of a battle the computer plays on both sides, in both art styles and on the table, checked for any warning, any unit drawn out of place or out of step with the world, and "NaN" in the HUD; and the tabletop (with the mouse, then with faked VR controllers). Run one with `node scripts/playtest.mjs <name>`. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
+| `npm run playtest` | Plays the built page in headless Chromium (Playwright), failing on any page error: the mission's opening; a staged endgame, whose Victory waits for the Sacrifice to be heard out; a downed Priest captured with no Altar yet and carried there once one stands; an order the rules would refuse refused at once, without the unit answering; Auto-collect on and off; several Golems selected with a box, sent together, Shift-clicked out, cleared, an idle one picked with I and all picked with a double click; an air ship clicked by its body and sent across the island; a Golem sent to a geyser by a click on its steam; a Priest sent to a geyser while holding a crystal; five minutes of a skirmish (with its Residences and greenery); the opponent's level chosen for the mission; the Priest praying for the Devastation and casting it (the enemy Golem beside him gone), and a carrier taking an Obelisk's Spell and casting it; a Disc Thrower whirling its arm and throwing its disc, a Vander Tower's orb flashing as it fires and a Man o'War's sting seen and heard (`SHOT=dir` saves pictures of it); five minutes of a battle the computer plays on both sides, in both art styles and on the table, checked for any warning, any unit drawn out of place or out of step with the world, and "NaN" in the HUD; and the tabletop (with the mouse, then with faked VR controllers). Run one with `node scripts/playtest.mjs <name>`. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
 
 ## How it is built
 
@@ -230,6 +240,10 @@ only, where the world is a copy that never changes): a move late in a battle tak
 instead of several hundred, and seconds at worst before. `npm run ai-check` shows the moves are
 the same. A worker that stops answering is replaced; the moves never move to the page's own thread
 for good.
+
+**The Spells' prayer times** are the original's: netstorm-web's trimming of the unit data
+(`slimUnits`) leaves out `praytime`, which its simulation reads, so a Priest there has his Spell in
+a tenth of a second; `scripts/make-data.js` puts it back (the Devastation: 40 s).
 
 **Where the rules differ from netstorm-web.** `scripts/house-rules.mjs` changes the simulation's
 source as it is bundled, and the build fails if netstorm-web's code there has changed. A downed
