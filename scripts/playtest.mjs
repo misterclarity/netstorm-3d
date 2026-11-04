@@ -760,6 +760,72 @@ SCENARIOS.models = async () => {
  * he holds it and his card casts it; five seconds later it goes off round him, the enemy Golem by
  * him is gone, the log says so and the blast is drawn. SHOT=dir saves pictures of it.
  */
+/**
+ * The Thunder Cannon's dragon: laid facing east to an enemy Golem on the player's island, it charges, and
+ * as the shot leaves its jaw is down and it spits fire. SHOT=dir saves pictures of it.
+ */
+SCENARIOS.dragon = async () => {
+  const { page, errors } = await open({ width: 1000, height: 700 });
+  await startMission(page);
+  await page.waitForTimeout(500);
+  const setup = await page.evaluate(() => {
+    const { G } = window.NS3D, w = G.world, t = w.templeOf(1);
+    G.paused = true;
+    const free = (x0, y0, nx, ny) => {
+      for (let y = y0; y < y0 + ny; y++) for (let x = x0; x < x0 + nx; x++) {
+        const i = w.inside(x, y) ? w.at(x, y) : -1;
+        if (i < 0 || w.terrain[i] !== 1 || w.owner[i] !== 1 || w.occupant[i] || w.priestAt(x, y) || w.residenceAt(x, y)) return false;
+      }
+      return true;
+    };
+    // a 3×3 site with a free cell 6 to 9 cells east of it, on its line of fire: seen from the side
+    for (let y = t.y - 14; y < t.y + 14; y++) for (let x = t.x - 16; x < t.x + 20; x++) {
+      if (!free(x, y, 3, 3)) continue;
+      const foe = [6, 7, 8, 9].map((d) => [x + 2 + d, y + 1]).find(([fx, fy]) => free(fx, fy, 1, 1));
+      if (!foe) continue;
+      const gun = w.spawnBuilding('thundercannon', 1, x, y, 1);
+      gun.rising = 0;
+      const golem = w.spawnTransport('sunwalker', 2, foe[0], foe[1]);
+      document.querySelector('a-scene').systems['ns-art'].setMode('models');
+      document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(x + 4), window.NS3D.wz(y + 1.5), 16);
+      return { gun: gun.id, golem: golem.id };
+    }
+    return { fail: 'no room for the Thunder Cannon' };
+  });
+  if (setup.fail) throw new Error(setup.fail);
+  await page.waitForFunction((id) => !!window.NS3D.game.units()?.byId.get(id)?.components['ns-unit']?.rep, setup.gun, { timeout: 15000 });
+  await cameraStill(page);
+  const shot = async (name) => { if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/${name}.png` }); };
+  await shot('dragon-start');
+  // the battle runs until the cannon fires (it charges first), then is held and stepped to the
+  // tick its shot leaves: the jaw is down, and a frame later the dragon spits fire
+  const seen = await page.evaluate((gun) => new Promise((done) => {
+    const { G, game, stepWorld, flushPendingAi } = window.NS3D, end = performance.now() + 30000;
+    G.paused = false;
+    const look = () => {
+      const fired = G.view.shots.find((x) => x.gun.id === gun && x.leave > G.world.tick);
+      if (fired) {
+        G.paused = true;
+        G.worker?.terminate();
+        G.worker = null;
+        while (G.world.tick < fired.leave) if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const d = game.units().byId.get(gun)?.components['ns-unit'].rep.dragon;
+          done({ fire: !!d?.fire.visible, jaw: d?.jaw.rotation.x ?? 0 });
+        }));
+        return;
+      }
+      if (performance.now() > end) return done({ fire: false, timeout: true });
+      requestAnimationFrame(look);
+    };
+    look();
+  }), setup.gun);
+  await shot('dragon-fire');
+  await page.evaluate(() => { window.NS3D.G.paused = false; });
+  if (!seen.fire || seen.jaw < 0.3) throw new Error(`the Thunder Cannon's dragon did not spit fire: ${JSON.stringify(seen)}`);
+  return errors;
+};
+
 SCENARIOS.spells = async () => {
   const { page, errors } = await open({ width: 1000, height: 700 });
   await page.click('[data-start="skirmish"]');
@@ -855,6 +921,19 @@ SCENARIOS.levels = async () => {
   if (notes.some((t) => t.length < 20)) throw new Error(`a level has no description: ${JSON.stringify(notes)}`);
   await page.selectOption('#msLevel', 'hard');
   if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
+  // How to play lists every Spell with what it does
+  const spells = await page.evaluate(() => {
+    document.querySelector('a-scene').systems['ns-game'].hud.howToPlay();
+    const rows = [...document.querySelectorAll('#modal table.spells tbody tr')];
+    return { rows: rows.length, empty: rows.filter((r) => (r.children[1]?.textContent ?? '').length < 20).length };
+  });
+  if (spells.rows < 19 || spells.empty) throw new Error(`How to play does not describe every Spell: ${JSON.stringify(spells)}`);
+  if (process.env.SHOT) {
+    await page.evaluate(() => document.querySelector('#modal table.spells').scrollIntoView());
+    await page.screenshot({ path: process.env.SHOT.replace(/\.png$/, '-spells.png') });
+  }
+  await page.evaluate(() => document.querySelector('a-scene').systems['ns-game'].hud.menu());
+  await page.selectOption('#msLevel', 'hard');
   const hard = await page.evaluate(() => document.getElementById('msLevelNote').textContent);
   if (hard === notes[0]) throw new Error('the description did not follow the level chosen');
   await startMission(page);

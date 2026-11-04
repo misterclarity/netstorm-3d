@@ -2,13 +2,15 @@
  * Shells in flight (from the world's list of shots), their impacts, explosions of what is
  * destroyed and the debris of fallen bridges and islets.
  */
-import { G, NS, ME, defs, FURY_COLOR, wx, wz } from '../state.js';
+import { G, NS, ME, defs, FURY_COLOR, FACING_YAW, wx, wz } from '../state.js';
 import { spellLook } from '../spells.js';
 import { mat, part, box, ico } from '../models.js';
 
 const { THREE } = AFRAME;
 /** How far from the Disc Thrower's middle its disc leaves, at the hook of its arm (models.js). */
 const DISC_REACH = Math.hypot(0.42, 1.62);
+/** How far ahead of the Thunder Cannon's middle its dragon's jaws are (models.js: head and mouth). */
+const DRAGON_MOUTH = 2.5;
 /** Flyers that strike (rules/flyers.ts), the colour of their strike and the height it comes from. */
 const STING = { rainflyer: { color: '#8ff6ff', from: 2.6 }, sunflyer: { color: '#ffe08a', from: 3.9 } };
 const ZAP_STEPS = 4;
@@ -88,6 +90,12 @@ AFRAME.registerComponent('ns-effects', {
         d.rotation.set(0.25, now * 1.2, 0);
         continue;
       }
+      // the Thunder Cannon's dragon spits a ball of fire from its jaws (models.js), trailing flame
+      const dragon = gun.type === 'thundercannon';
+      if (dragon) {
+        const yaw = FACING_YAW[gun.facing ?? 2];
+        from.add(new THREE.Vector3(Math.sin(yaw) * DRAGON_MOUTH, 0, Math.cos(yaw) * DRAGON_MOUTH)).setY(2.8);
+      }
       let m = this.shells[n];
       if (!m) {
         m = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), new THREE.MeshBasicMaterial({ color: '#ffd27a' }));
@@ -96,10 +104,13 @@ AFRAME.registerComponent('ns-effects', {
         this.shells[n] = m;
       }
       const theme = defs.get(gun.type)?.theme ?? 'sun';
-      m.material.color.set(theme === 'sun' ? '#ffd27a' : FURY_COLOR[theme]);
+      m.material.color.set(dragon ? '#ffd27a' : theme === 'sun' ? '#ffd27a' : FURY_COLOR[theme]);
+      m.children[0].material.color.set(dragon ? '#ff4a1a' : '#ffb347');
+      m.scale.setScalar(dragon ? 1.15 : 1);
       m.visible = true;
       m.position.lerpVectors(from, to, k);
-      m.position.y += Math.sin(k * Math.PI) * from.distanceTo(to) * 0.18;
+      m.position.y += Math.sin(k * Math.PI) * from.distanceTo(to) * (dragon ? 0.06 : 0.18);
+      if (dragon && !G.paused && Math.random() < 0.5) this.puff(m.position, Math.random() < 0.5 ? '#ff7a1a' : '#ffcf5a', 0.7, 0.3);
       n++;
     }
     for (let i = n; i < this.shells.length; i++) this.shells[i].visible = false;

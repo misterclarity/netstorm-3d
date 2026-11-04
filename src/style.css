@@ -169,3 +169,8 @@ body.tabletop #bar, body.tabletop #sel, body.tabletop #goal { display: none !imp
 /* Energy icons: one dot per icon a unit needs or a source gives, in its Fury's colour; "any" in all four */
 .mana { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 1px; vertical-align: -1px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); }
 .mana.gone { opacity: 0.3; box-shadow: 0 0 0 1.5px var(--bad); }
+#modal table.spells { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+#modal table.spells th, #modal table.spells td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+#modal table.spells th { color: var(--muted); font-weight: 600; }
+#modal table.spells td:first-child { width: 22%; font-weight: 600; }
+#modal table.spells td:nth-child(n+3), #modal table.spells th:nth-child(n+3) { white-space: nowrap; }

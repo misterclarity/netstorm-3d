@@ -498,12 +498,7 @@ export const MODELS = {
       part(barrel, cyl(0.2, 0.3, 2.0, 6), mat('#bfe8f5', { emissive: '#3aa8d8', emissiveIntensity: 0.35, roughness: 0.2 }));
       for (let i = 0; i < 4; i++) part(barrel, cone(0.08, 0.4, 4), mat('#e8f8ff'), Math.cos(i * 1.57) * 0.28, -0.3 + i * 0.3, Math.sin(i * 1.57) * 0.28).rotation.set(Math.sin(i * 1.57) * 0.9, 0, -Math.cos(i * 1.57) * 0.9);
     } else if (f === 'thunder') {
-      // the Thunder Cannon: a long dark barrel in copper coils, its mouth aglow
-      part(turret, box(1.3, 0.6, 1.3), p.stone, 0, 0.3, 0);
-      part(turret, box(0.9, 0.5, 0.9), p.dark, 0, 0.8, -0.1);
-      part(barrel, cyl(0.15, 0.22, 2.6, 8), metal('#2c2833'), 0, 0.2, 0);
-      for (let i = 0; i < 3; i++) part(barrel, ring(0.24, 0.06, 12), p.trim, 0, -0.5 + i * 0.5, 0).rotation.x = Math.PI / 2;
-      part(barrel, sph(0.16, 8, 6), p.glow, 0, 1.5, 0);
+      MODELS.dragon(rep, g, turret, barrel);
     } else {
       // the Sun Cannon: a stout bronze gun with gold bands
       part(turret, cyl(0.75, 0.85, 0.6, 10), mat('#4a4744'), 0, 0.3, 0);
@@ -512,6 +507,88 @@ export const MODELS = {
       part(barrel, ring(0.27, 0.06, 12), p.trim, 0, 0.85, 0).rotation.x = Math.PI / 2;
       part(barrel, ring(0.31, 0.06, 12), p.trim, 0, -0.3, 0).rotation.x = Math.PI / 2;
     }
+  },
+  /**
+   * The Thunder Cannon, the mightiest gun of the game, after its sprite: a silver dragon's torso
+   * reared on a drum of red stone, its ribbed neck stretched toward the way it was laid, spiked down
+   * the spine, horned, and its great bat wings spread wide. As it charges its eyes kindle and its
+   * jaw drops; as the shot leaves it spits fire and its head jerks back (ns-units: rep.dragon).
+   */
+  dragon(rep, g, turret, barrel) {
+    turret.remove(barrel);
+    rep.barrel = null;
+    const silver = metal('#a39fae'), dark = mat('#34303c'), bone = metal('#ddd8e4'), red = mat('#6e3a2b');
+    // the drum and the claws that grip its rim
+    part(turret, cyl(1.22, 1.36, 0.55, 14), red, 0, 0.0, 0);
+    part(turret, ring(1.24, 0.07, 18), metal('#c27a3e'), 0, 0.27, 0).rotation.x = Math.PI / 2;
+    for (const s of [-1, 1]) {
+      for (const dz of [0.55, 0.8]) part(turret, cone(0.07, 0.42, 5), bone, s * 0.42 + s * (dz - 0.55) * 0.6, 0.3, dz).rotation.x = Math.PI;
+      part(turret, box(0.18, 0.5, 0.18), silver, s * 0.42, 0.55, 0.62).rotation.x = 0.4;
+    }
+    // the chest and a tail curled behind
+    part(turret, sph(0.62, 10, 8), silver, 0, 0.95, 0.05).scale.set(1.05, 0.95, 1.25);
+    for (let i = 0; i < 4; i++) {
+      const seg = part(turret, box(0.34 - i * 0.06, 0.28 - i * 0.04, 0.42), dark, Math.sin(i * 0.9) * 0.25, 0.6 - i * 0.08, -0.65 - i * 0.36);
+      seg.rotation.y = Math.sin(i * 0.9) * 0.5;
+    }
+    // the neck: plated segments rising forward, a spike on each
+    const neck = [[0, 1.35, 0.35], [0, 1.68, 0.62], [0, 1.98, 0.88], [0, 2.2, 1.16], [0, 2.34, 1.42]];
+    neck.forEach(([x, y, z], i) => {
+      const next = neck[i + 1] ?? [x, y + 0.05, z + 0.3];
+      const seg = part(turret, box(0.4 - i * 0.03, 0.34 - i * 0.02, 0.42), i % 2 ? silver : dark, x, y, z);
+      seg.rotation.x = -Math.atan2(next[1] - y, next[2] - z);
+      part(turret, cone(0.07, 0.48 - i * 0.05, 4), bone, x, y + 0.28, z - 0.05).rotation.x = -0.55;
+    });
+    // the head, its jaw and its fire: a holder that jerks back as it spits
+    const head = holder(turret, 0, 2.42, 1.62);
+    head.rotation.x = 0.12;
+    part(head, box(0.42, 0.32, 0.62), silver, 0, 0.04, 0.12);
+    part(head, box(0.32, 0.16, 0.5), silver, 0, 0.02, 0.62);
+    part(head, box(0.34, 0.06, 0.12), dark, 0, 0.13, 0.36);
+    for (const s of [-1, 1]) {
+      part(head, cone(0.07, 0.75, 5), bone, s * 0.15, 0.24, -0.12).rotation.set(-1.15, 0, s * -0.25);
+      part(head, cone(0.04, 0.36, 4), bone, s * 0.22, 0.05, -0.2).rotation.set(-1.4, 0, s * -0.6);
+      for (let t = 0; t < 3; t++) part(head, cone(0.025, 0.12, 3), bone, s * 0.12, -0.08, 0.5 + t * 0.14).rotation.x = Math.PI;
+    }
+    const eyes = moving(part(head, box(0.44, 0.07, 0.07), mat('#ffb347', { emissive: '#ff5a00', emissiveIntensity: 0.6 }), 0, 0.12, 0.3));
+    eyes.material = eyes.material.clone();
+    rep.own.push(eyes.material);
+    const jaw = holder(head, 0, -0.12, 0.2);
+    part(jaw, box(0.28, 0.08, 0.6), dark, 0, 0, 0.3);
+    for (const s of [-1, 1]) for (let t = 0; t < 3; t++) part(jaw, cone(0.025, 0.12, 3), bone, s * 0.1, 0.07, 0.3 + t * 0.14);
+    // the fire it spits: an outer flame and a white-hot core, along the way it faces
+    const fire = holder(head, 0, -0.02, 0.88);
+    fire.visible = false;
+    for (const [r, len, c, e] of [[0.42, 2.4, '#ff6a1a', '#ff3a00'], [0.2, 1.6, '#fff1b0', '#ffd24a']]) {
+      part(fire, cone(r, len, 8), mat(c, { emissive: e, emissiveIntensity: 2.2, transparent: true, opacity: 0.85 }), 0, 0, len / 2).rotation.x = -Math.PI / 2;
+    }
+    for (const m of fire.children) moving(m);
+    // the wings, spread: bones out from each shoulder, a membrane between them
+    const wings = [];
+    for (const s of [-1, 1]) {
+      const wing = holder(turret, s * 0.5, 1.45, 0.05);
+      wings.push(wing);
+      const tips = [[1.0, 1.7, -0.25], [2.2, 1.1, -0.35], [2.75, 0.2, -0.4], [2.15, -0.6, -0.35]].map(([x, y, z]) => [s * x, y, z]);
+      for (const [x, y, z] of tips) {
+        const len = Math.hypot(x, y, z);
+        const b = part(wing, cyl(0.035, 0.07, len, 5), bone, x / 2, y / 2, z / 2);
+        b.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x, y, z).normalize());
+      }
+      part(wing, shape(`wing${s}`, () => {
+        const v = [];
+        for (let i = 0; i < tips.length - 1; i++) {
+          const [a, b] = [tips[i], tips[i + 1]];
+          // the trailing edge sags between two bones
+          const mid = [(a[0] + b[0]) * 0.36, (a[1] + b[1]) * 0.36, (a[2] + b[2]) / 2];
+          v.push(0, 0, 0, ...a, ...mid, 0, 0, 0, ...mid, ...b);
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+        geo.computeVertexNormals();
+        return geo;
+      }), mat('#8d8698', { side: THREE.DoubleSide, roughness: 0.6 }));
+    }
+    rep.dragon = { head, headZ: head.position.z, jaw, fire, eyes, wings };
   },
   archer(rep, g, e) {
     const f = furyOf(e), p = kit(e);

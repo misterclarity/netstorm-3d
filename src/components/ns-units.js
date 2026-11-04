@@ -11,6 +11,8 @@ import { MODELS, heightOf, modelKind, spriteKey, cargoModel, part, ico, glow, ba
  * spring winds it round this many times before each throw (rules/guns.ts: "about four"). */
 const DISC_TIP_YAW = Math.atan2(0.42, 1.62);
 const DISC_TURNS = 4;
+/** Ticks the Thunder Cannon's dragon spits fire for, from the tick its shot leaves (models.js). */
+const DRAGON_FIRE = 5;
 
 const { THREE } = AFRAME;
 
@@ -224,6 +226,7 @@ AFRAME.registerComponent('ns-unit', {
       if (rep.turret) rep.turret.rotation.y = FACING_YAW[e.facing ?? 2];
       if (rep.barrel) rep.barrel.position.z = (rep.barrelZ ?? 0.95) - (e.lastShot >= 0 && G.world.tick - e.lastShot < 3 ? 0.25 : 0);
       if (rep.discArm) this.discArm(e);
+      if (rep.dragon) this.dragon(e, s);
       // the Vander Tower's orb flashes as it fires, and glows faintly between shots
       if (rep.orb) rep.orb.material.emissiveIntensity = e.lastShot >= 0 && G.world.tick - e.lastShot < 4 ? 2.4 : 0.15 + 0.08 * Math.sin(s * 2 + rep.id);
       if (rep.slotsMark) this.markSlots(e);
@@ -353,6 +356,28 @@ AFRAME.registerComponent('ns-unit', {
     arm.rotation.y = yaw;
     arm.scale.set(1, 1, 1 + 0.18 * flung); // the arm springs out as it lets go
     rep.discOnArm.visible = loaded;
+  },
+
+  /**
+   * The Thunder Cannon's dragon (models.js): from the tick it fires it charges (rules/combat.ts),
+   * its eyes kindling and its jaw dropping; when the shot leaves it spits fire along the way it
+   * faces and its head jerks back, for half a second; its wings beat slowly, and flare as it spits.
+   */
+  dragon(e, s) {
+    const d = this.rep.dragon, now = G.world.tick + (G.paused ? 0 : G.clock.alpha);
+    // a gun whose target is gone forgets its last shot (rules/combat.ts): the fire is not cut short
+    if (e.lastShot >= 0 && e.lastShot !== d.shotOf) {
+      d.shotOf = e.lastShot;
+      d.fireAt = G.view.shots.find((x) => x.gun.id === e.id && x.leave >= e.lastShot)?.leave ?? e.lastShot;
+    }
+    const fired = d.shotOf !== undefined, charge = fired && now >= d.shotOf && now < d.fireAt ? (now - d.shotOf) / Math.max(1, d.fireAt - d.shotOf) : 0;
+    const since = fired ? now - d.fireAt : Infinity, spit = since >= 0 && since < DRAGON_FIRE ? 1 - since / DRAGON_FIRE : 0;
+    d.jaw.rotation.x = 0.06 + 0.25 * charge + 0.5 * spit;
+    d.eyes.material.emissiveIntensity = 0.6 + 2.4 * Math.max(charge, spit);
+    d.fire.visible = spit > 0;
+    if (spit > 0) d.fire.scale.set(0.8 + 0.3 * spit, 0.8 + 0.3 * spit, (0.4 + 0.8 * spit) * (1 + 0.15 * Math.sin(s * 45)));
+    d.head.position.z = d.headZ - 0.22 * spit;
+    d.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (0.05 * Math.sin(s * 1.4 + this.rep.id) - 0.18 * spit); });
   },
 
   steam(e, s) {

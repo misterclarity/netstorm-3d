@@ -8,16 +8,16 @@ import { submit, SKIRMISH_DEFAULTS } from './game.js';
 import { modelKind } from './models.js';
 import { describeBuild, loadNewer } from './version.js';
 import { toScene } from './space.js';
-import { SPELL_MODES, spellText, spellName } from './spells.js';
+import { SPELL_MODES, SPELL_IDS, spellText, spellName } from './spells.js';
 
 const $ = (id) => document.getElementById(id);
 
 /** The computer's levels as the menu describes them (scripts/house-rules.mjs and netstorm-web's
  * ai/params.ts set what each does). */
 const LEVELS = {
-  easy: 'Moves slowly and does little at a time. Defends only once you shoot at it. A good start.',
-  normal: 'Answers your bridges and guns, keeps its Priest near home and has a carrier ready when yours falls.',
-  hard: 'Fast and aggressive: guns at your Priest and Temple first, two carriers ready, and a fallen Priest fetched even by air.',
+  easy: 'Moves slowly and does little at a time. Defends only once you shoot at it, and casts no Spells. A good start.',
+  normal: 'Answers your bridges and guns, keeps its Priest near home, has a carrier ready when yours falls, and casts Spells when you come near.',
+  hard: 'Fast and aggressive: guns at your Priest and Temple first, two carriers ready, a fallen Priest fetched even by air, and Spells carried to where they hurt most.',
 };
 
 export class Hud {
@@ -773,6 +773,12 @@ export class Hud {
         carrier to one (select it, click the Obelisk) and cast the Spell from its card. With <b>Spells: Any,
         by prayer</b>, the Priest prays for any of them instead. The enemy prays too: an orb over his
         Priest warns you, and a pulsing ring round a caster shows where his Spell is about to strike.</p>
+      <table class="spells"><thead><tr><th>Spell</th><th>What it does</th><th>⚡</th><th>Reach</th><th>Cast</th><th>Prayer</th></tr></thead><tbody>
+        ${SPELL_IDS.map((id) => defs.get(id)).filter(Boolean).map((d) => `<tr><td>${escapeHtml(d.name)}${d.id === 'bombspecialone' ? ' (prayed for)' : ''}</td><td>${escapeHtml(spellText(d.id)[0].toUpperCase() + spellText(d.id).slice(1))}.</td>
+          <td>${d.cost}</td><td>${d.range}</td><td>${d.castTime} s</td><td>${d.id === 'bombspecialone' ? `${d.prayTime} s` : /lighting/.test(d.id) ? 'Obelisks only' : `${d.prayTime} s*`}</td></tr>`).join('')}
+      </tbody></table>
+      <p class="note">Reach and cast time in cells and seconds; the caster stands still while it casts. The Devastation is prayed for in every skirmish;
+        * the others only with Spells: Any, by prayer (the Thunder Spells never), or found on Obelisks with Spells: Obelisks.</p>
       <h3>The computer’s levels</h3>
       <p>Chosen in the main menu, for the mission and the skirmish alike. <b>Easy</b>: ${LEVELS.easy}
         <b>Normal</b>: ${LEVELS.normal} <b>Hard</b>: ${LEVELS.hard} All three pay the same prices and
