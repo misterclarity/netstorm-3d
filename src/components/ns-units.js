@@ -234,7 +234,7 @@ AFRAME.registerComponent('ns-unit', {
     if (rep.steam) this.steam(e, s);
     if (rep.walk) rep.walk(e.path?.length ? rep.phase : 0);
     if (rep.cargo) this.cargo(e);
-    for (const f of rep.anim) f(s);
+    for (const f of rep.anim) f(s, e);
 
     // an air ship's sprite rises as it takes off and sinks as it lands
     if (rep.flies) {

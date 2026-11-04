@@ -103,11 +103,21 @@ To see where you stand:
 
 Two art styles can be switched in the top bar:
 
-- **3D**: low-poly models made for this project. Each Fury has its own look (the Sun's sandstone,
-  terracotta and gold; the Wind's timber and canvas, its sails and rotors turning; the Rain's blue
-  stone, ice and water; the Thunder's dark metal, copper coils and violet light), every unit its
-  own model, and each carries its owner's colour: a banner, a ring round its base, a belt. Guns
-  move as the world fires them: a cannon's barrel recoils; the Disc Thrower's hooked arm whirls
+- **3D**: low-poly models made for this project, each after its sprite in the original and drawn
+  as a piece of fantasy. Each Fury has its own look (the Sun's sandstone, terracotta, bronze and
+  gold; the Wind's timber and canvas, its sails and rotors turning; the Rain's blue stone, ice,
+  glass and water; the Thunder's dark metal, red brick, copper and violet light), every unit its
+  own model, and each carries its owner's colour: a banner, a ring round its base, a belt. Most
+  of them are alive when idle: the Thunder Temple is a dark glass dome in a crown of thorned
+  tendrils with lightning leaping from their tips, the Rain Temple a carved ring round a glowing
+  pool with fountains at its rim and a great drop of water ringed by turning streams over it, the
+  Fire Temple a caldera of lava whose brazier throws up embers; generators feed their crystals (a
+  ring of sails round the Wind's, a sunflower of bronze panels that follows the sun), workshops
+  smoke and turn their orreries, wheels and windmills, barricades bubble acid and crackle, the
+  Obelisk's capstone floats over it, carriers walk, roll, scuttle and lumber with their own gaits,
+  and the High Priest lifts his staff and a ring of runes turns at his feet as he prays. Guns
+  move as the world fires them: the Crossbow's arms spring forward as it looses and its winch
+  draws it back; the Sun Cannon's vent flares; a cannon's barrel recoils; the Disc Thrower's hooked arm whirls
   round about four times as the world's spring spins it and flings its disc as the shot leaves,
   then runs down; the Vander Tower's orb flashes; the Thunder Cannon, the mightiest gun, is a
   silver dragon's torso with its bat wings spread (after its sprite): its eyes kindle and its jaw
@@ -220,7 +230,9 @@ tabletop's panel draws the same HUD on a canvas texture: it reads the HUD's elem
 on one of its buttons clicks the HUD's own. `src/models.js` holds the low-poly models. Each is
 baked once built: the parts that never move are merged into a mesh per finish (their colours kept
 per vertex), and models of the same kind share their shapes and merged meshes, so a battle of
-fifty units is about a hundred draw calls and nothing piles up on the GPU as units come and go.
+fifty units is about two hundred draw calls (what moves on its own is drawn apart from the rest)
+and nothing piles up on the GPU as units come and go. `SHOT=dir node scripts/playtest.mjs gallery`
+(TYPES=a,b,... for some) takes a picture of each unit's model, one by one, by the mission's Temple.
 
 **The computer opponent** is netstorm-web's AI (`aiMove` in its `packages/sim/src/ai.ts`): rules,
 not a learning system. Every few seconds of game time (in a skirmish 8 at easy, 5 at normal, 3 at

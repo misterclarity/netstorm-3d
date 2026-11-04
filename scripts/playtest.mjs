@@ -914,6 +914,88 @@ SCENARIOS.spells = async () => {
   return errors;
 };
 
+/**
+ * Not a test: every unit's 3D model, one at a time on the same spot by the player's Temple in the
+ * mission, a picture of each in SHOT=dir (gallery-<type>.png). `node scripts/playtest.mjs gallery`.
+ */
+SCENARIOS.gallery = async () => {
+  if (!process.env.SHOT) return [];
+  const { page, errors } = await open({ width: 640, height: 520 });
+  await startMission(page);
+  await page.waitForTimeout(500);
+  const types = (process.env.TYPES ?? '').split(',').filter(Boolean);
+  const all = types.length ? types : ['windvortex', 'rainvortex', 'thundervortex', 'firevortex', 'sunfactory', 'windfactory', 'rainfactory', 'thunderfactory', 'guildfactory',
+    'outpost', 'altar', 'sunbattery', 'windbattery', 'rainbattery', 'thunderbattery', 'suncannon', 'raincannon', 'windarcher', 'sunblocker', 'windblocker',
+    'rainblocker', 'thunderblocker', 'sunfence', 'rainfence', 'thunderfence', 'sunaviary', 'windaviary', 'rainaviary', 'efarm',
+    'sunwalker', 'windwalker', 'rainwalker', 'bulf', 'firewalker', 'sunballoon', 'rainballoon', 'sunflyer', 'priest', 'geyser', 'obelisk', 'residence'];
+  const spot = await page.evaluate(() => {
+    const { G } = window.NS3D, w = G.world, t = w.templeOf(1);
+    G.paused = true;
+    document.querySelector('a-scene').systems['ns-art'].setMode('models');
+    const free = (x0, y0, nx, ny) => {
+      for (let y = y0; y < y0 + ny; y++) for (let x = x0; x < x0 + nx; x++) {
+        const i = w.inside(x, y) ? w.at(x, y) : -1;
+        if (i < 0 || w.terrain[i] !== 1 || w.owner[i] !== 1 || w.occupant[i] || w.priestAt(x, y) || w.residenceAt(x, y)) return false;
+      }
+      return true;
+    };
+    for (let y = t.y - 16; y < t.y + 16; y++) for (let x = t.x - 18; x < t.x + 20; x++) if (free(x, y, 9, 8)) return { x: x + 1, y: y + 1 };
+    return null;
+  });
+  if (!spot) throw new Error('no room on the island for the gallery');
+  await page.addStyleTag({ content: 'body > *:not(a-scene) { visibility: hidden !important; }' });
+  for (const type of all) {
+    const id = await page.evaluate(({ kind, at }) => {
+      const { G } = window.NS3D, w = G.world;
+      if (kind === 'priest' || kind === 'praying') {
+        // 'praying': the Priest at his prayers
+        const pr = w.priestOf(1);
+        pr.praying = kind === 'praying' ? 999 : 0;
+        return pr.id;
+      }
+      if (kind === 'geyser') return [...w.entities.values()].find((e) => e.kind === 'geyser').id;
+      if (kind === 'obelisk') return w.addObelisk(at.x + 2, at.y + 2, 'bombheal').id;
+      if (kind === 'residence') return null;
+      const d = G.view.def(kind);
+      if (d.cls?.includes('Transport')) return w.spawnTransport(kind, 1, at.x + 3, at.y + 3).id;
+      if (d.cls === 'Aerial Attack') {
+        // over the empty spot, not over the Temple it is launched from
+        const f = w.spawnFlyer(kind, 1, w.templeOf(1)), S = window.NS3D.NS.FLYER_SCALE;
+        f.px = f.hx = (at.x + 4) * S;
+        f.py = f.hy = (at.y + 4) * S;
+        f.x = at.x + 4;
+        f.y = at.y + 4;
+        return f.id;
+      }
+      const b = w.spawnBuilding(kind, 1, at.x, at.y, 2);
+      b.rising = 0;
+      return b.id;
+    }, { kind: type, at: spot });
+    if (id === null) continue;
+    await page.waitForFunction((i) => !!window.NS3D.game.units()?.byId.get(i)?.components['ns-unit']?.rep, id, { timeout: 15000 });
+    const at = await page.evaluate((i) => {
+      const el = window.NS3D.game.units().byId.get(i), rep = el.components['ns-unit'].rep, p = el.object3D.position;
+      const big = Math.max(rep.foot?.[0] ?? 1, rep.foot?.[1] ?? 1, rep.height / 1.5);
+      document.getElementById('camera').components['orbit-rig'].focus(p.x, p.z, 4 + big * 2.6, rep.kind === 'flyer' ? rep.height - 1 : rep.height / 2.5);
+      return big;
+    }, id);
+    await cameraStill(page);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${process.env.SHOT}/gallery-${type}.png`, clip: { x: 140, y: 100, width: 360, height: 320 } });
+    // and gone again, for the next
+    await page.evaluate(({ i, kind }) => {
+      const { G } = window.NS3D, w = G.world, e = w.entities.get(i);
+      if (kind === 'praying') e.praying = 0;
+      if (!e || ['priest', 'praying', 'geyser'].includes(kind)) return;
+      if (e.kind === 'flyer' || e.kind === 'obelisk') { w.entities.delete(i); return; }
+      window.NS3D.submit({ t: 'salvage', target: i });
+      window.NS3D.stepWorld();
+    }, { i: id, kind: type });
+    void at;
+  }
+  return errors;
+};
+
 SCENARIOS.levels = async () => {
   const { page, errors } = await open();
   // each choice of level has its line, and the mission is played at the level chosen for it
