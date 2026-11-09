@@ -1010,60 +1010,91 @@ SCENARIOS.tiers = async () => {
   const briefing = await page.evaluate(() => document.querySelector('#modal .text')?.textContent ?? '');
   if (!/three levels/.test(briefing)) throw new Error(`the briefing does not tell of the levels: ${briefing}`);
   await page.click('#modal button.main');
-  // the islands stand on more than one level, from the start, and the player's on his Temple's
+  // the islands stand on more than one level, from the start: at Normal both homes on the middle
+  // one, an island above it and one below
   const start = await page.evaluate(() => {
-    const { G, HEIGHTS } = window.NS3D, seen = new Set(), t = G.world.templeOf(1);
+    const { G, HEIGHTS } = window.NS3D, seen = new Set(), homes = [1, 2].map((p) => { const t = G.world.templeOf(p); return G.world.level[t.y * 256 + t.x]; });
     for (let i = 0; i < G.view.terrain.length; i++) if (G.view.terrain[i] === 1) seen.add(G.world.level[i]);
-    return { on: HEIGHTS.on, tiered: G.world.tiered, levels: [...seen].sort(), active: HEIGHTS.active, home: G.world.level[t.y * 256 + t.x], badge: document.getElementById('levelBadge').textContent };
+    return { on: HEIGHTS.on, tiered: G.world.tiered, levels: [...seen].sort(), active: HEIGHTS.active, homes, badge: document.getElementById('levelBadge').textContent };
   });
-  if (!start.on || !start.tiered || start.levels.length < 2 || start.active !== start.home || !/level/.test(start.badge)) throw new Error(`no levels: ${JSON.stringify(start)}`);
-  // a bridge piece laid on another level, as a player lays it: piece 1, E or Q, a click
-  const spot = await page.evaluate(() => {
-    const { G } = window.NS3D, t = G.world.templeOf(1), hand = G.world.players.get(1).hand;
-    if (!hand.length) hand.push({ piece: 0, age: 999 });
-    for (let r = 0; r < 4; r++) {
-      for (let y = t.y - 26; y < t.y + 30; y++) {
-        for (let x = t.x - 26; x < t.x + 34; x++) {
-          if (G.view.canDropPiece({ player: 1, hand: 0, x, y, rot: r }) === null) return { x, y, rot: r, pieces: hand.length };
-        }
-      }
-    }
-    return null;
-  });
-  if (!spot) throw new Error('nowhere to lay a bridge piece');
-  await page.evaluate((r) => { window.NS3D.G.rot = r; }, spot.rot);
+  if (!start.on || !start.tiered || start.levels.join() !== '-1,0,1' || start.homes.some((l) => l !== 0) || start.active !== 0 || !/level/.test(start.badge)) throw new Error(`not the levels asked for: ${JSON.stringify(start)}`);
+  /** Point at a battlefield point (x, h, z in world cells and height) on the screen; where it is. */
+  const pointAt = async (x, h, y) => {
+    const at = await page.evaluate(([px, ph, py]) => {
+      const { wx, wz } = window.NS3D, THREE = AFRAME.THREE, scene = document.querySelector('a-scene'), r = scene.canvas.getBoundingClientRect();
+      const v = document.getElementById('world').object3D.localToWorld(new THREE.Vector3(wx(px), ph, wz(py))).project(scene.camera);
+      return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
+    }, [x, h, y]);
+    await page.mouse.move(at.x, at.y);
+    await page.waitForTimeout(300);
+    return at;
+  };
+  const look = async (x, y, h) => {
+    await page.evaluate(([px, py, ph]) => {
+      const { wx, wz } = window.NS3D, rig = document.getElementById('camera').components['orbit-rig'];
+      rig.focus(wx(px), wz(py), 34, ph);
+      rig.snap({});
+      // the page draws only while something moves: put the camera there now
+      rig.tick(performance.now(), 16);
+      rig.el.object3D.updateMatrixWorld(true);
+    }, [x, y, h]);
+    await page.waitForTimeout(1500);
+  };
+  // a bridge piece laid on the level above, as a player lays it: piece 1, E, the pointer near the
+  // island's rim, where the piece snaps on, a click
+  await page.evaluate(() => { const hand = window.NS3D.G.world.players.get(1).hand; hand.length = 0; for (const piece of [0, 1, 0, 1]) hand.push({ piece, age: 999 }); });
   await page.keyboard.press('1');
-  const key = start.active === 1 ? 'q' : 'e', want = start.active + (key === 'q' ? -1 : 1);
-  await page.keyboard.press(key);
-  await page.waitForTimeout(1500);
-  const where = await page.evaluate(([x, y, level]) => {
-    const { wx, wz } = window.NS3D, THREE = AFRAME.THREE, scene = document.querySelector('a-scene');
-    const rig = document.getElementById('camera').components['orbit-rig'];
-    rig.focus(wx(x + 0.5), wz(y + 0.5), 30, level * 8);
-    rig.snap({});
-    const p = new THREE.Vector3(wx(x + 0.5), level * 8, wz(y + 0.5));
-    return { level: window.NS3D.HEIGHTS.active, badge: document.getElementById('levelBadge').textContent, p: [p.x, p.y, p.z], canvas: scene.canvas.getBoundingClientRect().toJSON() };
-  }, [spot.x, spot.y, want]);
-  if (where.level !== want || !where.badge.includes(want > 0 ? 'Upper' : want < 0 ? 'Lower' : 'Middle')) throw new Error(`${key.toUpperCase()} did not change the level: ${JSON.stringify(where)}`);
-  await page.waitForTimeout(2500);
-  const screen = await page.evaluate(([px, py, pz]) => {
-    const THREE = AFRAME.THREE, cam = document.querySelector('a-scene').camera, r = document.querySelector('a-scene').canvas.getBoundingClientRect();
-    const v = new THREE.Vector3(px, py, pz).project(cam);
-    return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height, hover: window.NS3D.G.hover };
-  }, where.p);
-  await page.mouse.move(screen.x, screen.y);
-  await page.waitForTimeout(400);
-  const hover = await page.evaluate(() => ({ hover: window.NS3D.G.hover, grid: document.querySelector('[ns-placement]').components['ns-placement'].grid.visible, tip: document.getElementById('tip').textContent }));
-  if (!hover.hover || hover.hover.x !== spot.x || hover.hover.y !== spot.y || !hover.grid) throw new Error(`the piece's cell under the cursor on the level is not the one aimed at: ${JSON.stringify({ spot, hover })}`);
+  await page.keyboard.press('e');
+  await page.waitForTimeout(300);
+  const rim = await page.evaluate(() => {
+    const { G, openEnds, HEIGHTS } = window.NS3D, t = G.world.templeOf(1);
+    // a stretch of rim that faces open sky, three cells of it out from the ground
+    const sky = (j) => [1, 2, 3].every((k) => G.view.terrain[(j.s[1] + (j.s[1] - j.e[1]) * k) * 256 + j.s[0] + (j.s[0] - j.e[0]) * k] === 0);
+    const ends = openEnds().filter((j) => !j.bridge && sky(j)).sort((a, b) => Math.hypot(a.x - t.x - 4, a.y - t.y - 3) - Math.hypot(b.x - t.x - 4, b.y - t.y - 3));
+    return { j: ends[0], active: HEIGHTS.active, badge: document.getElementById('levelBadge').textContent };
+  });
+  if (rim.active !== 1 || !/Upper/.test(rim.badge) || !rim.j) throw new Error(`E did not take the level up, or the island has no rim: ${JSON.stringify(rim)}`);
+  await look(rim.j.x, rim.j.y, rim.j.h);
+  const aimed = await pointAt(rim.j.x + 0.6, rim.j.h, rim.j.y + 0.4);
+  const first = await page.evaluate(() => {
+    const { snapPiece, G } = window.NS3D, s = snapPiece(G.ray);
+    return s && { x: s.x, y: s.y, rot: s.rot, joint: s.joint, grid: document.querySelector('[ns-placement]').components['ns-placement'].grid.visible, tip: document.getElementById('tip').textContent };
+  });
+  if (!first || !first.grid || !/upper level/.test(first.tip)) throw new Error(`a piece pointed at the island's rim did not snap onto it: ${JSON.stringify({ rim, first })}`);
   await shot('tiers-placing');
-  await page.mouse.click(screen.x, screen.y);
+  const lifts0 = await page.evaluate(() => window.NS3D.HEIGHTS.lifts.length);
+  await page.mouse.click(aimed.x, aimed.y);
   await page.evaluate(() => { const { stepWorld } = window.NS3D; stepWorld(); stepWorld(); });
-  await page.waitForFunction(() => window.NS3D.HEIGHTS.lifts.length > 0, null, { timeout: 5000 }).catch(() => {});
+  await page.waitForFunction((n) => window.NS3D.HEIGHTS.lifts.length > n, lifts0, { timeout: 5000 }).catch(() => {});
   const laid = await page.evaluate(([x, y]) => {
     const { G, HEIGHTS } = window.NS3D, i = y * 256 + x;
-    return { terrain: G.view.terrain[i], level: G.world.level[i], lifts: HEIGHTS.lifts.length, active: HEIGHTS.active, owner: G.view.owner[i], tool: G.tool };
-  }, [spot.x, spot.y]);
-  if (laid.terrain < 2 || laid.terrain > 4 || laid.level !== want || !laid.lifts) throw new Error(`the piece was not laid on the level, with a lift: ${JSON.stringify(laid)}`);
+    const bridges = [];
+    for (let k = 0; k < G.view.terrain.length; k++) if (G.view.terrain[k] >= 2 && G.view.terrain[k] <= 4 && G.view.owner[k] === 1) bridges.push([k % 256, Math.floor(k / 256), G.world.level[k]]);
+    return { terrain: G.view.terrain[i], level: G.world.level[i], lifts: HEIGHTS.lifts.length, bridges: bridges.slice(0, 8), hand: G.world.players.get(1).hand.length, tool: G.tool };
+  }, [first.joint.s[0], first.joint.s[1]]);
+  if (laid.terrain < 2 || laid.terrain > 4 || laid.level !== 1 || laid.lifts <= lifts0) throw new Error(`the piece was not laid snapped to the rim on the upper level, with a lift: ${JSON.stringify({ first, laid })}`);
+  // a second piece snaps onto the open end of the first: pointed at its marker, clicked
+  await page.keyboard.press('1');
+  const end = await page.evaluate(([sx, sy]) => {
+    const { openEnds } = window.NS3D;
+    return openEnds().filter((j) => j.bridge).sort((a, b) => Math.hypot(a.x - sx, a.y - sy) - Math.hypot(b.x - sx, b.y - sy))[0];
+  }, first.joint.s);
+  if (!end) {
+    throw new Error(`the new bridge has no open end: ${JSON.stringify(await page.evaluate(([sx, sy]) => {
+      const { G, openEnds } = window.NS3D, i = sy * 256 + sx;
+      return { terrain: G.view.terrain[i], links: G.view.links[i], owner: G.view.owner[i], ends: openEnds().filter((j) => Math.abs(j.x - sx) < 3 && Math.abs(j.y - sy) < 3), connected: window.NS3D.NS.connectedToTemple(G.view, 1)?.[i] };
+    }, first.joint.s))}`);
+  }
+  await look(end.x, end.y, end.h);
+  const aimed2 = await pointAt(end.x + 0.5, end.h + 0.75, end.y - 0.3);
+  const second = await page.evaluate(() => { const { snapPiece, G } = window.NS3D, s = snapPiece(G.ray); return s && { x: s.x, y: s.y, rot: s.rot, joint: s.joint }; });
+  if (!second || !second.joint.bridge || second.joint.s[0] !== end.s[0] || second.joint.s[1] !== end.s[1]) throw new Error(`a piece pointed at the bridge's end did not snap onto it: ${JSON.stringify({ end, second })}`);
+  await page.mouse.click(aimed2.x, aimed2.y);
+  await page.evaluate(() => { const { stepWorld } = window.NS3D; stepWorld(); stepWorld(); });
+  const joined = await page.evaluate(([x, y]) => window.NS3D.G.view.terrain[y * 256 + x], end.s);
+  if (joined < 2 || joined > 4) throw new Error(`the second piece did not join the first bridge's end: ${JSON.stringify({ end, second, joined })}`);
+  await page.keyboard.press('Escape');
+  const want = 1;
   // a Golem rides the lift: drawn between the levels on the way, the car with it
   const ride = await page.evaluate(async () => {
     const { G, HEIGHTS, submit, stepWorld } = window.NS3D, lift = HEIGHTS.lifts[HEIGHTS.lifts.length - 1];
@@ -1112,22 +1143,27 @@ SCENARIOS.tiers = async () => {
       if (e.kind === 'transport' && window.NS3D.NS.flies(G.world.def(e.type))) continue;
       const p = el.object3D.position, ground = groundAt(e.x + 0.5, e.y + 0.5);
       if (Math.abs(p.y - ground) > 0.02) off.push({ type: e.type, y: p.y, ground });
-      if (Math.abs(p.y) > 1) raised++;
+      if (Math.abs(p.y) > 1) raised++; // on the level above or below
     }
     return { off, raised, lifts: HEIGHTS.lifts.length };
   });
-  if (stand.off.length || !stand.raised) throw new Error(`units off their ground: ${JSON.stringify(stand)}`);
+  if (stand.off.length) throw new Error(`units off their ground: ${JSON.stringify(stand)}`);
   // a click on a raised island picks the cell under the cursor there, not one behind it
   const picks = await page.evaluate(() => {
-    const { G, HEIGHTS, groundAt, groundCell, wx, wz } = window.NS3D, THREE = AFRAME.THREE, scene = document.querySelector('a-scene');
-    const t = G.world.templeOf(1), cam = scene.camera, ray = new THREE.Raycaster(), wrong = [];
-    document.getElementById('camera').components['orbit-rig'].focus(wx(t.x + 4), wz(t.y + 3), 30, groundAt(t.x, t.y));
+    const { G, groundAt, groundCell, wx, wz } = window.NS3D, THREE = AFRAME.THREE, scene = document.querySelector('a-scene');
+    const t = G.world.templeOf(1) ?? G.world.templeOf(2), cam = scene.camera, ray = new THREE.Raycaster(), wrong = [];
+    const rig = document.getElementById('camera').components['orbit-rig'];
+    rig.focus(wx(t.x + 4), wz(t.y + 3), 30, groundAt(t.x, t.y));
+    rig.snap({});
+    rig.tick(performance.now(), 16);
+    rig.el.object3D.updateMatrixWorld(true);
     let tried = 0;
     for (let y = t.y - 10; y < t.y + 12; y += 3) {
       for (let x = t.x - 10; x < t.x + 14; x += 3) {
         const i = y * 256 + x;
-        if (G.view.terrain[i] !== 1 || G.world.level[i] * 8 !== HEIGHTS.high) continue;
-        const p = new THREE.Vector3(wx(x + 0.5), HEIGHTS.high, wz(y + 0.5));
+        const home = G.world.level[t.y * 256 + t.x] * 8;
+        if (G.view.terrain[i] !== 1 || G.world.level[i] * 8 !== home) continue;
+        const p = new THREE.Vector3(wx(x + 0.5), home, wz(y + 0.5));
         const ndc = document.getElementById('world').object3D.localToWorld(p.clone()).project(cam);
         if (Math.abs(ndc.x) > 0.95 || Math.abs(ndc.y) > 0.95) continue;
         ray.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), cam);
@@ -1144,13 +1180,13 @@ SCENARIOS.tiers = async () => {
     await page.evaluate(() => document.querySelector('a-scene').systems['ns-art'].setMode('models'));
     const lift = await page.evaluate(() => {
       // the lift nearest the player's Temple
-      const { G, HEIGHTS } = window.NS3D, t = G.world.templeOf(1);
+      const { G, HEIGHTS } = window.NS3D, t = G.world.templeOf(1) ?? G.world.templeOf(2);
       const l = [...HEIGHTS.lifts].sort((a, b) => Math.hypot(a.x - t.x, a.y - t.y) - Math.hypot(b.x - t.x, b.y - t.y))[0];
       return l ? [l.x, l.y, (l.low + l.high) / 2] : null;
     });
     for (const [name, r, th, ph, at] of [['tiers-map', 160, 0.7, 1.15, 'middle'], ['tiers-home', 45, 0.5, 1.0, null], ['tiers-lift', 30, 0.9, 1.2, lift]]) {
       await page.evaluate(([r2, th2, ph2, there]) => {
-        const { G, groundAt, wx, wz, origin } = window.NS3D, t = G.world.templeOf(1), rig = document.getElementById('camera').components['orbit-rig'];
+        const { G, groundAt, wx, wz, origin } = window.NS3D, t = G.world.templeOf(1) ?? G.world.templeOf(2), rig = document.getElementById('camera').components['orbit-rig'];
         const [x, y, h] = there === 'middle' ? [origin.x, origin.z, 0] : there ?? [t.x + 4, t.y + 3, groundAt(t.x + 0.5, t.y + 0.5)];
         rig.focus(wx(x), wz(y), r2, h);
         rig.goal.th = th2;
@@ -1160,7 +1196,7 @@ SCENARIOS.tiers = async () => {
       await shot(name);
     }
   }
-  console.log(`  levels ${start.levels.join(' ')}, a piece laid on level ${want} (${key.toUpperCase()}), a ride drawn in ${between.length} frames, ${stand.lifts} lifts, ${stand.raised} raised units, ${picks.tried - picks.wrong.length}/${picks.tried} picks`);
+  console.log(`  levels ${start.levels.join(' ')} (homes on the middle), pieces snapped to the rim on level ${want} and to its end, a ride drawn in ${between.length} frames, ${stand.lifts} lifts, ${stand.raised} raised units, ${picks.tried - picks.wrong.length}/${picks.tried} picks`);
   return errors;
 };
 

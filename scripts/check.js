@@ -255,4 +255,48 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   console.log(`lifts: a ride takes ${longer.toFixed(1)} s more and a hit ${NS.LIFT_EXPOSURE} times as much; pieces go on the level asked for`);
 }
 
+// Reach on tiered islands (scripts/house-rules.mjs): a Sun Disc Thrower does not throw down at a
+// Golem on the level below, and does on its own level; a Whirligig hunts in a sphere, so a building
+// two levels up is out of the reach it has across.
+{
+  const fresh = () => {
+    const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+    w.tiered = true;
+    // open ground in a corner of the map, away from the battle
+    for (let y = 4; y < 60; y++) for (let x = 4; x < 60; x++) { w.terrain[y * NS.W + x] = 1; w.owner[y * NS.W + x] = 0; }
+    w.invalidateTerrain();
+    return w;
+  };
+  const thrown = (below) => {
+    const w = fresh();
+    const disc = w.spawnBuilding('sunarcher', NS.ME, 10, 10, 0);
+    disc.rising = 0;
+    for (let y = 10; y < 13; y++) for (let x = 10; x < 13; x++) w.level[y * NS.W + x] = 1;
+    w.level[11 * NS.W + 16] = below ? 0 : 1;
+    const mark = w.spawnTransport('sunwalker', 2, 16, 11);
+    const hp = mark.hp;
+    for (let i = 0; i < 8 * NS.TPS; i++) w.step([]);
+    return hp - mark.hp;
+  };
+  if (thrown(true) !== 0) fail('a Disc Thrower threw down at a Golem on the level below');
+  if (!(thrown(false) > 0)) fail('a Disc Thrower did not throw at a Golem on its own level');
+  const hunted = (rise) => {
+    const w = fresh();
+    const base = w.spawnBuilding('sunaviary', NS.ME, 8, 30, 0);
+    base.rising = 0;
+    for (let y = 30; y < 33; y++) for (let x = 8; x < 11; x++) w.level[y * NS.W + x] = -1;
+    const reach = NS.huntRadius('sunaviary', (type) => w.def(type));
+    const prey = w.spawnBuilding('suncannon', 2, 8 + Math.floor(reach) - 3, 30, 0);
+    prey.rising = 0;
+    for (let y = 30; y < 33; y++) for (let x = prey.x; x < prey.x + 3; x++) w.level[y * NS.W + x] = -1 + rise;
+    const f = w.spawnFlyer('sunflyer', NS.ME, base);
+    f.home = base.id;
+    w.step([]);
+    return f.target === prey.id;
+  };
+  if (!hunted(0)) fail('a Whirligig did not hunt a building on its own level within its reach');
+  if (hunted(2)) fail('a Whirligig hunted a building two levels up beyond its sphere');
+  console.log('reach: a Disc Thrower throws level, not down; a Whirligig hunts in a sphere');
+}
+
 console.log(`check passed: ${played}`);

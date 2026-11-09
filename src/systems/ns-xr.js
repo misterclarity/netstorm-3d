@@ -482,9 +482,10 @@ AFRAME.registerSystem('ns-xr', {
     if (transient && G.tool.kind !== 'select') {
       const same = G.hover && G.hover.x === cell.x && G.hover.y === cell.y;
       G.hover = cell;
+      G.ray = ray;
       if (!same) return true;
     }
-    game.primary(cell.x, cell.y, false, game.pickAt(ray));
+    game.primary(cell.x, cell.y, false, game.pickAt(ray), false, ray);
     return true;
   },
 
@@ -530,7 +531,7 @@ AFRAME.registerSystem('ns-xr', {
     if (this.placing) { this.panel.hoverAt(hover); G.hover = null; return; }
     if (hover) {
       if (this.panel.hoverAt(hover)) G.hover = null;
-      else { G.hover = groundCell(hover); G.hoverPick = this.game().pickAt(hover); }
+      else { G.hover = groundCell(hover); G.ray = hover; G.hoverPick = this.game().pickAt(hover); }
       G.mouse = null;
     } else if (pointers.length) {
       // a hand that points nowhere it can see

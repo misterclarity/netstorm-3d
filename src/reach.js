@@ -4,7 +4,8 @@
  * circles round its middle; for a shooter a square of its range round its centre cell, the
  * Crossbow's 30° arc, or a cannon's straight line from the muzzle. All in world cells.
  */
-import { NS, G } from './state.js';
+import { NS, G, WORLD } from './state.js';
+import { HEIGHTS, TIER } from './heights.js';
 
 const ARC_TAN = Math.tan(Math.PI / 6);
 
@@ -23,7 +24,18 @@ export function reachOf(def, x, y, facing = 0) {
   const mx = x + def.footX / 2, my = y + def.footY / 2, at = [x + 0.5, y + 0.5];
   if (def.cls === 'Energy' || def.group === 'battery') shapes.push({ circle: [mx, my, G.view.energyRange], kind: 'energy' });
   const hunt = NS.huntRadius(def.id, (type) => G.world.def(type));
-  if (hunt !== null) shapes.push({ circle: [mx, my, hunt], kind: 'hunt' });
+  if (hunt !== null) {
+    shapes.push({ circle: [mx, my, hunt], kind: 'hunt' });
+    // on tiered islands flyers hunt in a sphere: on the levels above and below, the circle where it
+    // cuts them (house rules)
+    if (HEIGHTS.on) {
+      const t = G.view.terrain[y * WORLD + x], own = t >= 1 && t <= 5 ? G.world.level[y * WORLD + x] : HEIGHTS.active;
+      for (const level of [-1, 0, 1]) {
+        const up = Math.abs(level - own) * TIER;
+        if (level !== own && hunt > up) shapes.push({ circle: [mx, my, Math.sqrt(hunt * hunt - up * up)], kind: 'hunt', h: level * TIER });
+      }
+    }
+  }
   if (!def.dps || !def.range) return shapes;
   const cx = x + (def.footX >> 1), cy = y + (def.footY >> 1), r = def.range;
   if (def.id === 'windarcher') {

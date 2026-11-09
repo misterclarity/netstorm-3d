@@ -5,17 +5,20 @@
  * walkers between them, slowly and in the open (the rules are in scripts/house-rules.mjs: the
  * world's `level` of each cell, the ride's time and the extra damage taken on it).
  *
- * At the start of a match each island is given its level here, from where it lies; the world
- * keeps it from then on, and gives a new islet its own (one laid off a bridge's end the bridge's).
+ * At the start of a match each island is given its level here, from where it lies (at Easy and
+ * Normal both home islands on the middle level), at least one island above and one below; the
+ * world keeps them from then on, and gives a new islet its own (one laid off a bridge's end the
+ * bridge's).
  * This module turns the levels into heights for drawing and clicking: in cells (battlefield
  * units), the middle level at 0; over the sky, what flies keeps to the height of the land round
  * about.
  */
-import { G, ME, WORLD, hash } from './state.js';
+import { NS, G, ME, WORLD, hash } from './state.js';
 
-/** How far apart the levels are, in cells: far enough that a bridge across a gap of the usual
- * eight to fourteen cells would climb at 30 to 45 degrees, so the levels read as apart. */
-export const TIER = 8;
+/** How far apart the levels are, in cells (the rules' LEVEL_CELLS, which reach is measured by):
+ * far enough that a bridge across a gap of the usual eight to fourteen cells would climb at 30 to
+ * 45 degrees, so the levels read as apart. */
+export const TIER = NS.LEVEL_CELLS ?? 8;
 export const LEVEL_NAMES = { '-1': 'Lower', 0: 'Middle', 1: 'Upper' };
 const N = WORLD * WORLD;
 const isLand = (t) => t === 1 || t === 5; // island ground, or an Edge Farm on its rim
@@ -49,8 +52,11 @@ export const HEIGHTS = {
 /** A cell's level, -1 to 1. */
 const levelOf = (i) => G.world?.level?.[i] ?? 0;
 
-/** A new match: tiered or not; if it is, each island takes its level now. */
-export function resetHeights(on, seed = 0) {
+/**
+ * A new match: tiered or not; if it is, each island takes its level now. At Easy and Normal the
+ * home islands are all on the middle level; at Hard where they lie decides, as for the rest.
+ */
+export function resetHeights(on, seed = 0, difficulty = 'normal') {
   const H = HEIGHTS, w = G.world;
   H.on = !!on && !!w?.level;
   H.riding.clear();
@@ -73,8 +79,20 @@ export function resetHeights(on, seed = 0) {
     }
     pieces.push({ cells, level: Math.floor(hash(i % WORLD, (i / WORLD) | 0, 90 + (seed | 0)) * 3) - 1 });
   }
-  // a whole map on one level would show none: then they take turns
-  if (pieces.length > 1 && pieces.every((p) => p.level === pieces[0].level)) pieces.forEach((p, k) => { p.level = (k % 3) - 1; });
+  const homes = new Set();
+  for (const p of w.players.values()) {
+    const temple = w.templeOf(p.id);
+    if (temple) homes.add(temple.y * WORLD + temple.x);
+  }
+  const home = (p) => p.cells.some((i) => homes.has(i));
+  if (difficulty !== 'hard') for (const p of pieces) if (home(p)) p.level = 0;
+  // at least one island above and one below, the largest that are no one's home first
+  const rest = pieces.filter((p) => difficulty === 'hard' || !home(p)).sort((a, b) => b.cells.length - a.cells.length);
+  for (const level of [1, -1]) {
+    if (pieces.some((p) => p.level === level)) continue;
+    const free = rest.find((p) => pieces.filter((q) => q.level === p.level).length > 1 || p.level === 0);
+    if (free) free.level = level;
+  }
   for (const p of pieces) for (const i of p.cells) w.level[i] = p.level;
   // the player starts on the level of his Temple
   const temple = w.templeOf(ME);

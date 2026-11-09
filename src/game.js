@@ -41,8 +41,8 @@ export function newGame(setup = G.setup) {
   // a random map's islands get the Residences a mission's map has (src/residences.js)
   if (!G.mission) settleResidences(G.world, options.seed);
   G.view = G.world.view();
-  // islands at three heights, if the skirmish was set up so (src/heights.js): only the look, for now
-  resetHeights(!G.mission && setup.tiers === 'tiered', setup.seed);
+  // islands on three levels, if the skirmish was set up so (src/heights.js)
+  resetHeights(!G.mission && setup.tiers === 'tiered', setup.seed, setup.difficulty);
   G.schedule = new NS.AiSchedule(TPS);
   G.pending.clear();
   G.memories.clear();

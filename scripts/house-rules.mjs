@@ -1495,6 +1495,101 @@ export function dropPiece(
   now: `export { blastDamage, facesWhenLaid, shotInterval, damage, LIFT_EXPOSURE } from './rules/combat.js';`,
 });
 
+// Reach on tiered islands (netstorm-3d). A level is LEVEL_CELLS cells above the one below, as the
+// client draws it. Flyers hunt in a sphere, not a circle: about the spot they hunt around, at the
+// level of the ground they were launched from, as far up and down as across; so a Whirlibase's
+// Whirligigs reach another level as far as their sphere does there. The Sun Disc Thrower throws
+// level or upward, never down: what stands below it is out of its reach, what stands above in a
+// half sphere of its range (a walker riding a lift up past it, say). Other guns reach as ever.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'tiered islands: heights for reach',
+  was: `export class World {`,
+  now: `/** (netstorm-3d) The height of a level above the one below, in cells, on tiered islands. */
+export const LEVEL_CELLS = 8;
+
+export class World {`,
+}, {
+  file: 'world.ts',
+  why: 'tiered islands: heights for reach',
+  was: `import { tickTransport, collect, pickupCrystal, unload } from './rules/movement.js';`,
+  now: `import { tickTransport, collect, pickupCrystal, unload, stepShare } from './rules/movement.js';`,
+}, {
+  file: 'world.ts',
+  why: 'tiered islands: heights for reach',
+  was: `  /** (netstorm-3d) How many levels a walker's next step rides a lift by: 0 for none, on a level
+   * map, or for what flies. */`,
+  now: `  /** (netstorm-3d) The height of the ground or bridge of a cell, in cells; 0 on a level map. */
+  groundHeight(x: number, y: number): number {
+    return this.tiered && this.inside(x, y) ? this.level[y * W + x]! * LEVEL_CELLS : 0;
+  }
+
+  /** (netstorm-3d) How high an entity stands, in cells: on its ground, or a walker riding a lift
+   * part of the way between the levels. 0 on a level map. */
+  heightOf(e: Entity): number {
+    if (!this.tiered || e.kind === 'flyer') {
+      return 0;
+    }
+
+    const here = this.groundHeight(e.x, e.y);
+
+    if ((e.kind === 'transport' || e.kind === 'priest') && this.liftLevels(e) > 0) {
+      const next = e.path[0]!;
+      return here + (this.groundHeight(next[0]!, next[1]!) - here) * stepShare(e, this);
+    }
+
+    return here;
+  }
+
+  /** (netstorm-3d) How many levels a walker's next step rides a lift by: 0 for none, on a level
+   * map, or for what flies. */`,
+}, {
+  file: 'rules/flyers.ts',
+  why: 'tiered islands: flyers hunt in a sphere',
+  was: `  return distance(ground(f), middle(e)) <= reach(world, f);
+}`,
+  now: `  // (netstorm-3d) on tiered islands, in a sphere about the spot it hunts around, at the level it
+  // was launched from
+  const across = distance(ground(f), middle(e));
+
+  if (!world.tiered) {
+    return across <= reach(world, f);
+  }
+
+  const up = (world.heightOf(e) - world.groundHeight(Math.floor(f.hx / FLYER_SCALE), Math.floor(f.hy / FLYER_SCALE))) * FLYER_SCALE;
+  return Math.sqrt(across * across + up * up) <= reach(world, f);
+}`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tiered islands: the Disc Thrower throws level or up',
+  was: `function aimsAt(world: World, b: Building, target: Entity): boolean {`,
+  now: `function aimsAt(world: World, b: Building, target: Entity): boolean {
+  // (netstorm-3d) on tiered islands the Sun Disc Thrower throws level or upward, never down: what
+  // stands below it is out of reach, what stands above it in a half sphere of its range
+  if (b.type === DISC_THROWER && world.tiered && !airborne(world, target)) {
+    const up = world.heightOf(target) - world.heightOf(b);
+
+    if (up < -0.01) {
+      return false;
+    }
+
+    if (up > 0.01) {
+      const cx = b.x + (b.fx >> 1), cy = b.y + (b.fy >> 1);
+      const across = Math.max(Math.abs(target.x - cx), Math.abs(target.y - cy));
+
+      if (across * across + up * up > world.def(b.type).range ** 2) {
+        return false;
+      }
+    }
+  }
+`,
+}, {
+  file: 'index.ts',
+  why: 'tiered islands: bridge ends and heights for the client',
+  was: `export { BRIDGE_SCAN } from './rules/bridges.js';`,
+  now: `export { BRIDGE_SCAN, connectedToTemple } from './rules/bridges.js';`,
+});
+
 export function houseRules() {
   return {
     name: 'house-rules',

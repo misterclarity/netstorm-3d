@@ -10,6 +10,7 @@ import { watchForUpdates } from '../version.js';
 import { Minimap } from '../minimap.js';
 import { groundCell, unit, localRay, lookAtCell, surfacePoint } from '../space.js';
 import { HEIGHTS, TIER, LEVEL_NAMES, groundAt, updateHeights, shiftLevel } from '../heights.js';
+import { snapPiece, openEnds } from '../snap.js';
 import { energyAt, missingAdvice } from '../energy.js';
 import { spellName } from '../spells.js';
 import * as models from '../models.js';
@@ -21,7 +22,7 @@ AFRAME.registerSystem('ns-game', {
     this.destroyed = new Set();
     this.raycaster = new THREE.Raycaster();
     // handles for tests and the console
-    window.NS3D = { G, NS, origin, wx, wz, game: this, stepWorld, flushPendingAi, submit, models, HEIGHTS, groundAt, groundCell };
+    window.NS3D = { G, NS, origin, wx, wz, game: this, stepWorld, flushPendingAi, submit, models, HEIGHTS, groundAt, groundCell, snapPiece, openEnds };
     this.el.addEventListener('loaded', () => {
       this.hud = new Hud(this);
       this.minimap = new Minimap(this);
@@ -320,6 +321,7 @@ AFRAME.registerSystem('ns-game', {
     // over the tabletop's own panel there is no cell to point at
     if (ray && this.xr().panelHover(ray)) { G.mouse = null; G.hover = null; G.hoverPick = null; return; }
     G.mouse = d;
+    G.ray = ray;
     G.hover = ray ? groundCell(ray) : null;
     G.hoverPick = this.pickAt(ray);
   },
@@ -334,10 +336,11 @@ AFRAME.registerSystem('ns-game', {
       // on a touch screen the first tap shows where it goes, the second lays it
       const same = G.hover && G.hover.x === cell.x && G.hover.y === cell.y;
       G.hover = cell;
+      G.ray = ray;
       G.mouse = d;
       if (!same) return;
     }
-    this.primary(cell.x, cell.y, d.shift, this.pickAt(ray), d.double);
+    this.primary(cell.x, cell.y, d.shift, this.pickAt(ray), d.double, ray);
   },
 
   /* ------------------------------------- selecting several ------------------------------------ */
@@ -503,16 +506,23 @@ AFRAME.registerSystem('ns-game', {
     return this.gatherAt(ray) ?? this.airAt(ray);
   },
 
-  /** A click on map cell (x, y), as netstorm-web's controls.ts reads it; `picked` is a unit hit
-   * above the ground (an Aerial Transport), which counts before what stands on the cell. */
-  primary(x, y, shift = false, picked = null, double = false) {
+  /**
+   * A click on map cell (x, y), as netstorm-web's controls.ts reads it; `picked` is a unit hit
+   * above the ground (an Aerial Transport), which counts before what stands on the cell. `ray` is
+   * the pointer's: a bridge piece snaps by it onto the open end nearest it (snap.js), as shown.
+   */
+  primary(x, y, shift = false, picked = null, double = false, ray = G.ray) {
     const tool = G.tool;
     if (tool.kind === 'piece') {
       if (!G.world.players.get(ME).hand[tool.hand]) return;
-      const err = G.view.canDropPiece({ player: ME, hand: tool.hand, x, y, rot: G.rot });
-      if (err) this.hud.toast(errorText(err), 'bad');
+      const snap = snapPiece(ray);
+      if (snap) ({ x, y } = snap);
+      const rot = snap?.rot ?? G.rot;
+      const err = G.view.canDropPiece({ player: ME, hand: tool.hand, x, y, rot });
+      if (err) { this.hud.toast(errorText(err), 'bad'); return; }
+      G.rot = rot;
       // on tiered islands, on the level chosen (Q and E)
-      else submit({ t: 'dropPiece', hand: tool.hand, x, y, rot: G.rot, ...(HEIGHTS.on ? { level: HEIGHTS.active } : {}) });
+      submit({ t: 'dropPiece', hand: tool.hand, x, y, rot, ...(HEIGHTS.on ? { level: HEIGHTS.active } : {}) });
       return;
     }
     if (tool.kind === 'build') {

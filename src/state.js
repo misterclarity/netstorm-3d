@@ -40,6 +40,8 @@ export const G = {
   /** The unit the camera keeps to, or null. */
   follow: null,
   hover: null,
+  /** The pointer's ray in the scene (a bridge piece snaps by it: snap.js), or null. */
+  ray: null,
   mouse: null,
   lastStorm: 0,
   terrainRevision: -1,

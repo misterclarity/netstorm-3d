@@ -9,6 +9,7 @@
  */
 import { NS, G, ME, defs, facingText, WORLD, wx, wz, origin, errorText, FURY_COLOR } from '../state.js';
 import { HEIGHTS, TIER, LEVEL_NAMES, groundAt, placeAt } from '../heights.js';
+import { snapPiece, openEnds } from '../snap.js';
 import { energyAt, sourceOf, energyTip } from '../energy.js';
 import { reachOf, reachOfBuilding, isGun } from '../reach.js';
 
@@ -59,6 +60,14 @@ AFRAME.registerComponent('ns-placement', {
     this.grid = new THREE.Mesh(new THREE.PlaneGeometry(15, 15), new THREE.MeshBasicMaterial({ map: levelGrid(), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
     this.grid.rotation.x = -Math.PI / 2;
     this.grid.visible = false;
+    // the open ends of the player's bridges while a piece is in hand, the one it snaps to brightest;
+    // and on tiered islands the shaft of the lift it will need
+    this.marks = [];
+    this.markGeo = new THREE.OctahedronGeometry(0.28, 0);
+    this.markOn = new THREE.MeshBasicMaterial({ color: '#ffd84a' });
+    this.markOff = see('#bfe8ff', 0.8);
+    this.shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1, 8), see('#6fc8ff', 0.55));
+    this.shaft.visible = false;
     this.cellGeo = new THREE.BoxGeometry(0.94, 0.12, 0.94);
     this.endGeo = new THREE.BoxGeometry(0.7, 0.2, 0.14);
     this.cells = [];
@@ -68,7 +77,7 @@ AFRAME.registerComponent('ns-placement', {
     this.selRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 40), see('#f2c14e', 0.9));
     this.hoverRing = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), see('#ffffff', 0.5));
     this.selRing.rotation.x = this.hoverRing.rotation.x = -Math.PI / 2;
-    this.root.add(this.arrow, this.selRing, this.hoverRing, this.grid);
+    this.root.add(this.arrow, this.selRing, this.hoverRing, this.grid, this.shaft);
     this.tip = document.getElementById('tip');
     this.showEnemyReach = false;
   },
@@ -107,11 +116,39 @@ AFRAME.registerComponent('ns-placement', {
   },
 
   /**
+   * Markers over the open ends of the player's bridges within 30 cells of `at` (none without it),
+   * the one the piece snaps to (`joint`, a bridge's or the island's rim) brightest.
+   */
+  markEnds(joint, at) {
+    let n = 0;
+    if (at) {
+      for (const j of openEnds()) {
+        if (n >= 80) break;
+        if ((!j.bridge && j !== joint) || Math.abs(j.x - at.x) > 30 || Math.abs(j.y - at.y) > 30) continue;
+        let m = this.marks[n];
+        if (!m) {
+          m = new THREE.Mesh(this.markGeo, this.markOff);
+          this.root.add(m);
+          this.marks[n] = m;
+        }
+        const on = j === joint, now = performance.now();
+        m.material = on ? this.markOn : this.markOff;
+        m.position.set(wx(j.x), j.h + 0.75 + (on ? Math.sin(now / 160) * 0.12 : 0), wz(j.y));
+        m.scale.setScalar(on ? 1.5 : 1);
+        m.rotation.y = now / 600;
+        m.visible = true;
+        n++;
+      }
+    }
+    for (let i = n; i < this.marks.length; i++) this.marks[i].visible = false;
+  },
+
+  /**
    * A reach shape on the ground: a translucent fill with a bright edge; with tiered islands at the
-   * height of the ground it reaches from (its `at`, or the circle's middle).
+   * height of the ground it reaches from (its `at`, or the circle's middle), or at its own (`h`).
    */
   shape(shape, tone) {
-    const [ax, ay] = shape.at ?? shape.circle ?? shape.poly[0], base = groundAt(ax, ay);
+    const [ax, ay] = shape.at ?? shape.circle ?? shape.poly[0], base = shape.h ?? placeAt(ax, ay);
     const key = `${tone}:${JSON.stringify(shape.circle ?? shape.poly)}:${base}`;
     let g = this.shapes.get(key);
     if (!g) {
@@ -157,26 +194,40 @@ AFRAME.registerComponent('ns-placement', {
     const enemyGuns = () => [...G.view.entities.values()].filter((e) => e.kind === 'building' && e.owner && G.world.hostile(ME, e.owner) && !e.rising && isGun(defs.get(e.type)));
     let showEnemies = this.showEnemyReach;
     this.grid.visible = false;
+    this.shaft.visible = false;
+    if (tool.kind !== 'piece' || !at) this.markEnds(null, null);
 
     if (at && tool.kind === 'piece') {
       const piece = G.world.players.get(ME).hand[tool.hand];
       if (piece) {
-        const err = G.view.canDropPiece({ player: ME, hand: tool.hand, x: at.x, y: at.y, rot: G.rot });
-        for (const [dx, dy] of NS.rotatePiece(NS.PIECES[piece.piece], G.rot)) this.cell(cells++, at.x + dx, at.y + dy, !err);
+        // snapped onto the open end nearest the pointer (snap.js), else where the pointer is
+        const snap = snapPiece(G.ray), px = snap?.x ?? at.x, py = snap?.y ?? at.y, rot = snap?.rot ?? G.rot;
+        const err = G.view.canDropPiece({ player: ME, hand: tool.hand, x: px, y: py, rot });
+        for (const [dx, dy] of NS.rotatePiece(NS.PIECES[piece.piece], rot)) this.cell(cells++, px + dx, py + dy, !err);
         let lifts = 0;
-        for (const [cx, cy, dir] of NS.pieceEnds(piece.piece, G.rot)) {
-          const [dx, dy] = NS.DIRS[dir], nx = at.x + cx + dx, ny = at.y + cy + dy, inside = nx >= 0 && ny >= 0 && nx < WORLD && ny < WORLD;
+        for (const [cx, cy, dir] of NS.pieceEnds(piece.piece, rot)) {
+          const [dx, dy] = NS.DIRS[dir], nx = px + cx + dx, ny = py + cy + dy, inside = nx >= 0 && ny >= 0 && nx < WORLD && ny < WORLD;
           const t = inside ? G.view.terrain[ny * WORLD + nx] : 0, joins = t >= 1 && t <= 4;
           // on tiered islands an end that meets another level gets a lift
           const lift = joins && HEIGHTS.on && G.view.level[ny * WORLD + nx] !== HEIGHTS.active;
           if (lift) lifts++;
-          this.end(ends++, at.x + cx, at.y + cy, dir, joins, lift);
+          this.end(ends++, px + cx, py + cy, dir, joins, lift);
+        }
+        const j = snap?.joint, high = HEIGHTS.active * TIER;
+        this.markEnds(j ?? null, { x: px, y: py });
+        if (j && HEIGHTS.on && j.h !== high) {
+          this.shaft.visible = true;
+          this.shaft.position.set(wx(j.x), (j.h + high) / 2 + 0.6, wz(j.y));
+          this.shaft.scale.set(1, Math.abs(j.h - high) + 1.2, 1);
         }
         const level = HEIGHTS.on ? ` on the ${LEVEL_NAMES[HEIGHTS.active].toLowerCase()} level (Q ▼ E ▲)` : '';
-        tip = err ? errorText(err) : `Click to lay${level} · R to rotate · the yellow ends join${lifts ? ' · a lift joins each blue end to its level' : ''}`;
+        const by = j && HEIGHTS.on && j.h !== high ? ` on the ${LEVEL_NAMES[j.h / TIER].toLowerCase()} level, by a lift` : '';
+        const joined = j ? ` · joins the ${j.bridge ? 'bridge end' : 'island'}${by}` : ' · point at a bridge end (marked) to join it';
+        tip = err ? errorText(err) : `Click to lay${level}${joined} · R to rotate`;
+        if (lifts && !err && !j) tip += ' · a lift joins each blue end to its level';
         if (HEIGHTS.on) {
           this.grid.visible = true;
-          this.grid.position.set(wx(at.x + 0.5), HEIGHTS.active * TIER + 0.02, wz(at.y + 0.5));
+          this.grid.position.set(wx(px + 0.5), high + 0.02, wz(py + 0.5));
         }
         bad = !!err;
         showEnemies = true;
