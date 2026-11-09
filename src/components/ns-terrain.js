@@ -2,9 +2,12 @@
  * The floating islands and the bridges between them, built from the world's terrain grid and
  * rebuilt when it changes (`ns-terrain`). Each island's top is one textured surface (the original
  * grass tiles in "Sprites" mode, a painted stand-in otherwise); under it hangs rock, deeper the
- * further a cell lies from the sky, with a few spikes under the larger islands.
+ * further a cell lies from the sky, with a few spikes under the larger islands. With tiered islands
+ * (heights.js) each stands at its height, a cliff where it meets lower ground, and the bridges
+ * climb from one to the next.
  */
 import { G, WORLD, FURY_TILES, GROUND_PAINT, wx, wz, hash, playerTheme } from '../state.js';
+import { HEIGHTS } from '../heights.js';
 
 const { THREE } = AFRAME;
 
@@ -172,29 +175,42 @@ AFRAME.registerComponent('ns-terrain', {
     const grass = new THREE.Color('#4f7a2f');
     const tp = [], tuv = [], rp = [], rc = [], spikes = [];
     const tri = (arr, a, b, c) => arr.push(...a, ...b, ...c);
+    // with tiered islands, each cell's ground stands at its height
+    const H = HEIGHTS.on ? HEIGHTS.land : null, heightOf = (x, y) => (H ? H[y * WORLD + x] : 0);
+    const lift = (p, up) => [p[0], p[1] + up, p[2]];
     const col = (...cs) => { for (const c of cs) rc.push(c.r, c.g, c.b); };
     const uv = (X, Y) => [(X - x0) / w, 1 - (Y - y0) / h];
     const rk = (p, f = 1) => rock(-p[1] * f, p[0], p[2]);
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         if (!L(x, y)) continue;
-        const a = [x, y], b = [x + 1, y], c = [x + 1, y + 1], d = [x, y + 1];
+        const a = [x, y], b = [x + 1, y], c = [x + 1, y + 1], d = [x, y + 1], hh = heightOf(x, y);
+        const T = (p) => lift(top(...p), hh), Bot = (p) => lift(bottom(...p), hh);
         // the top faces up: (a, d, c) and (a, c, b)
-        tri(tp, top(...a), top(...d), top(...c)); tuv.push(...uv(...a), ...uv(...d), ...uv(...c));
-        tri(tp, top(...a), top(...c), top(...b)); tuv.push(...uv(...a), ...uv(...c), ...uv(...b));
+        tri(tp, T(a), T(d), T(c)); tuv.push(...uv(...a), ...uv(...d), ...uv(...c));
+        tri(tp, T(a), T(c), T(b)); tuv.push(...uv(...a), ...uv(...c), ...uv(...b));
         const pa = bottom(...a), pb = bottom(...b), pc = bottom(...c), pd = bottom(...d);
-        tri(rp, pa, pc, pd); col(rk(pa), rk(pc), rk(pd));
-        tri(rp, pa, pb, pc); col(rk(pa), rk(pb), rk(pc));
-        // walls where the island meets the sky, walked so that they face outward
+        // (the rock's colour goes by its depth under the island's own top)
+        tri(rp, lift(pa, hh), lift(pc, hh), lift(pd, hh)); col(rk(pa), rk(pc), rk(pd));
+        tri(rp, lift(pa, hh), lift(pb, hh), lift(pc, hh)); col(rk(pa), rk(pb), rk(pc));
+        // walls where the island meets the sky, walked so that they face outward; and a cliff
+        // where it meets lower ground, down to that ground's top
         for (const [dx, dy, p, s] of [[0, -1, a, b], [1, 0, b, c], [0, 1, c, d], [-1, 0, d, a]]) {
-          if (L(x + dx, y + dy)) continue;
-          const tA = top(...p), tB = top(...s), bA = bottom(...p), bB = bottom(...s);
-          tri(rp, tA, tB, bB); col(grass, grass, rk(bB, 0.6));
-          tri(rp, tA, bB, bA); col(grass, rk(bB, 0.6), rk(bA, 0.6));
+          if (L(x + dx, y + dy)) {
+            const below = heightOf(x + dx, y + dy);
+            if (below >= hh) continue;
+            const tA = T(p), tB = T(s), lA = lift(top(...p), below), lB = lift(top(...s), below), cliff = rock(1.5, tA[0], tA[2]);
+            tri(rp, tA, tB, lB); col(grass, grass, cliff);
+            tri(rp, tA, lB, lA); col(grass, cliff, cliff);
+            continue;
+          }
+          const tA = T(p), tB = T(s), bA = Bot(p), bB = Bot(s);
+          tri(rp, tA, tB, bB); col(grass, grass, rk(bottom(...s), 0.6));
+          tri(rp, tA, bB, bA); col(grass, rk(bottom(...s), 0.6), rk(bottom(...p), 0.6));
         }
         if (D(x, y) >= 2 && hash(x, y, 50) < 0.045) {
           const [px, py, pz] = bottom(x, y);
-          spikes.push([px, py + 0.4, pz, 0.5 + hash(x, y, 51) * 1.1, 1.5 + hash(x, y, 52) * (2 - py * 0.5)]);
+          spikes.push([px, py + 0.4 + hh, pz, 0.5 + hash(x, y, 51) * 1.1, 1.5 + hash(x, y, 52) * (2 - py * 0.5), py]);
         }
       }
     }
@@ -220,11 +236,11 @@ AFRAME.registerComponent('ns-terrain', {
       cone.translate(0, -0.5, 0);
       const inst = new THREE.InstancedMesh(cone, this.spikeMat, spikes.length);
       const m = new THREE.Matrix4(), qt = new THREE.Quaternion(), e = new THREE.Euler();
-      spikes.forEach(([x, y, z, r, hh], i) => {
+      spikes.forEach(([x, y, z, r, hh, under], i) => {
         qt.setFromEuler(e.set((hash(i, 1, 53) - 0.5) * 0.3, hash(i, 2, 54) * 6, (hash(i, 3, 55) - 0.5) * 0.3));
         m.compose(new THREE.Vector3(x, y, z), qt, new THREE.Vector3(r, hh, r));
         inst.setMatrixAt(i, m);
-        inst.setColorAt(i, rock((-y + hh * 0.5) * 0.55, x, z));
+        inst.setColorAt(i, rock((-under - 0.4 + hh * 0.5) * 0.55, x, z));
       });
       inst.castShadow = true;
       this.islands.add(inst);
@@ -261,34 +277,41 @@ AFRAME.registerComponent('ns-terrain', {
     this.post = make(new THREE.BoxGeometry(0.1, 0.32, 0.1), new THREE.MeshStandardMaterial({ color: '#6a4426', roughness: 0.9 }), N * 2);
   },
 
-  /** Every bridge cell as a wooden deck, with rails on the sides it does not continue on. */
+  /**
+   * Every bridge cell as a wooden deck, with rails on the sides it does not continue on. With
+   * tiered islands each cell stands at its bridge's height and climbs with it: its parts are
+   * sheared so that east and south rise as the bridge does there, and posts stay upright.
+   */
   buildBridges() {
-    const v = G.view, m = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
-    const turn = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0)), none = new THREE.Quaternion();
+    const v = G.view, m = new THREE.Matrix4(), climb = new THREE.Matrix4(), X = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3();
+    const turn = new THREE.Matrix4().makeRotationY(Math.PI / 2);
     const whole = new THREE.Color('#ffffff'), cracked = new THREE.Color('#a07a5c'), hard = new THREE.Color('#b8b2a8');
+    const H = HEIGHTS.on ? HEIGHTS : null;
     let d = 0, r = 0, po = 0;
     for (let y = 0; y < WORLD; y++) {
       for (let x = 0; x < WORLD; x++) {
         const i = y * WORLD + x, t = v.terrain[i];
         if (t < 2 || t > 4 || d >= this.deck.instanceMatrix.count) continue;
         const links = v.links[i] || 15, px = wx(x + 0.5), pz = wz(y + 0.5);
-        m.compose(p.set(px, -0.08, pz), (links & 2) || (links & 8) ? turn : none, one); // planks across the way
-        this.deck.setMatrixAt(d, m);
+        const h = H ? H.bridge[i] : 0, gx = H ? H.gx[i] : 0, gz = H ? H.gz[i] : 0;
+        climb.makeBasis(X.set(1, gx, 0), Y, Z.set(0, gz, 1));
+        /** Where a part goes: (ox, oz) off the cell's middle, `up` above the deck there, maybe turned. */
+        const put = (mesh, n, ox, up, oz, turned) => {
+          m.copy(climb);
+          if (turned) m.multiply(turn);
+          m.setPosition(px + ox, h + gx * ox + gz * oz + up, pz + oz);
+          mesh.setMatrixAt(n, m);
+        };
+        put(this.deck, d, 0, -0.08, 0, (links & 2) || (links & 8)); // planks across the way
         const wear = v.wear?.[i] ?? 0;
         this.deck.setColorAt(d, t === 4 ? hard : t === 3 ? cracked : whole.clone().multiplyScalar(1 - Math.min(0.35, wear * 0.05)));
-        m.compose(p.set(px, -0.26, pz), (links & 1) || (links & 4) ? none : turn, one);
-        this.beam.setMatrixAt(d, m);
+        put(this.beam, d, 0, -0.26, 0, !((links & 1) || (links & 4)));
         d++;
         for (const [open, ox, oz, ew] of [[!(links & 1), 0, -0.46, false], [!(links & 4), 0, 0.46, false], [!(links & 2), 0.46, 0, true], [!(links & 8), -0.46, 0, true]]) {
-          if (!open) continue;
-          m.compose(p.set(px + ox, 0.22, pz + oz), ew ? turn : none, one);
-          this.rail.setMatrixAt(r++, m);
+          if (open) put(this.rail, r++, ox, 0.22, oz, ew);
         }
         for (const [ox, oz] of [[-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45]]) {
-          if (hash(x * 3 + (ox > 0), y * 3 + (oz > 0), 61) < 0.55) {
-            m.compose(p.set(px + ox, 0.12, pz + oz), none, one);
-            this.post.setMatrixAt(po++, m);
-          }
+          if (hash(x * 3 + (ox > 0), y * 3 + (oz > 0), 61) < 0.55) put(this.post, po++, ox, 0.12, oz, false);
         }
       }
     }

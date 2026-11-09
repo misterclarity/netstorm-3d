@@ -5,6 +5,7 @@
  * centimetre. These turn points and rays between the scene and the battlefield.
  */
 import { origin } from './state.js';
+import { HEIGHTS, groundAt } from './heights.js';
 
 const { THREE } = AFRAME;
 const inverse = new THREE.Matrix4();
@@ -50,10 +51,42 @@ export function localRay(ray) {
   return local;
 }
 
-/** Where a ray of the scene meets the battlefield's ground (its y = 0), in cell units; or null. */
+/** Where a ray of the scene meets the battlefield's ground, in cell units; or null. */
 export function groundPoint(ray) {
+  return surfacePoint(localRay(ray));
+}
+
+/**
+ * Where a ray on the battlefield meets the ground: the plane y = 0 on a level map; with tiered
+ * islands (heights.js) the first island, bridge or cliff it comes to, or over the sky the height
+ * of the land round about. Walked down the ray a fifth of a cell at a time from the highest
+ * ground to the lowest, then narrowed down.
+ */
+export function surfacePoint(local) {
   const hit = new THREE.Vector3();
-  return localRay(ray).intersectPlane(plane, hit) ? hit : null;
+  if (!HEIGHTS.on) return local.intersectPlane(plane, hit) ? hit : null;
+  const o = local.origin, d = local.direction;
+  if (d.y > -1e-4) return null;
+  const top = HEIGHTS.high + 0.3, bottom = HEIGHTS.low - 0.3;
+  const below = (k) => {
+    hit.copy(d).multiplyScalar(k).add(o);
+    return hit.y <= groundAt(hit.x + origin.x, hit.z + origin.z);
+  };
+  let k0 = Math.max(0, (top - o.y) / d.y);
+  const end = (bottom - o.y) / d.y, step = 0.2 / Math.max(Math.hypot(d.x, d.z), -d.y);
+  if (end < 0) return null;
+  if (below(k0)) return hit.copy(d).multiplyScalar(k0).add(o);
+  for (let k = k0 + step; k < end + step; k += step) {
+    if (!below(Math.min(k, end))) { k0 = k; continue; }
+    let lo = k0, hi = Math.min(k, end);
+    for (let i = 0; i < 10; i++) {
+      const mid = (lo + hi) / 2;
+      if (below(mid)) hi = mid; else lo = mid;
+    }
+    below(hi);
+    return hit;
+  }
+  return null;
 }
 
 /** The map cell a ray of the scene points at, or null. */
@@ -69,6 +102,6 @@ export function groundCell(ray) {
 export function lookAtCell(x, z, radius) {
   const rig = document.getElementById('camera')?.components['orbit-rig'];
   if (!rig?.enabled) return;
-  const p = toScene(new THREE.Vector3(x, 0, z));
+  const p = toScene(new THREE.Vector3(x, groundAt(x + origin.x, z + origin.z), z));
   rig.focus(p.x, p.z, radius ? radius * unit() : undefined, p.y);
 }

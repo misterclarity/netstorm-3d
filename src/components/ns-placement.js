@@ -7,7 +7,8 @@
  * Enemy reach shows while a piece or a building is in hand, for an enemy gun under the cursor or
  * selected, and always when "show enemy ranges" is on (G key).
  */
-import { NS, G, ME, defs, facingText, WORLD, wx, wz, errorText, FURY_COLOR } from '../state.js';
+import { NS, G, ME, defs, facingText, WORLD, wx, wz, origin, errorText, FURY_COLOR } from '../state.js';
+import { groundAt } from '../heights.js';
 import { energyAt, sourceOf, energyTip } from '../energy.js';
 import { reachOf, reachOfBuilding, isGun } from '../reach.js';
 
@@ -58,7 +59,7 @@ AFRAME.registerComponent('ns-placement', {
       this.cells[i] = m;
     }
     m.material = ok ? this.ok : this.bad;
-    m.position.set(wx(x + 0.5), 0.08, wz(y + 0.5));
+    m.position.set(wx(x + 0.5), groundAt(x + 0.5, y + 0.5) + 0.08, wz(y + 0.5));
     m.visible = true;
   },
 
@@ -72,17 +73,22 @@ AFRAME.registerComponent('ns-placement', {
     }
     const [dx, dy] = NS.DIRS[dir];
     m.material = joins ? this.endOn : this.endOff;
-    m.position.set(wx(x + 0.5 + dx * 0.5), 0.2, wz(y + 0.5 + dy * 0.5));
+    m.position.set(wx(x + 0.5 + dx * 0.5), groundAt(x + 0.5, y + 0.5) + 0.2, wz(y + 0.5 + dy * 0.5));
     m.rotation.y = dx ? Math.PI / 2 : 0;
     m.visible = true;
   },
 
-  /** A reach shape on the ground: a translucent fill with a bright edge. */
+  /**
+   * A reach shape on the ground: a translucent fill with a bright edge; with tiered islands at the
+   * height of the ground it reaches from (its `at`, or the circle's middle).
+   */
   shape(shape, tone) {
-    const key = `${tone}:${JSON.stringify(shape.circle ?? shape.poly)}`;
+    const [ax, ay] = shape.at ?? shape.circle ?? shape.poly[0], base = groundAt(ax, ay);
+    const key = `${tone}:${JSON.stringify(shape.circle ?? shape.poly)}:${base}`;
     let g = this.shapes.get(key);
     if (!g) {
       g = new THREE.Group();
+      g.position.y = base;
       const m = this.mats[tone];
       if (shape.circle) {
         const [cx, cy, r] = shape.circle;
@@ -155,7 +161,7 @@ AFRAME.registerComponent('ns-placement', {
       if (aims) {
         const [dx, dy] = NS.DIRS[G.facing], cx = wx(a.x + def.footX / 2), cz = wz(a.y + def.footY / 2);
         this.arrow.visible = true;
-        this.arrow.position.set(cx + dx * (def.footX / 2 + 1.2), 0.6, cz + dy * (def.footY / 2 + 1.2));
+        this.arrow.position.set(cx + dx * (def.footX / 2 + 1.2), groundAt(a.x + 0.5, a.y + 0.5) + 0.6, cz + dy * (def.footY / 2 + 1.2));
         this.arrow.rotation.set(dy * Math.PI / 2, 0, -dx * Math.PI / 2);
       }
       tip = err === 'no energy' ? energyTip(power)
@@ -193,7 +199,8 @@ AFRAME.registerComponent('ns-placement', {
       if (!unit?.rep) return;
       // an Aerial Transport's ring is as wide as the ship above it
       const el = unit.el, foot = unit.rep.foot, r = foot ? Math.max(...foot) * 0.62 : unit.rep.span ? Math.max(1.6, unit.rep.span * 1.05) : 0.72;
-      mesh.position.set(el.object3D.position.x, 0.12, el.object3D.position.z);
+      const p = el.object3D.position;
+      mesh.position.set(p.x, groundAt(p.x + origin.x, p.z + origin.z) + 0.12, p.z);
       mesh.scale.setScalar(r * (pulse ? 1 + Math.sin(performance.now() / 200) * 0.04 : 1));
     };
     ringUnder(this.selRing, G.selected, true);

@@ -20,7 +20,7 @@ function lineStart(d, origin, foot, centre, range) {
  */
 export function reachOf(def, x, y, facing = 0) {
   const shapes = [];
-  const mx = x + def.footX / 2, my = y + def.footY / 2;
+  const mx = x + def.footX / 2, my = y + def.footY / 2, at = [x + 0.5, y + 0.5];
   if (def.cls === 'Energy' || def.group === 'battery') shapes.push({ circle: [mx, my, G.view.energyRange], kind: 'energy' });
   const hunt = NS.huntRadius(def.id, (type) => G.world.def(type));
   if (hunt !== null) shapes.push({ circle: [mx, my, hunt], kind: 'hunt' });
@@ -37,6 +37,8 @@ export function reachOf(def, x, y, facing = 0) {
     const sx = lineStart(dx, x, def.footX, cx, r), sy = lineStart(dy, y, def.footY, cy, r);
     shapes.push({ poly: rect(sx, sy, dx ? r : 1, dy ? r : 1), kind: 'fire' });
   }
+  // each from the ground it is laid on (with tiered islands, the shapes are drawn at its height)
+  for (const s of shapes) s.at = at;
   return shapes;
 }
 

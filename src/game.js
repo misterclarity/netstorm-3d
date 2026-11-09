@@ -4,9 +4,10 @@
  */
 import { NS, DATA, G, MISSION, TPS, ME, WORLD, defs, origin } from './state.js';
 import { settleResidences } from './residences.js';
+import { resetHeights } from './heights.js';
 
 /** Skirmish settings the menu starts from. */
-export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, spells: 'none', seed: 42 };
+export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, spells: 'none', tiers: 'level', seed: 42 };
 
 /**
  * What the player knows in a skirmish beyond a multiplayer battle's start (the Sun's Golem, Disc
@@ -40,6 +41,8 @@ export function newGame(setup = G.setup) {
   // a random map's islands get the Residences a mission's map has (src/residences.js)
   if (!G.mission) settleResidences(G.world, options.seed);
   G.view = G.world.view();
+  // islands at three heights, if the skirmish was set up so (src/heights.js): only the look, for now
+  resetHeights(!G.mission && setup.tiers === 'tiered', setup.seed);
   G.schedule = new NS.AiSchedule(TPS);
   G.pending.clear();
   G.memories.clear();

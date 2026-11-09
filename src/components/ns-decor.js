@@ -12,6 +12,7 @@
  * changes hands only recolours its own: no new layout, no new meshes.
  */
 import { G, WORLD, wx, wz, hash, playerTheme } from '../state.js';
+import { HEIGHTS } from '../heights.js';
 
 const { THREE } = AFRAME;
 const ISLAND = 1;
@@ -95,7 +96,11 @@ AFRAME.registerComponent('ns-decor', {
     for (const { mesh } of Object.values(this.meshes)) { this.group.remove(mesh); mesh.dispose(); }
     this.meshes = {};
     const lots = { trunk: [], crown: [], pine: [], pineTop: [], bush: [], rock: [], flower: [], tuft: [] }, cells = new Set();
-    const put = (kind, cell, x, z, scale, role, pick, turn) => { lots[kind].push({ cell, x, z, scale, turn, role, pick, hidden: false }); cells.add(cell); };
+    // with tiered islands (heights.js), on the ground of its island's height
+    const put = (kind, cell, x, z, scale, role, pick, turn) => {
+      lots[kind].push({ cell, x, y: HEIGHTS.on ? HEIGHTS.land[cell] : 0, z, scale, turn, role, pick, hidden: false });
+      cells.add(cell);
+    };
     const island = (x, y) => x >= 0 && y >= 0 && x < WORLD && y < WORLD && v.terrain[y * WORLD + x] === ISLAND;
     for (let y = 0; y < WORLD; y++) {
       for (let x = 0; x < WORLD; x++) {
@@ -146,7 +151,7 @@ AFRAME.registerComponent('ns-decor', {
   },
 
   matrix(item, hidden) {
-    return M4.compose(P.set(item.x, 0.02, item.z), Q.setFromAxisAngle(UP, item.turn), S.setScalar(hidden ? 0 : item.scale));
+    return M4.compose(P.set(item.x, item.y + 0.02, item.z), Q.setFromAxisAngle(UP, item.turn), S.setScalar(hidden ? 0 : item.scale));
   },
 
   /** Hide the plants near what stands on the islands (and show again those it no longer covers). */

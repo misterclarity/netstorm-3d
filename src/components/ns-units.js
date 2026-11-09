@@ -4,7 +4,8 @@
  * crystals, geysers) and one <a-entity ns-residence> for each Residence; `ns-unit` draws its entity
  * as a model or a sprite card, moves it smoothly from cell to cell and shows its health.
  */
-import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, playerTheme, defs, hash } from '../state.js';
+import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, origin, playerTheme, defs, hash } from '../state.js';
+import { HEIGHTS, groundAt, flyAt } from '../heights.js';
 import { MODELS, heightOf, modelKind, spriteKey, cargoModel, part, ico, glow, bake } from '../models.js';
 
 /** The Disc Thrower's arm (models.js): its hook lies this far round from the arm's line, and its
@@ -189,12 +190,20 @@ AFRAME.registerComponent('ns-unit', {
   place(e, dt, snap = false) {
     const [cx, cy] = this.cellPos(e), tx = wx(cx), tz = wz(cy);
     if (!this.pos || snap) this.pos = new THREE.Vector3(tx, 0, tz);
-    const dx = tx - this.pos.x, dz = tz - this.pos.z, dd = Math.hypot(dx, dz);
-    if (dd > 4) this.pos.set(tx, 0, tz);
+    const dx = tx - this.pos.x, dz = tz - this.pos.z, dd = Math.hypot(dx, dz), jump = snap || dd > 4;
+    if (jump) this.pos.set(tx, 0, tz);
     else {
       const k = 1 - Math.exp(-dt / 90);
       this.pos.x += dx * k;
       this.pos.z += dz * k;
+    }
+    // with tiered islands (heights.js): on the ground under it where it is now, or what flies at
+    // the height of the land round about, rising and sinking to it smoothly
+    if (HEIGHTS.on) {
+      const air = e.kind === 'flyer' || (this.rep.flies && (e.aloft || e.path?.length));
+      const x = this.pos.x + origin.x, y = this.pos.z + origin.z;
+      const ty = e.kind === 'building' ? groundAt(e.x + 0.5, e.y + 0.5) : air ? flyAt(x, y) : groundAt(x, y);
+      this.pos.y = air && !jump ? this.pos.y + (ty - this.pos.y) * (1 - Math.exp(-dt / 400)) : ty;
     }
     const rep = this.rep;
     if (dd > 0.01 && (e.kind === 'transport' || e.kind === 'priest' || e.kind === 'flyer')) {
@@ -448,7 +457,7 @@ AFRAME.registerComponent('ns-residence', {
 
   init() {
     const { x, y } = this.data, foot = NS.RESIDENCE_FOOT;
-    this.el.object3D.position.set(wx(x + foot / 2), 0, wz(y + foot / 2));
+    this.el.object3D.position.set(wx(x + foot / 2), groundAt(x + 0.5, y + 0.5), wz(y + foot / 2));
     this.art = this.el.sceneEl.systems['ns-art'];
     this.front = foot / 2 - 0.15;
   },

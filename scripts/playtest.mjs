@@ -996,6 +996,111 @@ SCENARIOS.gallery = async () => {
   return errors;
 };
 
+SCENARIOS.tiers = async () => {
+  const { page, errors } = await open({ width: 1100, height: 700 });
+  const shot = async (name) => { if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/${name}.png` }); };
+  // a skirmish on tiered islands: Wind against Thunder on six islands
+  await page.selectOption('#skTheme', 'wind');
+  await page.selectOption('#skEnemy', 'thunder');
+  await page.selectOption('#skIslands', '6');
+  await page.selectOption('#skTiers', 'tiered');
+  await page.fill('#skSeed', '5');
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  const briefing = await page.evaluate(() => document.querySelector('#modal .text')?.textContent ?? '');
+  if (!/three heights/.test(briefing)) throw new Error(`the briefing does not tell of the heights: ${briefing}`);
+  await page.click('#modal button.main');
+  // the islands stand at more than one height, from the start
+  const tiers = await page.evaluate(() => {
+    const { G, HEIGHTS } = window.NS3D, seen = new Set();
+    for (let i = 0; i < G.view.terrain.length; i++) if (G.view.terrain[i] === 1) seen.add(HEIGHTS.tier[i]);
+    return { on: HEIGHTS.on, tiers: [...seen].sort() };
+  });
+  if (!tiers.on || tiers.tiers.length < 2 || tiers.tiers.some((x) => ![-1, 0, 1].includes(x))) throw new Error(`no tiers: ${JSON.stringify(tiers)}`);
+  // both sides play for a while, so that bridges reach out between the islands
+  await page.evaluate(() => { window.mine = window.NS3D.NS.createAiMemory(31); });
+  for (let k = 0; k < 14; k++) {
+    await page.evaluate(() => {
+      const { G, NS, stepWorld, flushPendingAi, submit } = window.NS3D;
+      G.worker?.terminate();
+      G.worker = null;
+      for (let i = 0; i < 300 && !G.ended; i++) {
+        if (G.world.tick % 60 === 7) for (const c of NS.aiMove(G.view, { player: 1, difficulty: 'hard' }, window.mine, () => {})) submit(c);
+        if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+      }
+    });
+    await page.waitForTimeout(150);
+  }
+  await page.evaluate(() => { window.NS3D.G.paused = true; });
+  await page.waitForTimeout(1500);
+  // everything stands on its ground: buildings exactly, carriers on the ground under them; bridges
+  // between heights climb
+  const stand = await page.evaluate(() => {
+    const { G, HEIGHTS, groundAt, origin } = window.NS3D, units = document.querySelector('[ns-units]').components['ns-units'];
+    const off = [];
+    let raised = 0, ramps = 0;
+    for (const e of G.view.entities.values()) {
+      const el = units.byId.get(e.id);
+      if (!el || (e.kind !== 'building' && e.kind !== 'transport') || e.aloft || e.path?.length) continue;
+      if (e.kind === 'transport' && window.NS3D.NS.flies(G.world.def(e.type))) continue;
+      const p = el.object3D.position, want = e.kind === 'building' ? groundAt(e.x + 0.5, e.y + 0.5) : groundAt(p.x + origin.x, p.z + origin.z);
+      if (Math.abs(p.y - want) > 0.02) off.push({ type: e.type, y: p.y, want });
+      if (Math.abs(p.y) > 1) raised++;
+    }
+    for (let i = 0; i < G.view.terrain.length; i++) if (G.view.terrain[i] >= 2 && G.view.terrain[i] <= 4 && (HEIGHTS.gx[i] || HEIGHTS.gz[i])) ramps++;
+    return { off, raised, ramps };
+  });
+  if (stand.off.length || !stand.raised) throw new Error(`units off their ground: ${JSON.stringify(stand)}`);
+  // a click on a raised island picks the cell under the cursor there, not one behind it
+  const picks = await page.evaluate(() => {
+    const { G, HEIGHTS, groundAt, groundCell, wx, wz } = window.NS3D, THREE = AFRAME.THREE, scene = document.querySelector('a-scene');
+    const t = G.world.templeOf(1), cam = scene.camera, ray = new THREE.Raycaster(), wrong = [];
+    document.getElementById('camera').components['orbit-rig'].focus(wx(t.x + 4), wz(t.y + 3), 30, groundAt(t.x, t.y));
+    let tried = 0;
+    for (let y = t.y - 10; y < t.y + 12; y += 3) {
+      for (let x = t.x - 10; x < t.x + 14; x += 3) {
+        const i = y * G.view.terrain.length ** 0.5 + x;
+        if (G.view.terrain[i] !== 1 || HEIGHTS.land[i] !== HEIGHTS.high) continue;
+        const p = new THREE.Vector3(wx(x + 0.5), HEIGHTS.land[i], wz(y + 0.5));
+        const ndc = document.getElementById('world').object3D.localToWorld(p.clone()).project(cam);
+        if (Math.abs(ndc.x) > 0.95 || Math.abs(ndc.y) > 0.95) continue;
+        ray.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), cam);
+        const c = groundCell(ray.ray);
+        tried++;
+        if (!c || c.x !== x || c.y !== y) wrong.push({ x, y, got: c });
+      }
+    }
+    return { tried, wrong };
+  });
+  if (picks.tried && picks.wrong.length > picks.tried / 5) throw new Error(`clicks on high ground pick other cells: ${JSON.stringify(picks)}`);
+  if (process.env.SHOT) {
+    // in 3D: the home island, the whole map, and the steepest ramp close up
+    await page.evaluate(() => document.querySelector('a-scene').systems['ns-art'].setMode('models'));
+    const ramp = await page.evaluate(() => {
+      const { G, HEIGHTS } = window.NS3D, W = G.view.terrain.length ** 0.5;
+      let best = 0, at = null;
+      for (let i = 0; i < G.view.terrain.length; i++) {
+        const g = Math.hypot(HEIGHTS.gx[i], HEIGHTS.gz[i]);
+        if (G.view.terrain[i] >= 2 && G.view.terrain[i] <= 4 && g > best) { best = g; at = [i % W, Math.floor(i / W)]; }
+      }
+      return at;
+    });
+    for (const [name, r, th, ph, where] of [['tiers-home', 40, 0.5, 0.95, null], ['tiers-map', 150, 0.7, 1.2, 'middle'], ['tiers-low', 30, 2.2, 1.2, null], ['tiers-ramp', 24, 0.9, 1.05, ramp]]) {
+      await page.evaluate(([r2, th2, ph2, at]) => {
+        const { G, groundAt, wx, wz, origin } = window.NS3D, t = G.world.templeOf(1), rig = document.getElementById('camera').components['orbit-rig'];
+        const [x, y] = at === 'middle' ? [origin.x, origin.z] : at ?? [t.x + 4, t.y + 3];
+        rig.focus(wx(x), wz(y), r2, groundAt(x + 0.5, y + 0.5));
+        rig.goal.th = th2;
+        rig.goal.ph = ph2;
+      }, [r, th, ph, where]);
+      await page.waitForTimeout(2500);
+      await shot(name);
+    }
+  }
+  console.log(`  tiers ${tiers.tiers.join(' ')}, ${stand.ramps} ramp cells, ${stand.raised} raised units, ${picks.tried - picks.wrong.length}/${picks.tried} picks`);
+  return errors;
+};
+
 SCENARIOS.levels = async () => {
   const { page, errors } = await open();
   // each choice of level has its line, and the mission is played at the level chosen for it

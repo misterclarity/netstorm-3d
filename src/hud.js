@@ -588,6 +588,7 @@ export class Hud {
             ${level('skLevel', s.difficulty)}
             <label>Storm Power ${pick('skStorm', [1000, 2000, 5000, 10000], s.storm)}</label>
             <label>Spells ${pick('skSpells', Object.keys(SPELL_MODES), s.spells, (x) => SPELL_MODES[x])}</label>
+            <label>Heights ${pick('skTiers', ['level', 'tiered'], s.tiers ?? 'level', (x) => (x === 'level' ? 'Level' : 'Tiered'))}</label>
             <label>Map <span class="seed"><input id="skSeed" type="number" min="0" max="99999" value="${s.seed}"><button type="button" id="skDice" title="Another map">🎲</button></span></label>
           </div>
           <p class="level" id="skLevelNote"></p>
@@ -616,6 +617,7 @@ export class Hud {
         difficulty: box.querySelector('#skLevel').value,
         storm: Number(box.querySelector('#skStorm').value),
         spells: box.querySelector('#skSpells').value,
+        tiers: box.querySelector('#skTiers').value,
         seed: Math.max(0, Math.min(99999, Math.floor(Number(box.querySelector('#skSeed').value) || 0))),
       };
       try { localStorage.setItem('netstorm-3d:skirmish', JSON.stringify(setup)); } catch { /* no storage */ }
@@ -649,7 +651,7 @@ export class Hud {
     const s = G.setup, cap = (x) => x[0].toUpperCase() + x.slice(1);
     const enemy = [...G.world.players.values()].find((p) => p.id !== ME);
     this.modal(`<h2>Skirmish</h2>
-      <p class="text">You are ${cap(s.theme)}; ${escapeHtml(enemy?.name ?? 'the computer')} is ${cap(s.enemyTheme)} and plays at ${s.difficulty} level. ${s.islands} islands, map ${s.seed}.</p>
+      <p class="text">You are ${cap(s.theme)}; ${escapeHtml(enemy?.name ?? 'the computer')} is ${cap(s.enemyTheme)} and plays at ${s.difficulty} level. ${s.islands} islands${s.tiers === 'tiered' ? ' at three heights, bridges climbing between them (only the look so far: height does not yet change the battle)' : ''}, map ${s.seed}.</p>
       <ol><li>Win by capturing the enemy’s Priest and sacrificing him at your Altar; lose if he does it to you.</li>
       <li>You know the ${cap(s.theme)} units (${escapeHtml(this.furyUnits(s.theme))}) and the Sun’s first ones. Your Priest builds the Workshops that make them (a ${cap(s.theme)} Workshop for the ${cap(s.theme)} units), and an Altar.</li>
       <li>New geysers appear during the battle. Golems carry their Storm Power home.</li>

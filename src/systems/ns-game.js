@@ -8,19 +8,20 @@ import { newGame, stepWorld, submit, flushPendingAi } from '../game.js';
 import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
 import { Minimap } from '../minimap.js';
-import { groundCell, unit, localRay, lookAtCell } from '../space.js';
+import { groundCell, unit, localRay, lookAtCell, surfacePoint } from '../space.js';
+import { HEIGHTS, groundAt, updateHeights } from '../heights.js';
 import { energyAt, missingAdvice } from '../energy.js';
 import { spellName } from '../spells.js';
 import * as models from '../models.js';
 
-const AIR_BOX = new THREE.Box3(), AIR_HIT = new THREE.Vector3(), PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const AIR_BOX = new THREE.Box3(), AIR_HIT = new THREE.Vector3();
 
 AFRAME.registerSystem('ns-game', {
   init() {
     this.destroyed = new Set();
     this.raycaster = new THREE.Raycaster();
     // handles for tests and the console
-    window.NS3D = { G, NS, origin, wx, wz, game: this, stepWorld, flushPendingAi, submit, models };
+    window.NS3D = { G, NS, origin, wx, wz, game: this, stepWorld, flushPendingAi, submit, models, HEIGHTS, groundAt, groundCell };
     this.el.addEventListener('loaded', () => {
       this.hud = new Hud(this);
       this.minimap = new Minimap(this);
@@ -151,7 +152,7 @@ AFRAME.registerSystem('ns-game', {
     if (!rig || this.xr().mode) return;
     const temple = G.world.templeOf(ME);
     if (G.mission || !temple) rig.setHome(new THREE.Vector3(-7, 0, 7), 82);
-    else rig.setHome(new THREE.Vector3(wx(temple.x + temple.fx / 2), 0, wz(temple.y + temple.fy / 2) + 6), 70);
+    else rig.setHome(new THREE.Vector3(wx(temple.x + temple.fx / 2), groundAt(temple.x + 0.5, temple.y + 0.5), wz(temple.y + temple.fy / 2) + 6), 70);
   },
 
   tick(t, dt) {
@@ -162,6 +163,7 @@ AFRAME.registerSystem('ns-game', {
     this.handleEvents();
     if (G.view.terrainRevision !== G.terrainRevision) {
       G.terrainRevision = G.view.terrainRevision;
+      updateHeights();
       this.el.emit('ns-terrain');
     }
     this.watchBuildings();
@@ -240,7 +242,7 @@ AFRAME.registerSystem('ns-game', {
         case 'upgrade': if (mine) hud.log(`Workshop upgraded to level ${ev.data.level + 1}`, 'good'); break;
         case 'salvaged': {
           const el = this.units()?.byId.get(ev.data.id);
-          if (el) fx?.puff(el.object3D.position.clone().setY(1), '#cfe8ff', 2, 0.6);
+          if (el) fx?.puff(el.object3D.position.clone().add(new THREE.Vector3(0, 1, 0)), '#cfe8ff', 2, 0.6);
           if (mine) hud.toast(`Salvaged: +${ev.data.refund} Storm Power`, 'good');
           break;
         }
@@ -477,7 +479,7 @@ AFRAME.registerSystem('ns-game', {
   gatherAt(ray) {
     const sel = G.selected === null ? null : G.view.entities.get(G.selected);
     if (!ray || G.tool.kind !== 'select' || sel?.owner !== ME || (sel.kind !== 'transport' && sel.kind !== 'priest')) return null;
-    const units = this.units(), local = localRay(ray), ground = local.intersectPlane(PLANE, new THREE.Vector3());
+    const units = this.units(), local = localRay(ray), ground = surfacePoint(local);
     let best = null, near = Infinity;
     for (const e of G.view.entities.values()) {
       const geyser = e.kind === 'geyser' && e.stock > 0, crystal = e.kind === 'crystal' && e.carriedBy === null;
@@ -485,8 +487,8 @@ AFRAME.registerSystem('ns-game', {
       const el = units?.byId.get(e.id);
       if (!el) continue;
       const p = el.object3D.position, r = geyser ? 1.1 : 0.75, h = geyser ? Math.max(3.5, el.components['ns-unit']?.rep?.height ?? 0) : 1.4;
-      AIR_BOX.min.set(p.x - r, 0, p.z - r);
-      AIR_BOX.max.set(p.x + r, h, p.z + r);
+      AIR_BOX.min.set(p.x - r, p.y, p.z - r);
+      AIR_BOX.max.set(p.x + r, p.y + h, p.z + r);
       const hit = local.intersectBox(AIR_BOX, AIR_HIT);
       let d = hit ? hit.distanceTo(local.origin) : Infinity;
       if (d === Infinity && ground && Math.abs(ground.x - p.x) <= 1.5 && Math.abs(ground.z - p.z) <= 1.5) d = ground.distanceTo(local.origin) + 1;
