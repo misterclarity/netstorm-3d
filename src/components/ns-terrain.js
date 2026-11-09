@@ -3,11 +3,12 @@
  * rebuilt when it changes (`ns-terrain`). Each island's top is one textured surface (the original
  * grass tiles in "Sprites" mode, a painted stand-in otherwise); under it hangs rock, deeper the
  * further a cell lies from the sky, with a few spikes under the larger islands. With tiered islands
- * (heights.js) each stands at its height, a cliff where it meets lower ground, and the bridges
- * climb from one to the next.
+ * (heights.js) each stands on its level, a cliff where it meets lower ground, the bridges are laid
+ * flat on theirs, and where a bridge joins another level a lift stands, its car riding up and down
+ * with whoever rides it.
  */
 import { G, WORLD, FURY_TILES, GROUND_PAINT, wx, wz, hash, playerTheme } from '../state.js';
-import { HEIGHTS } from '../heights.js';
+import { HEIGHTS, heightOfCell } from '../heights.js';
 
 const { THREE } = AFRAME;
 
@@ -176,7 +177,7 @@ AFRAME.registerComponent('ns-terrain', {
     const tp = [], tuv = [], rp = [], rc = [], spikes = [];
     const tri = (arr, a, b, c) => arr.push(...a, ...b, ...c);
     // with tiered islands, each cell's ground stands at its height
-    const H = HEIGHTS.on ? HEIGHTS.land : null, heightOf = (x, y) => (H ? H[y * WORLD + x] : 0);
+    const heightOf = (x, y) => heightOfCell(x, y);
     const lift = (p, up) => [p[0], p[1] + up, p[2]];
     const col = (...cs) => { for (const c of cs) rc.push(c.r, c.g, c.b); };
     const uv = (X, Y) => [(X - x0) / w, 1 - (Y - y0) / h];
@@ -275,46 +276,125 @@ AFRAME.registerComponent('ns-terrain', {
     this.beam = make(new THREE.BoxGeometry(0.16, 0.22, 1.02), new THREE.MeshStandardMaterial({ color: '#4d321c', roughness: 0.9 }), N);
     this.rail = make(new THREE.BoxGeometry(1, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: '#6a4426', roughness: 0.9 }), N * 2);
     this.post = make(new THREE.BoxGeometry(0.1, 0.32, 0.1), new THREE.MeshStandardMaterial({ color: '#6a4426', roughness: 0.9 }), N * 2);
+    // a lift: four posts of timber bound with iron from its foot to its head, a beam across the
+    // head with a pulley, ropes, and the car: a platform with a rail round it
+    const L = 200, iron = new THREE.MeshStandardMaterial({ color: '#5d5a62', metalness: 0.5, roughness: 0.45 });
+    this.liftPost = make(new THREE.BoxGeometry(0.12, 1, 0.12), new THREE.MeshStandardMaterial({ color: '#7a5030', roughness: 0.85 }), L * 4);
+    this.liftBand = make(new THREE.BoxGeometry(1.1, 0.07, 1.1), iron, L * 8);
+    this.liftHead = make(new THREE.BoxGeometry(1.2, 0.2, 0.2), new THREE.MeshStandardMaterial({ color: '#4d321c', roughness: 0.9 }), L);
+    this.liftWheel = make(new THREE.CylinderGeometry(0.28, 0.28, 0.1, 12), iron, L);
+    this.liftRope = make(new THREE.BoxGeometry(0.03, 1, 0.03), new THREE.MeshStandardMaterial({ color: '#d8c79a', roughness: 1 }), L * 2);
+    this.liftCar = make(new THREE.BoxGeometry(0.92, 0.14, 0.92), new THREE.MeshStandardMaterial({ map: wood, roughness: 0.9 }), L);
+    this.liftRail = make(new THREE.BoxGeometry(0.92, 0.3, 0.92), new THREE.MeshStandardMaterial({ color: '#c9a14a', metalness: 0.4, roughness: 0.5, wireframe: true }), L);
+    this.cars = new Map();
+    HEIGHTS.onRide = (key, y) => this.placeCar(key, y);
+  },
+
+  /** The lifts' frames, where heights.js found them; their cars are moved in tick(). */
+  buildLifts() {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
+    const flat = new THREE.Quaternion(), wheelTurn = new THREE.Quaternion();
+    const lifts = HEIGHTS.on ? HEIGHTS.lifts.slice(0, 200) : [];
+    let n = 0, band = 0;
+    for (const lift of lifts) {
+      const cx = wx(lift.x), cz = wz(lift.y), tall = lift.high - lift.low + 1.6, mid = lift.low - 0.3 + tall / 2;
+      [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].forEach(([ox, oz], k) => {
+        this.liftPost.setMatrixAt(n * 4 + k, m.compose(p.set(cx + ox, mid, cz + oz), flat, s.set(1, tall, 1)));
+      });
+      for (let k = 0; k * 2.4 < tall; k++) this.liftBand.setMatrixAt(band++, m.compose(p.set(cx, lift.low - 0.2 + k * 2.4, cz), flat, s.set(1, 1, 1)));
+      const along = lift.dx ? Math.PI / 2 : 0;
+      q.setFromEuler(new THREE.Euler(0, along, 0));
+      this.liftHead.setMatrixAt(n, m.compose(p.set(cx, lift.high + 1.4, cz), q, s.set(1, 1, 1)));
+      wheelTurn.setFromEuler(new THREE.Euler(0, along, Math.PI / 2));
+      this.liftWheel.setMatrixAt(n, m.compose(p.set(cx, lift.high + 1.15, cz), wheelTurn, s.set(1, 1, 1)));
+      n++;
+    }
+    this.liftPost.count = n * 4;
+    this.liftBand.count = band;
+    for (const im of [this.liftHead, this.liftWheel]) im.count = n;
+    for (const im of [this.liftPost, this.liftBand, this.liftHead, this.liftWheel]) im.instanceMatrix.needsUpdate = true;
+    this.liftsShown = lifts;
+    this.liftIndex = new Map(lifts.map((l, i) => [l.key, i]));
+    for (const key of [...this.cars.keys()]) if (!lifts.some((l) => l.key === key)) this.cars.delete(key);
+    this.moveCars(0);
+  },
+
+  /** Each lift's car sinks back down to its foot unless someone rides it (placeCar); its ropes follow. */
+  moveCars(dt) {
+    const lifts = this.liftsShown ?? [], since = this.lastFrame ?? 0;
+    lifts.forEach((lift, n) => {
+      // a rider drawn this frame or the last holds the car
+      const ride = HEIGHTS.riding.get(lift.key);
+      if (ride && ride.at >= since) return;
+      const y = this.cars.get(lift.key) ?? lift.low;
+      this.setCar(n, lift, y + Math.sign(lift.low - y) * Math.min(Math.abs(lift.low - y), (dt / 1000) * 6));
+    });
+    for (const im of [this.liftCar, this.liftRail]) { im.count = lifts.length; im.instanceMatrix.needsUpdate = true; }
+    this.liftRope.count = lifts.length * 2;
+    this.liftRope.instanceMatrix.needsUpdate = true;
+  },
+
+  /** The car of the lift with this key at height y, as its rider is drawn (ns-units, via heights.js). */
+  placeCar(key, y) {
+    const n = this.liftIndex?.get(key);
+    if (n === undefined) return;
+    this.setCar(n, this.liftsShown[n], y);
+    for (const im of [this.liftCar, this.liftRail, this.liftRope]) im.instanceMatrix.needsUpdate = true;
+  },
+
+  setCar(n, lift, y) {
+    const m = this.carMatrix ??= new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
+    this.cars.set(lift.key, y);
+    const cx = wx(lift.x), cz = wz(lift.y), rope = lift.high + 1.15 - y;
+    this.liftCar.setMatrixAt(n, m.compose(p.set(cx, y - 0.07, cz), q, s));
+    this.liftRail.setMatrixAt(n, m.compose(p.set(cx, y + 0.15, cz), q, s));
+    for (const k of [0, 1]) {
+      const off = k ? 0.22 : -0.22;
+      this.liftRope.setMatrixAt(n * 2 + k, m.compose(p.set(cx + off * (lift.dx ? 0 : 1), y + rope / 2, cz + off * (lift.dx ? 1 : 0)), q, s.set(1, Math.max(0.01, rope), 1)));
+      s.set(1, 1, 1);
+    }
+  },
+
+  tick(t, dt) {
+    if (this.liftsShown?.length) this.moveCars(Math.min(dt, 100));
+    this.lastFrame = t;
   },
 
   /**
-   * Every bridge cell as a wooden deck, with rails on the sides it does not continue on. With
-   * tiered islands each cell stands at its bridge's height and climbs with it: its parts are
-   * sheared so that east and south rise as the bridge does there, and posts stay upright.
+   * Every bridge cell as a wooden deck, with rails on the sides it does not continue on; with
+   * tiered islands on its level, and a lift wherever it joins another.
    */
   buildBridges() {
-    const v = G.view, m = new THREE.Matrix4(), climb = new THREE.Matrix4(), X = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3();
-    const turn = new THREE.Matrix4().makeRotationY(Math.PI / 2);
+    const v = G.view, m = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
+    const turn = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0)), none = new THREE.Quaternion();
     const whole = new THREE.Color('#ffffff'), cracked = new THREE.Color('#a07a5c'), hard = new THREE.Color('#b8b2a8');
-    const H = HEIGHTS.on ? HEIGHTS : null;
     let d = 0, r = 0, po = 0;
     for (let y = 0; y < WORLD; y++) {
       for (let x = 0; x < WORLD; x++) {
         const i = y * WORLD + x, t = v.terrain[i];
         if (t < 2 || t > 4 || d >= this.deck.instanceMatrix.count) continue;
-        const links = v.links[i] || 15, px = wx(x + 0.5), pz = wz(y + 0.5);
-        const h = H ? H.bridge[i] : 0, gx = H ? H.gx[i] : 0, gz = H ? H.gz[i] : 0;
-        climb.makeBasis(X.set(1, gx, 0), Y, Z.set(0, gz, 1));
-        /** Where a part goes: (ox, oz) off the cell's middle, `up` above the deck there, maybe turned. */
-        const put = (mesh, n, ox, up, oz, turned) => {
-          m.copy(climb);
-          if (turned) m.multiply(turn);
-          m.setPosition(px + ox, h + gx * ox + gz * oz + up, pz + oz);
-          mesh.setMatrixAt(n, m);
-        };
-        put(this.deck, d, 0, -0.08, 0, (links & 2) || (links & 8)); // planks across the way
+        const links = v.links[i] || 15, px = wx(x + 0.5), pz = wz(y + 0.5), h = heightOfCell(x, y);
+        m.compose(p.set(px, h - 0.08, pz), (links & 2) || (links & 8) ? turn : none, one); // planks across the way
+        this.deck.setMatrixAt(d, m);
         const wear = v.wear?.[i] ?? 0;
         this.deck.setColorAt(d, t === 4 ? hard : t === 3 ? cracked : whole.clone().multiplyScalar(1 - Math.min(0.35, wear * 0.05)));
-        put(this.beam, d, 0, -0.26, 0, !((links & 1) || (links & 4)));
+        m.compose(p.set(px, h - 0.26, pz), (links & 1) || (links & 4) ? none : turn, one);
+        this.beam.setMatrixAt(d, m);
         d++;
         for (const [open, ox, oz, ew] of [[!(links & 1), 0, -0.46, false], [!(links & 4), 0, 0.46, false], [!(links & 2), 0.46, 0, true], [!(links & 8), -0.46, 0, true]]) {
-          if (open) put(this.rail, r++, ox, 0.22, oz, ew);
+          if (!open) continue;
+          m.compose(p.set(px + ox, h + 0.22, pz + oz), ew ? turn : none, one);
+          this.rail.setMatrixAt(r++, m);
         }
         for (const [ox, oz] of [[-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45]]) {
-          if (hash(x * 3 + (ox > 0), y * 3 + (oz > 0), 61) < 0.55) put(this.post, po++, ox, 0.12, oz, false);
+          if (hash(x * 3 + (ox > 0), y * 3 + (oz > 0), 61) < 0.55) {
+            m.compose(p.set(px + ox, h + 0.12, pz + oz), none, one);
+            this.post.setMatrixAt(po++, m);
+          }
         }
       }
     }
+    this.buildLifts();
     for (const [im, n] of [[this.deck, d], [this.beam, d], [this.rail, r], [this.post, po]]) {
       im.count = n;
       im.instanceMatrix.needsUpdate = true;

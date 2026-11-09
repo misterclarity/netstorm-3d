@@ -197,4 +197,62 @@ for (const def of defs.values()) {
 if (!sites || !short) fail(`the Energy check saw ${sites} sites, ${short} short of Energy`);
 console.log(`energy: ${sites} sites agree with the rules, ${short} of them short of Energy`);
 
+// Tiered islands (scripts/house-rules.mjs): a Golem walking off its island onto a bridge a level
+// up rides a lift, LIFT_SECONDS longer than the same step on one level, and takes LIFT_EXPOSURE
+// times the damage on the way. A piece the player lays goes on the level asked for; one laid
+// without (as the computer lays them) on the level of what it joins.
+{
+  const lifted = (rise) => {
+    const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+    w.tiered = true;
+    const t = w.templeOf(NS.ME);
+    let x = t.x;
+    while (w.terrain[t.y * NS.W + x + 1] !== 0) x++; // the island's rim, east of the Temple
+    const sky = t.y * NS.W + x + 1;
+    w.terrain[sky] = 2;
+    w.owner[sky] = NS.ME;
+    w.links[sky] = 0;
+    w.level[sky] = rise;
+    w.invalidateTerrain();
+    const rider = w.spawnTransport('sunwalker', NS.ME, x, t.y);
+    w.step([{ t: 'moveTransport', player: NS.ME, transport: rider.id, x: x + 1, y: t.y }]);
+    if (!rider.path.length) fail('a Golem would not walk onto the bridge');
+    const riding = w.liftLevels(rider), hp = rider.hp;
+    NS.damage(w, 2, rider, 10);
+    const hurt = hp - rider.hp;
+    let ticks = 1;
+    while (rider.x !== x + 1 && ticks < 2000) { w.step([]); ticks++; }
+    return { riding, hurt, ticks };
+  };
+  const flat = lifted(0), up = lifted(1);
+  const longer = (up.ticks - flat.ticks) / NS.TPS;
+  if (flat.riding !== 0 || up.riding !== 1) fail(`lift levels: flat ${flat.riding}, up ${up.riding}`);
+  if (Math.abs(longer - NS.LIFT_SECONDS) > 0.3) fail(`a lift ride took ${longer} s longer than a step, not ${NS.LIFT_SECONDS}`);
+  if (Math.abs(up.hurt - flat.hurt * NS.LIFT_EXPOSURE) > 0.01) fail(`on a lift a Golem lost ${up.hurt} of a hit that took ${flat.hurt} off one on the ground`);
+
+  const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+  w.tiered = true;
+  const t = w.templeOf(NS.ME);
+  const layOn = (level) => {
+    const hand = w.players.get(NS.ME).hand;
+    for (let k = 0; k < 4000 && !hand.length; k++) w.step([]);
+    for (let i = 0; i < hand.length; i++) {
+      for (let r = 0; r < 4; r++) {
+        for (let y = t.y - 24; y < t.y + 28; y++) {
+          for (let x = t.x - 24; x < t.x + 32; x++) {
+            if (w.canDropPiece({ player: NS.ME, hand: i, x, y, rot: r }) !== null) continue;
+            w.step([{ t: 'dropPiece', player: NS.ME, hand: i, x, y, rot: r, ...(level === undefined ? {} : { level }) }]);
+            return w.level[y * NS.W + x];
+          }
+        }
+      }
+    }
+    return fail('no bridge piece could be laid');
+  };
+  const asked = layOn(1), joined = layOn(undefined);
+  if (asked !== 1) fail(`a piece asked for on level 1 went on ${asked}`);
+  if (joined !== 0 && joined !== 1) fail(`a piece laid without a level went on ${joined}`);
+  console.log(`lifts: a ride takes ${longer.toFixed(1)} s more and a hit ${NS.LIFT_EXPOSURE} times as much; pieces go on the level asked for`);
+}
+
 console.log(`check passed: ${played}`);

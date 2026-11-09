@@ -9,7 +9,7 @@ import { Hud } from '../hud.js';
 import { watchForUpdates } from '../version.js';
 import { Minimap } from '../minimap.js';
 import { groundCell, unit, localRay, lookAtCell, surfacePoint } from '../space.js';
-import { HEIGHTS, groundAt, updateHeights } from '../heights.js';
+import { HEIGHTS, TIER, LEVEL_NAMES, groundAt, updateHeights, shiftLevel } from '../heights.js';
 import { energyAt, missingAdvice } from '../energy.js';
 import { spellName } from '../spells.js';
 import * as models from '../models.js';
@@ -511,7 +511,8 @@ AFRAME.registerSystem('ns-game', {
       if (!G.world.players.get(ME).hand[tool.hand]) return;
       const err = G.view.canDropPiece({ player: ME, hand: tool.hand, x, y, rot: G.rot });
       if (err) this.hud.toast(errorText(err), 'bad');
-      else submit({ t: 'dropPiece', hand: tool.hand, x, y, rot: G.rot });
+      // on tiered islands, on the level chosen (Q and E)
+      else submit({ t: 'dropPiece', hand: tool.hand, x, y, rot: G.rot, ...(HEIGHTS.on ? { level: HEIGHTS.active } : {}) });
       return;
     }
     if (tool.kind === 'build') {
@@ -761,6 +762,20 @@ AFRAME.registerSystem('ns-game', {
     this.hud.dirty = true;
   },
   /** Every key of the game, but the camera's (held W A S D Q E and arrows, in orbit-rig). */
+  /**
+   * Tiered islands: the level bridges are laid on one down (-1) or up (1). The camera follows it,
+   * up or down by as much, and the HUD says where it is.
+   */
+  shiftLevel(step) {
+    if (!shiftLevel(step)) {
+      this.hud.toast(`No level ${step > 0 ? 'above' : 'below'} the ${LEVEL_NAMES[HEIGHTS.active].toLowerCase()} one`, 'bad');
+      return;
+    }
+    const rig = document.getElementById('camera')?.components['orbit-rig'];
+    if (rig?.enabled && !this.xr().mode) rig.goal.t.y = HEIGHTS.active * TIER;
+    this.hud.showLevel();
+  },
+
   onKey(e) {
     if (keysOff(e)) return;
     const k = e.key.toLowerCase();
@@ -784,6 +799,9 @@ AFRAME.registerSystem('ns-game', {
       f: () => this.minimap.toggleFollow(),
       t: () => this.xr().toggle(),
       i: () => this.nextIdle(),
+      // on tiered islands Q and E take the level down and up (else they turn the camera: orbit-rig)
+      q: HEIGHTS.on ? () => this.shiftLevel(-1) : null,
+      e: HEIGHTS.on ? () => this.shiftLevel(1) : null,
     }[k];
     if (!act) return;
     e.preventDefault();

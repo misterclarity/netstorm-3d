@@ -4,8 +4,8 @@
  * is the scene itself; in the tabletop modes it is shrunk onto a table, so one cell is about a
  * centimetre. These turn points and rays between the scene and the battlefield.
  */
-import { origin } from './state.js';
-import { HEIGHTS, groundAt } from './heights.js';
+import { G, origin } from './state.js';
+import { HEIGHTS, TIER, groundAt, surfaceAt } from './heights.js';
 
 const { THREE } = AFRAME;
 const inverse = new THREE.Matrix4();
@@ -57,20 +57,42 @@ export function groundPoint(ray) {
 }
 
 /**
- * Where a ray on the battlefield meets the ground: the plane y = 0 on a level map; with tiered
- * islands (heights.js) the first island, bridge or cliff it comes to, or over the sky the height
- * of the land round about. Walked down the ray a fifth of a cell at a time from the highest
- * ground to the lowest, then narrowed down.
+ * The map cell a ray of the scene points at, or null. With tiered islands it depends on what the
+ * player is doing: a bridge piece goes on the level chosen (Q and E), so its cell is where the ray
+ * meets that level; a unit to build is laid on the island or bridge the ray meets first, or over
+ * the sky on that level; anything else is picked on the first island or bridge, the sky letting
+ * the ray through.
  */
-export function surfacePoint(local) {
+export function groundCell(ray) {
+  const local = localRay(ray), tool = G.tool?.kind;
+  const hit = HEIGHTS.on && tool === 'piece' ? levelPoint(local) : surfacePoint(local, tool === 'build');
+  return hit ? { x: Math.floor(hit.x + origin.x), y: Math.floor(hit.z + origin.z) } : null;
+}
+
+/** Where a ray on the battlefield meets the level chosen (heights.js), or null. */
+function levelPoint(local) {
+  const hit = new THREE.Vector3();
+  plane.constant = -HEIGHTS.active * TIER;
+  const ok = local.intersectPlane(plane, hit);
+  plane.constant = 0;
+  return ok ? hit : null;
+}
+
+/**
+ * Where a ray on the battlefield meets the ground: the plane y = 0 on a level map; with tiered
+ * islands the first island, bridge or cliff it comes to, walked down the ray a fifth of a cell at
+ * a time from the highest ground to the lowest, then narrowed down. Over the sky the ray goes on
+ * through, or with `sky` stops at the level chosen; if it meets nothing, that level is where it ends.
+ */
+export function surfacePoint(local, sky = false) {
   const hit = new THREE.Vector3();
   if (!HEIGHTS.on) return local.intersectPlane(plane, hit) ? hit : null;
   const o = local.origin, d = local.direction;
   if (d.y > -1e-4) return null;
-  const top = HEIGHTS.high + 0.3, bottom = HEIGHTS.low - 0.3;
+  const top = Math.max(HEIGHTS.high, HEIGHTS.active * TIER) + 0.3, bottom = Math.min(HEIGHTS.low, HEIGHTS.active * TIER) - 0.3;
   const below = (k) => {
     hit.copy(d).multiplyScalar(k).add(o);
-    return hit.y <= groundAt(hit.x + origin.x, hit.z + origin.z);
+    return hit.y <= surfaceAt(hit.x + origin.x, hit.z + origin.z, sky);
   };
   let k0 = Math.max(0, (top - o.y) / d.y);
   const end = (bottom - o.y) / d.y, step = 0.2 / Math.max(Math.hypot(d.x, d.z), -d.y);
@@ -86,13 +108,7 @@ export function surfacePoint(local) {
     below(hi);
     return hit;
   }
-  return null;
-}
-
-/** The map cell a ray of the scene points at, or null. */
-export function groundCell(ray) {
-  const hit = groundPoint(ray);
-  return hit ? { x: Math.floor(hit.x + origin.x), y: Math.floor(hit.z + origin.z) } : null;
+  return levelPoint(local);
 }
 
 /**

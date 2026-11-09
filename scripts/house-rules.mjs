@@ -1307,6 +1307,194 @@ CHANGES.push({
       }`,
 });
 
+// Tiered islands (netstorm-3d's skirmish setting; src/heights.js draws them). The islands stand on
+// three levels, -1, 0 and 1, kept in the world's `level`: the client gives each island its level
+// as a match begins and sets `tiered`; the world gives each later islet its own. A bridge piece is
+// laid on the level the player asks for (`level` in dropPiece; the computer asks for none and gets
+// the level of what the piece joins). Where a walker steps between cells of different levels it
+// rides a lift: the step takes LIFT_SECONDS a level longer, at any walker's pace, and all the while
+// it hangs in the open and takes LIFT_EXPOSURE times the damage. On a level map every cell is on
+// level 0 and nothing changes.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'tiered islands: each cell has a level',
+  was: `  readonly wear = new Uint8Array(W * H);`,
+  now: `  readonly wear = new Uint8Array(W * H);
+  /** (netstorm-3d) The level of each cell's ground or bridge on tiered islands, -1, 0 or 1. */
+  readonly level = new Int8Array(W * H);
+  /** (netstorm-3d) Whether the islands stand on levels: a skirmish setting. */
+  tiered = false;`,
+}, {
+  file: 'world.ts',
+  why: 'tiered islands: a walker rides a lift between levels',
+  was: `  view(): WorldView {
+    return this;
+  }`,
+  now: `  view(): WorldView {
+    return this;
+  }
+
+  /** (netstorm-3d) How many levels a walker's next step rides a lift by: 0 for none, on a level
+   * map, or for what flies. */
+  liftLevels(e: { kind: string; type?: string; x: number; y: number; path: readonly (readonly number[])[]; }): number {
+    const next = e.path[0];
+
+    if (!this.tiered || !next || (e.kind === 'transport' && flies(this.def(e.type!)))) {
+      return 0;
+    }
+
+    return Math.abs(this.level[next[1]! * W + next[0]!]! - this.level[e.y * W + e.x]!);
+  }`,
+}, {
+  file: 'rules/movement.ts',
+  why: 'tiered islands: a lift ride takes time',
+  was: `/** How far a walker has come towards the next cell of its path, 0 to 1; for drawing. */
+export function stepShare(e: Walker & { readonly move: number; }): number {
+  return Math.min(1, e.move / stepCost(e));
+}`,
+  now: `/** (netstorm-3d) Seconds a lift takes to carry a walker one level up or down. */
+export const LIFT_SECONDS = 2;
+
+/** (netstorm-3d) Progress a lift ride adds to a walker's next step: LIFT_SECONDS a level at its
+ * own pace, so that every walker rides as long. */
+function liftCost(world: World, e: Transport | Priest, speed: number): number {
+  const levels = world.liftLevels(e);
+  return levels ? Math.round(levels * LIFT_SECONDS * speed * MOVE_SCALE) : 0;
+}
+
+/** A walker's pace, cells a second (the Priest's as in priest.ts). */
+function paceOf(world: World, e: Transport | Priest): number {
+  return e.kind === 'priest' ? 1.8 : world.def(e.type).speed;
+}
+
+/** How far a walker has come towards the next cell of its path, 0 to 1; for drawing. With the
+ * world, a lift ride counts. */
+export function stepShare(e: Walker & { readonly move: number; }, world?: World): number {
+  const lift = world && 'kind' in e ? liftCost(world, e as Transport | Priest, paceOf(world, e as Transport | Priest)) : 0;
+  return Math.min(1, e.move / (stepCost(e) + lift));
+}`,
+}, {
+  file: 'rules/movement.ts',
+  why: 'tiered islands: a lift ride takes time',
+  was: `  while (e.path.length && e.move >= stepCost(e)) {
+    e.move -= stepCost(e);`,
+  now: `  while (e.path.length && e.move >= stepCost(e) + liftCost(world, e, speed)) {
+    e.move -= stepCost(e) + liftCost(world, e, speed);`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tiered islands: a walker on a lift is exposed',
+  was: `const AIR_PROOF: ReadonlySet<string> = new Set(['thunderblocker', 'bulf']);`,
+  now: `const AIR_PROOF: ReadonlySet<string> = new Set(['thunderblocker', 'bulf']);
+
+/** (netstorm-3d) The damage a walker riding a lift between levels takes, as a share of the hit. */
+export const LIFT_EXPOSURE = 1.5;`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tiered islands: a walker on a lift is exposed',
+  was: `  const before = entity.hp;`,
+  now: `  // (netstorm-3d) a walker riding a lift between levels hangs in the open
+  if (amount > 0 && (entity.kind === 'transport' || entity.kind === 'priest') && world.liftLevels(entity) > 0) {
+    amount *= LIFT_EXPOSURE;
+  }
+
+  const before = entity.hp;`,
+}, {
+  file: 'rules/bridges.ts',
+  why: 'tiered islands: a piece is laid on a level',
+  was: `export function dropPiece(
+  world: World,`,
+  now: `/** (netstorm-3d) The level a piece is laid on: the one asked for, on tiered islands, or else that
+ * of the ground or bridge one of its open ends joins. */
+function pieceLevel(world: World, c: { level?: number; }, cells: [number, number][], links: number[]): number {
+  if (world.tiered && (c.level === -1 || c.level === 0 || c.level === 1)) {
+    return c.level;
+  }
+
+  for (const [index, [x, y]] of cells.entries()) {
+    for (const [dir, [dx, dy]] of DIRS.entries()) {
+      const nx = x + dx, ny = y + dy;
+
+      if ((links[index]! & (1 << dir)) === 0 || !world.inside(nx, ny) || cells.some(([cx, cy]) => cx === nx && cy === ny)) {
+        continue;
+      }
+
+      if (world.terrain[world.at(nx, ny)] !== Terrain.Sky) {
+        return world.level[world.at(nx, ny)]!;
+      }
+    }
+  }
+
+  return 0;
+}
+
+export function dropPiece(
+  world: World,`,
+}, {
+  file: 'rules/bridges.ts',
+  why: 'tiered islands: a piece is laid on a level',
+  was: `  for (const [index, [x, y]] of cells.entries()) {
+    world.terrain[world.at(x, y)] = strength;`,
+  now: `  const level = pieceLevel(world, c, cells, links);
+
+  for (const [index, [x, y]] of cells.entries()) {
+    world.level[world.at(x, y)] = level;
+    world.terrain[world.at(x, y)] = strength;`,
+}, {
+  file: 'rules/building.ts',
+  why: 'tiered islands: an islet off a bridge is on its level',
+  was: `  if (islet) {
+    for (let y = c.y; y < c.y + def.footY; y++) {
+      for (let x = c.x; x < c.x + def.footX; x++) {
+        world.terrain[world.at(x, y)] = Terrain.Island;`,
+  now: `  if (islet) {
+    // (netstorm-3d) on the level of the bridge it is laid off
+    let level: number | null = null;
+
+    for (let y = c.y - 1; y <= c.y + def.footY && level === null; y++) {
+      for (let x = c.x - 1; x <= c.x + def.footX && level === null; x++) {
+        const t = world.inside(x, y) ? world.terrain[world.at(x, y)] : Terrain.Sky;
+
+        if (t === Terrain.Bridge || t === Terrain.CrackedBridge || t === Terrain.HardBridge) {
+          level = world.level[world.at(x, y)]!;
+        }
+      }
+    }
+
+    for (let y = c.y; y < c.y + def.footY; y++) {
+      for (let x = c.x; x < c.x + def.footX; x++) {
+        world.level[world.at(x, y)] = level ?? 0;
+        world.terrain[world.at(x, y)] = Terrain.Island;`,
+}, {
+  file: 'rules/geysers.ts',
+  why: 'tiered islands: a new islet floats on a level of its own',
+  was: `    // (netstorm-3d) carriers bound for the spent geyser it replaces go to the new one in its place`,
+  now: `    // (netstorm-3d) on tiered islands a new islet in the sky floats on a level of its own, by where
+    // it is
+    if (sky && world.tiered) {
+      const level = ((Math.imul(at.x, 73856093) ^ Math.imul(at.y, 19349663)) >>> 0) % 3 - 1;
+
+      for (let y = at.y - 1; y <= at.y + 1; y++) {
+        for (let x = at.x - 1; x <= at.x + 1; x++) {
+          if (world.inside(x, y)) {
+            world.level[world.at(x, y)] = level;
+          }
+        }
+      }
+    }
+
+    // (netstorm-3d) carriers bound for the spent geyser it replaces go to the new one in its place`,
+}, {
+  file: 'index.ts',
+  why: 'tiered islands: the lift rules for the client and its check',
+  was: `export { stepShare } from './rules/movement.js';`,
+  now: `export { stepShare, LIFT_SECONDS } from './rules/movement.js';`,
+}, {
+  file: 'index.ts',
+  why: 'tiered islands: the lift rules for the client and its check',
+  was: `export { blastDamage, facesWhenLaid, shotInterval } from './rules/combat.js';`,
+  now: `export { blastDamage, facesWhenLaid, shotInterval, damage, LIFT_EXPOSURE } from './rules/combat.js';`,
+});
+
 export function houseRules() {
   return {
     name: 'house-rules',

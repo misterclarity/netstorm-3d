@@ -5,7 +5,7 @@
  * as a model or a sprite card, moves it smoothly from cell to cell and shows its health.
  */
 import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, origin, playerTheme, defs, hash } from '../state.js';
-import { HEIGHTS, groundAt, flyAt } from '../heights.js';
+import { HEIGHTS, groundAt, flyAt, rideOf } from '../heights.js';
 import { MODELS, heightOf, modelKind, spriteKey, cargoModel, part, ico, glow, bake } from '../models.js';
 
 /** The Disc Thrower's arm (models.js): its hook lies this far round from the arm's line, and its
@@ -179,10 +179,19 @@ AFRAME.registerComponent('ns-unit', {
     if (e.kind === 'building') return [e.x + e.fx / 2, e.y + e.fy / 2];
     if (e.kind === 'flyer') return [e.px / NS.FLYER_SCALE, e.py / NS.FLYER_SCALE];
     let x = e.x + 0.5, y = e.y + 0.5;
+    this.ride = null;
     if (e.path?.length && e.move > 0) {
-      const f = NS.stepShare(e), [nx, ny] = e.path[0];
-      x += (nx + 0.5 - x) * f;
-      y += (ny + 0.5 - y) * f;
+      const f = NS.stepShare(e, G.world), [nx, ny] = e.path[0];
+      // a lift between levels (tiered islands): a step to its edge, the ride up or down, a step off
+      const ride = this.rep?.flies ? null : rideOf(e, f);
+      let k = f;
+      if (ride) {
+        k = f < 0.15 ? (f / 0.15) * 0.5 : f > 0.85 ? 0.5 + ((f - 0.85) / 0.15) * 0.5 : 0.5;
+        const up = THREE.MathUtils.clamp((f - 0.15) / 0.7, 0, 1);
+        this.ride = { key: ride.key, y: ride.from + (ride.to - ride.from) * (up * up * (3 - 2 * up)) };
+      }
+      x += (nx + 0.5 - x) * k;
+      y += (ny + 0.5 - y) * k;
     }
     return [x, y];
   },
@@ -197,13 +206,19 @@ AFRAME.registerComponent('ns-unit', {
       this.pos.x += dx * k;
       this.pos.z += dz * k;
     }
-    // with tiered islands (heights.js): on the ground under it where it is now, or what flies at
-    // the height of the land round about, rising and sinking to it smoothly
+    // with tiered islands (heights.js): on the ground where it is going, or what flies at the
+    // height of the land round about, rising and sinking to it smoothly
     if (HEIGHTS.on) {
       const air = e.kind === 'flyer' || (this.rep.flies && (e.aloft || e.path?.length));
       const x = this.pos.x + origin.x, y = this.pos.z + origin.z;
-      const ty = e.kind === 'building' ? groundAt(e.x + 0.5, e.y + 0.5) : air ? flyAt(x, y) : groundAt(x, y);
+      const ty = e.kind === 'building' ? groundAt(e.x + 0.5, e.y + 0.5) : air ? flyAt(x, y) : groundAt(cx, cy);
       this.pos.y = air && !jump ? this.pos.y + (ty - this.pos.y) * (1 - Math.exp(-dt / 400)) : ty;
+      // riding a lift: at the car's height, and the car at its
+      if (this.ride) {
+        this.pos.y = this.ride.y;
+        HEIGHTS.riding.set(this.ride.key, { y: this.ride.y, at: this.el.sceneEl.time });
+        HEIGHTS.onRide?.(this.ride.key, this.ride.y);
+      }
     }
     const rep = this.rep;
     if (dd > 0.01 && (e.kind === 'transport' || e.kind === 'priest' || e.kind === 'flyer')) {

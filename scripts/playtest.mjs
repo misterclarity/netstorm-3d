@@ -1008,15 +1008,83 @@ SCENARIOS.tiers = async () => {
   await page.click('[data-start="skirmish"]');
   await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
   const briefing = await page.evaluate(() => document.querySelector('#modal .text')?.textContent ?? '');
-  if (!/three heights/.test(briefing)) throw new Error(`the briefing does not tell of the heights: ${briefing}`);
+  if (!/three levels/.test(briefing)) throw new Error(`the briefing does not tell of the levels: ${briefing}`);
   await page.click('#modal button.main');
-  // the islands stand at more than one height, from the start
-  const tiers = await page.evaluate(() => {
-    const { G, HEIGHTS } = window.NS3D, seen = new Set();
-    for (let i = 0; i < G.view.terrain.length; i++) if (G.view.terrain[i] === 1) seen.add(HEIGHTS.tier[i]);
-    return { on: HEIGHTS.on, tiers: [...seen].sort() };
+  // the islands stand on more than one level, from the start, and the player's on his Temple's
+  const start = await page.evaluate(() => {
+    const { G, HEIGHTS } = window.NS3D, seen = new Set(), t = G.world.templeOf(1);
+    for (let i = 0; i < G.view.terrain.length; i++) if (G.view.terrain[i] === 1) seen.add(G.world.level[i]);
+    return { on: HEIGHTS.on, tiered: G.world.tiered, levels: [...seen].sort(), active: HEIGHTS.active, home: G.world.level[t.y * 256 + t.x], badge: document.getElementById('levelBadge').textContent };
   });
-  if (!tiers.on || tiers.tiers.length < 2 || tiers.tiers.some((x) => ![-1, 0, 1].includes(x))) throw new Error(`no tiers: ${JSON.stringify(tiers)}`);
+  if (!start.on || !start.tiered || start.levels.length < 2 || start.active !== start.home || !/level/.test(start.badge)) throw new Error(`no levels: ${JSON.stringify(start)}`);
+  // a bridge piece laid on another level, as a player lays it: piece 1, E or Q, a click
+  const spot = await page.evaluate(() => {
+    const { G } = window.NS3D, t = G.world.templeOf(1), hand = G.world.players.get(1).hand;
+    if (!hand.length) hand.push({ piece: 0, age: 999 });
+    for (let r = 0; r < 4; r++) {
+      for (let y = t.y - 26; y < t.y + 30; y++) {
+        for (let x = t.x - 26; x < t.x + 34; x++) {
+          if (G.view.canDropPiece({ player: 1, hand: 0, x, y, rot: r }) === null) return { x, y, rot: r, pieces: hand.length };
+        }
+      }
+    }
+    return null;
+  });
+  if (!spot) throw new Error('nowhere to lay a bridge piece');
+  await page.evaluate((r) => { window.NS3D.G.rot = r; }, spot.rot);
+  await page.keyboard.press('1');
+  const key = start.active === 1 ? 'q' : 'e', want = start.active + (key === 'q' ? -1 : 1);
+  await page.keyboard.press(key);
+  await page.waitForTimeout(1500);
+  const where = await page.evaluate(([x, y, level]) => {
+    const { wx, wz } = window.NS3D, THREE = AFRAME.THREE, scene = document.querySelector('a-scene');
+    const rig = document.getElementById('camera').components['orbit-rig'];
+    rig.focus(wx(x + 0.5), wz(y + 0.5), 30, level * 8);
+    rig.snap({});
+    const p = new THREE.Vector3(wx(x + 0.5), level * 8, wz(y + 0.5));
+    return { level: window.NS3D.HEIGHTS.active, badge: document.getElementById('levelBadge').textContent, p: [p.x, p.y, p.z], canvas: scene.canvas.getBoundingClientRect().toJSON() };
+  }, [spot.x, spot.y, want]);
+  if (where.level !== want || !where.badge.includes(want > 0 ? 'Upper' : want < 0 ? 'Lower' : 'Middle')) throw new Error(`${key.toUpperCase()} did not change the level: ${JSON.stringify(where)}`);
+  await page.waitForTimeout(2500);
+  const screen = await page.evaluate(([px, py, pz]) => {
+    const THREE = AFRAME.THREE, cam = document.querySelector('a-scene').camera, r = document.querySelector('a-scene').canvas.getBoundingClientRect();
+    const v = new THREE.Vector3(px, py, pz).project(cam);
+    return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height, hover: window.NS3D.G.hover };
+  }, where.p);
+  await page.mouse.move(screen.x, screen.y);
+  await page.waitForTimeout(400);
+  const hover = await page.evaluate(() => ({ hover: window.NS3D.G.hover, grid: document.querySelector('[ns-placement]').components['ns-placement'].grid.visible, tip: document.getElementById('tip').textContent }));
+  if (!hover.hover || hover.hover.x !== spot.x || hover.hover.y !== spot.y || !hover.grid) throw new Error(`the piece's cell under the cursor on the level is not the one aimed at: ${JSON.stringify({ spot, hover })}`);
+  await shot('tiers-placing');
+  await page.mouse.click(screen.x, screen.y);
+  await page.evaluate(() => { const { stepWorld } = window.NS3D; stepWorld(); stepWorld(); });
+  await page.waitForFunction(() => window.NS3D.HEIGHTS.lifts.length > 0, null, { timeout: 5000 }).catch(() => {});
+  const laid = await page.evaluate(([x, y]) => {
+    const { G, HEIGHTS } = window.NS3D, i = y * 256 + x;
+    return { terrain: G.view.terrain[i], level: G.world.level[i], lifts: HEIGHTS.lifts.length, active: HEIGHTS.active, owner: G.view.owner[i], tool: G.tool };
+  }, [spot.x, spot.y]);
+  if (laid.terrain < 2 || laid.terrain > 4 || laid.level !== want || !laid.lifts) throw new Error(`the piece was not laid on the level, with a lift: ${JSON.stringify(laid)}`);
+  // a Golem rides the lift: drawn between the levels on the way, the car with it
+  const ride = await page.evaluate(async () => {
+    const { G, HEIGHTS, submit, stepWorld } = window.NS3D, lift = HEIGHTS.lifts[HEIGHTS.lifts.length - 1];
+    G.paused = true;
+    const land = G.view.terrain[lift.b] === 1 ? lift.b : lift.a, deck = land === lift.a ? lift.b : lift.a;
+    const golem = G.world.spawnTransport('sunwalker', 1, land % 256, Math.floor(land / 256));
+    submit({ t: 'moveTransport', transport: golem.id, x: deck % 256, y: Math.floor(deck / 256) });
+    const seen = [];
+    const there = () => golem.x === deck % 256 && golem.y === Math.floor(deck / 256);
+    for (let i = 0; i < 120 && !there(); i++) {
+      stepWorld();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const el = document.querySelector('[ns-units]').components['ns-units'].byId.get(golem.id);
+      if (el) seen.push({ y: el.object3D.position.y, car: document.getElementById('terrain')?.components['ns-terrain']?.cars.get(lift.key) });
+    }
+    G.paused = false;
+    return { low: lift.low, high: lift.high, seen, rode: there() };
+  });
+  const between = ride.seen.filter((s) => s.y > ride.low + 0.5 && s.y < ride.high - 0.5);
+  if (!between.length || between.some((s) => s.car === undefined || Math.abs(s.car - s.y) > 0.01)) throw new Error(`no ride drawn on the lift: ${JSON.stringify({ ...ride, seen: ride.seen.slice(0, 6) })}`);
+  await page.keyboard.press('Escape');
   // both sides play for a while, so that bridges reach out between the islands
   await page.evaluate(() => { window.mine = window.NS3D.NS.createAiMemory(31); });
   for (let k = 0; k < 14; k++) {
@@ -1033,22 +1101,20 @@ SCENARIOS.tiers = async () => {
   }
   await page.evaluate(() => { window.NS3D.G.paused = true; });
   await page.waitForTimeout(1500);
-  // everything stands on its ground: buildings exactly, carriers on the ground under them; bridges
-  // between heights climb
+  // everything stands on its ground: buildings exactly, carriers on the ground under them (or on a lift)
   const stand = await page.evaluate(() => {
-    const { G, HEIGHTS, groundAt, origin } = window.NS3D, units = document.querySelector('[ns-units]').components['ns-units'];
+    const { G, HEIGHTS, groundAt } = window.NS3D, units = document.querySelector('[ns-units]').components['ns-units'];
     const off = [];
-    let raised = 0, ramps = 0;
+    let raised = 0;
     for (const e of G.view.entities.values()) {
       const el = units.byId.get(e.id);
       if (!el || (e.kind !== 'building' && e.kind !== 'transport') || e.aloft || e.path?.length) continue;
       if (e.kind === 'transport' && window.NS3D.NS.flies(G.world.def(e.type))) continue;
-      const p = el.object3D.position, want = e.kind === 'building' ? groundAt(e.x + 0.5, e.y + 0.5) : groundAt(p.x + origin.x, p.z + origin.z);
-      if (Math.abs(p.y - want) > 0.02) off.push({ type: e.type, y: p.y, want });
+      const p = el.object3D.position, ground = groundAt(e.x + 0.5, e.y + 0.5);
+      if (Math.abs(p.y - ground) > 0.02) off.push({ type: e.type, y: p.y, ground });
       if (Math.abs(p.y) > 1) raised++;
     }
-    for (let i = 0; i < G.view.terrain.length; i++) if (G.view.terrain[i] >= 2 && G.view.terrain[i] <= 4 && (HEIGHTS.gx[i] || HEIGHTS.gz[i])) ramps++;
-    return { off, raised, ramps };
+    return { off, raised, lifts: HEIGHTS.lifts.length };
   });
   if (stand.off.length || !stand.raised) throw new Error(`units off their ground: ${JSON.stringify(stand)}`);
   // a click on a raised island picks the cell under the cursor there, not one behind it
@@ -1059,9 +1125,9 @@ SCENARIOS.tiers = async () => {
     let tried = 0;
     for (let y = t.y - 10; y < t.y + 12; y += 3) {
       for (let x = t.x - 10; x < t.x + 14; x += 3) {
-        const i = y * G.view.terrain.length ** 0.5 + x;
-        if (G.view.terrain[i] !== 1 || HEIGHTS.land[i] !== HEIGHTS.high) continue;
-        const p = new THREE.Vector3(wx(x + 0.5), HEIGHTS.land[i], wz(y + 0.5));
+        const i = y * 256 + x;
+        if (G.view.terrain[i] !== 1 || G.world.level[i] * 8 !== HEIGHTS.high) continue;
+        const p = new THREE.Vector3(wx(x + 0.5), HEIGHTS.high, wz(y + 0.5));
         const ndc = document.getElementById('world').object3D.localToWorld(p.clone()).project(cam);
         if (Math.abs(ndc.x) > 0.95 || Math.abs(ndc.y) > 0.95) continue;
         ray.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), cam);
@@ -1074,30 +1140,27 @@ SCENARIOS.tiers = async () => {
   });
   if (picks.tried && picks.wrong.length > picks.tried / 5) throw new Error(`clicks on high ground pick other cells: ${JSON.stringify(picks)}`);
   if (process.env.SHOT) {
-    // in 3D: the home island, the whole map, and the steepest ramp close up
+    // in 3D: the whole map, the home island, and the first lift close up
     await page.evaluate(() => document.querySelector('a-scene').systems['ns-art'].setMode('models'));
-    const ramp = await page.evaluate(() => {
-      const { G, HEIGHTS } = window.NS3D, W = G.view.terrain.length ** 0.5;
-      let best = 0, at = null;
-      for (let i = 0; i < G.view.terrain.length; i++) {
-        const g = Math.hypot(HEIGHTS.gx[i], HEIGHTS.gz[i]);
-        if (G.view.terrain[i] >= 2 && G.view.terrain[i] <= 4 && g > best) { best = g; at = [i % W, Math.floor(i / W)]; }
-      }
-      return at;
+    const lift = await page.evaluate(() => {
+      // the lift nearest the player's Temple
+      const { G, HEIGHTS } = window.NS3D, t = G.world.templeOf(1);
+      const l = [...HEIGHTS.lifts].sort((a, b) => Math.hypot(a.x - t.x, a.y - t.y) - Math.hypot(b.x - t.x, b.y - t.y))[0];
+      return l ? [l.x, l.y, (l.low + l.high) / 2] : null;
     });
-    for (const [name, r, th, ph, where] of [['tiers-home', 40, 0.5, 0.95, null], ['tiers-map', 150, 0.7, 1.2, 'middle'], ['tiers-low', 30, 2.2, 1.2, null], ['tiers-ramp', 24, 0.9, 1.05, ramp]]) {
-      await page.evaluate(([r2, th2, ph2, at]) => {
+    for (const [name, r, th, ph, at] of [['tiers-map', 160, 0.7, 1.15, 'middle'], ['tiers-home', 45, 0.5, 1.0, null], ['tiers-lift', 30, 0.9, 1.2, lift]]) {
+      await page.evaluate(([r2, th2, ph2, there]) => {
         const { G, groundAt, wx, wz, origin } = window.NS3D, t = G.world.templeOf(1), rig = document.getElementById('camera').components['orbit-rig'];
-        const [x, y] = at === 'middle' ? [origin.x, origin.z] : at ?? [t.x + 4, t.y + 3];
-        rig.focus(wx(x), wz(y), r2, groundAt(x + 0.5, y + 0.5));
+        const [x, y, h] = there === 'middle' ? [origin.x, origin.z, 0] : there ?? [t.x + 4, t.y + 3, groundAt(t.x + 0.5, t.y + 0.5)];
+        rig.focus(wx(x), wz(y), r2, h);
         rig.goal.th = th2;
         rig.goal.ph = ph2;
-      }, [r, th, ph, where]);
+      }, [r, th, ph, at]);
       await page.waitForTimeout(2500);
       await shot(name);
     }
   }
-  console.log(`  tiers ${tiers.tiers.join(' ')}, ${stand.ramps} ramp cells, ${stand.raised} raised units, ${picks.tried - picks.wrong.length}/${picks.tried} picks`);
+  console.log(`  levels ${start.levels.join(' ')}, a piece laid on level ${want} (${key.toUpperCase()}), a ride drawn in ${between.length} frames, ${stand.lifts} lifts, ${stand.raised} raised units, ${picks.tried - picks.wrong.length}/${picks.tried} picks`);
   return errors;
 };
 

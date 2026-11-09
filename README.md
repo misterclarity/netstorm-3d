@@ -31,13 +31,20 @@ The main menu offers two kinds of battle against netstorm-web's computer opponen
   by prayer** (the Priest prays for any but the Thunder ones). Each Spell's blast is drawn: a fireball, bolts from the sky,
   falling rocks, a ring of its colour. How to play lists every Spell: what it does, its cost,
   reach, cast time and prayer. The computer prays and casts by the same rules, by its level (below).
-- **Heights** (a skirmish setting, *Level* or *Tiered*): with *Tiered* the islands float at three
-  heights, 4 cells apart, with cliffs where they meet lower ground; bridges between them climb as
-  ramps, an islet laid off a bridge's end stands where the bridge meets it, and everything on the
-  islands, the shots and blasts, the building ghosts and reach rings stand at their height; what
-  flies keeps to the height of the land round about. Clicks find the island, bridge or cliff under
-  the cursor. So far this is the look alone (`src/heights.js`): the simulation is still one flat
-  map, and height does not yet change reach, speed or what may be built where.
+- **Heights** (a skirmish setting, *Level* or *Tiered*): with *Tiered* the islands stand on three
+  levels, a middle one and one below and one above it, 8 cells apart, so that a bridge across
+  the usual gap would have to climb at 30 to 45 degrees. Bridges are laid flat on a level: yours
+  on the one shown by your bridge pieces (**Q** a level down, **E** up; the camera follows, and
+  the cursor lays the piece where it meets that level, on a faint grid), the computer's on the
+  level of what the piece joins. Where a bridge joins ground or bridge of another level a **lift**
+  stands, and the preview marks those ends blue. A walker crossing rides it: two seconds a level,
+  whatever its pace, and all the while it hangs in the open and takes **half again the damage**,
+  so a lift under enemy guns is a place to cross quickly or to defend. An islet laid off a
+  bridge's end is on that bridge's level; a geyser's islet that rises in the sky on a level of
+  its own. What flies keeps to the height of the land round about; everything else stands on its
+  level, and clicks find the island or bridge under the cursor. The rules are in
+  `scripts/house-rules.mjs` (the world's `level` of each cell, lifts in movement and combat), the
+  drawing and the levels' choice in `src/heights.js`.
 
 In the mission:
 
@@ -200,9 +207,9 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 | `npm run build` | Writes `dist/index.html`: one self-contained file you can open directly or host anywhere. A-Frame loads from its CDN. |
 | `npm run lint` | ESLint over the client and the scripts (`eslint.config.mjs`): undefined or unused names, unreachable code, shadowed names; any warning fails it. CI runs it. |
 | `npm run ai:arena` | Matches of the computer against itself or against an idle side, on skirmish maps as the menu makes them, with this game's rules: wins, minutes to win, when a Priest first falls, crystals, guns, time per move. `PAIRS=hard:easy,normal:idle SEEDS=1,2,3,4 MINUTES=30`; `TRACE=1` follows one match minute by minute with every capture event and lost carrier, `EXPLAIN=<minute>` adds side 1's reasons, `ECON=1` each side's income every five minutes; `TUNE='{"hard":{…}}'` turns a level's knobs for a trial. |
-| `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error, then compares the HUD's account of Energy (`src/energy.js`) with the rules' own answer at every site of a map, with units and Generators of every Fury and level. CI runs it. |
+| `npm run check` | Plays the mission headless for a couple of minutes of game time (no browser), failing on any error, then compares the HUD's account of Energy (`src/energy.js`) with the rules' own answer at every site of a map, with units and Generators of every Fury and level, and checks the lifts of tiered islands (a ride's time, the damage taken on it, the level a piece is laid on). CI runs it. |
 | `npm run ai-check` | Plays eight minutes of a skirmish at each level twice, with and without the AI worker's cache (below), and fails unless the computer makes the same moves both ways; prints how long a move takes. CI runs it. |
-| `npm run playtest` | Plays the built page in headless Chromium (Playwright), failing on any page error: the mission's opening; a staged endgame, whose Victory waits for the Sacrifice to be heard out; a downed Priest captured with no Altar yet and carried there once one stands; an order the rules would refuse refused at once, without the unit answering; Auto-collect on and off; several Golems selected with a box, sent together, Shift-clicked out, cleared, an idle one picked with I and all picked with a double click; an air ship clicked by its body and sent across the island; a Golem sent to a geyser by a click on its steam; a Priest sent to a geyser while holding a crystal; five minutes of a skirmish (with its Residences and greenery); the opponent's level chosen for the mission; the Priest praying for the Devastation and casting it (the enemy Golem beside him gone), and a carrier taking an Obelisk's Spell and casting it; a Disc Thrower whirling its arm and throwing its disc, a Vander Tower's orb flashing as it fires and a Man o'War's sting seen and heard; the Thunder Cannon's dragon spitting fire as its shot leaves (`SHOT=dir` saves pictures of them); How to play's table of every Spell; a skirmish on tiered islands (islands at more than one height, everything standing on its ground, clicks on high ground finding the cell under the cursor; `SHOT=dir` saves views of it); five minutes of a battle the computer plays on both sides, in both art styles and on the table, checked for any warning, any unit drawn out of place or out of step with the world, and "NaN" in the HUD; and the tabletop (with the mouse, then with faked VR controllers). Run one with `node scripts/playtest.mjs <name>`. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
+| `npm run playtest` | Plays the built page in headless Chromium (Playwright), failing on any page error: the mission's opening; a staged endgame, whose Victory waits for the Sacrifice to be heard out; a downed Priest captured with no Altar yet and carried there once one stands; an order the rules would refuse refused at once, without the unit answering; Auto-collect on and off; several Golems selected with a box, sent together, Shift-clicked out, cleared, an idle one picked with I and all picked with a double click; an air ship clicked by its body and sent across the island; a Golem sent to a geyser by a click on its steam; a Priest sent to a geyser while holding a crystal; five minutes of a skirmish (with its Residences and greenery); the opponent's level chosen for the mission; the Priest praying for the Devastation and casting it (the enemy Golem beside him gone), and a carrier taking an Obelisk's Spell and casting it; a Disc Thrower whirling its arm and throwing its disc, a Vander Tower's orb flashing as it fires and a Man o'War's sting seen and heard; the Thunder Cannon's dragon spitting fire as its shot leaves (`SHOT=dir` saves pictures of them); How to play's table of every Spell; a skirmish on tiered islands (islands on more than one level; a bridge piece laid on another level with Q or E and a click, a lift appearing; a Golem riding it, drawn between the levels with the car under it; everything standing on its ground after minutes of play; clicks on high ground finding the cell under the cursor; `SHOT=dir` saves views of it); five minutes of a battle the computer plays on both sides, in both art styles and on the table, checked for any warning, any unit drawn out of place or out of step with the world, and "NaN" in the HUD; and the tabletop (with the mouse, then with faked VR controllers). Run one with `node scripts/playtest.mjs <name>`. Needs `npx playwright install chromium` once, or `CHROMIUM=/path/to/chrome` to use a Chrome you have. CI runs it. |
 
 ## How it is built
 
@@ -353,8 +360,8 @@ from GitHub Actions once (*Settings → Pages → Source: GitHub Actions*).
 ## Not there yet
 
 - Only the first mission of the campaign; the engine has the other fifteen.
-- Tiered islands are a look only: higher ground gives no advantage yet, and nothing limits how
-  steeply a bridge may climb (a short bridge between far-apart heights is very steep).
+- On tiered islands height gives no other advantage yet (a gun's reach is the same up and down),
+  and the computer neither picks a level for its bridges nor weighs the danger of a lift.
 - In "Sprites" mode the overlays the original lays over some units (a Temple's whirl, a
   cannon's charge) and the units' shadows are not drawn yet.
 - Tested in desktop Chromium; phones and other browsers are less tried. The VR and AR modes

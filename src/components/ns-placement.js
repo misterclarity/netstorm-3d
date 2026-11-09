@@ -8,7 +8,7 @@
  * selected, and always when "show enemy ranges" is on (G key).
  */
 import { NS, G, ME, defs, facingText, WORLD, wx, wz, origin, errorText, FURY_COLOR } from '../state.js';
-import { groundAt } from '../heights.js';
+import { HEIGHTS, TIER, LEVEL_NAMES, groundAt, placeAt } from '../heights.js';
 import { energyAt, sourceOf, energyTip } from '../energy.js';
 import { reachOf, reachOfBuilding, isGun } from '../reach.js';
 
@@ -16,6 +16,28 @@ const { THREE } = AFRAME;
 const KIND_COLOR = { mine: '#ffd27a', foe: '#ff5a4a' };
 // Energy rings in their Fury's colour ('energy:w' ...), brighter where they count for the site
 const ENERGY_LETTERS = { w: 'wind', r: 'rain', t: 'thunder', s: 'sun' };
+
+/** A grid of cells fading out from the middle: the level a piece is laid on (tiered islands). */
+function levelGrid() {
+  const cv = document.createElement('canvas'), n = 15, px = 16, size = n * px;
+  cv.width = cv.height = size;
+  const g = cv.getContext('2d');
+  g.strokeStyle = 'rgba(200,230,255,0.9)';
+  g.lineWidth = 1.5;
+  for (let i = 0; i <= n; i++) {
+    g.beginPath(); g.moveTo(i * px, 0); g.lineTo(i * px, size); g.stroke();
+    g.beginPath(); g.moveTo(0, i * px); g.lineTo(size, i * px); g.stroke();
+  }
+  g.globalCompositeOperation = 'destination-in';
+  const fade = g.createRadialGradient(size / 2, size / 2, size * 0.1, size / 2, size / 2, size / 2);
+  fade.addColorStop(0, 'rgba(0,0,0,0.75)');
+  fade.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = fade;
+  g.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 
 AFRAME.registerComponent('ns-placement', {
   init() {
@@ -32,6 +54,11 @@ AFRAME.registerComponent('ns-placement', {
     }
     this.endOn = see('#f2c14e', 0.95);
     this.endOff = see('#ffffff', 0.55);
+    this.endLift = see('#6fc8ff', 0.95);
+    // tiered islands: a faint grid on the level a piece is laid on, round the cursor
+    this.grid = new THREE.Mesh(new THREE.PlaneGeometry(15, 15), new THREE.MeshBasicMaterial({ map: levelGrid(), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    this.grid.rotation.x = -Math.PI / 2;
+    this.grid.visible = false;
     this.cellGeo = new THREE.BoxGeometry(0.94, 0.12, 0.94);
     this.endGeo = new THREE.BoxGeometry(0.7, 0.2, 0.14);
     this.cells = [];
@@ -41,7 +68,7 @@ AFRAME.registerComponent('ns-placement', {
     this.selRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 40), see('#f2c14e', 0.9));
     this.hoverRing = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), see('#ffffff', 0.5));
     this.selRing.rotation.x = this.hoverRing.rotation.x = -Math.PI / 2;
-    this.root.add(this.arrow, this.selRing, this.hoverRing);
+    this.root.add(this.arrow, this.selRing, this.hoverRing, this.grid);
     this.tip = document.getElementById('tip');
     this.showEnemyReach = false;
   },
@@ -59,12 +86,13 @@ AFRAME.registerComponent('ns-placement', {
       this.cells[i] = m;
     }
     m.material = ok ? this.ok : this.bad;
-    m.position.set(wx(x + 0.5), groundAt(x + 0.5, y + 0.5) + 0.08, wz(y + 0.5));
+    m.position.set(wx(x + 0.5), placeAt(x + 0.5, y + 0.5) + 0.08, wz(y + 0.5));
     m.visible = true;
   },
 
-  /** A bar across the edge a piece's end joins through, bright where it meets ground or bridge. */
-  end(i, x, y, dir, joins) {
+  /** A bar across the edge a piece's end joins through, bright where it meets ground or bridge, blue
+   * where a lift will join it to another level. */
+  end(i, x, y, dir, joins, lift = false) {
     let m = this.ends[i];
     if (!m) {
       m = new THREE.Mesh(this.endGeo, this.endOn);
@@ -72,8 +100,8 @@ AFRAME.registerComponent('ns-placement', {
       this.ends[i] = m;
     }
     const [dx, dy] = NS.DIRS[dir];
-    m.material = joins ? this.endOn : this.endOff;
-    m.position.set(wx(x + 0.5 + dx * 0.5), groundAt(x + 0.5, y + 0.5) + 0.2, wz(y + 0.5 + dy * 0.5));
+    m.material = lift ? this.endLift : joins ? this.endOn : this.endOff;
+    m.position.set(wx(x + 0.5 + dx * 0.5), placeAt(x + 0.5, y + 0.5) + 0.2, wz(y + 0.5 + dy * 0.5));
     m.rotation.y = dx ? Math.PI / 2 : 0;
     m.visible = true;
   },
@@ -128,18 +156,28 @@ AFRAME.registerComponent('ns-placement', {
     this.arrow.visible = false;
     const enemyGuns = () => [...G.view.entities.values()].filter((e) => e.kind === 'building' && e.owner && G.world.hostile(ME, e.owner) && !e.rising && isGun(defs.get(e.type)));
     let showEnemies = this.showEnemyReach;
+    this.grid.visible = false;
 
     if (at && tool.kind === 'piece') {
       const piece = G.world.players.get(ME).hand[tool.hand];
       if (piece) {
         const err = G.view.canDropPiece({ player: ME, hand: tool.hand, x: at.x, y: at.y, rot: G.rot });
         for (const [dx, dy] of NS.rotatePiece(NS.PIECES[piece.piece], G.rot)) this.cell(cells++, at.x + dx, at.y + dy, !err);
+        let lifts = 0;
         for (const [cx, cy, dir] of NS.pieceEnds(piece.piece, G.rot)) {
-          const [dx, dy] = NS.DIRS[dir], nx = at.x + cx + dx, ny = at.y + cy + dy;
-          const t = nx >= 0 && ny >= 0 && nx < WORLD && ny < WORLD ? G.view.terrain[ny * WORLD + nx] : 0;
-          this.end(ends++, at.x + cx, at.y + cy, dir, t >= 1 && t <= 4);
+          const [dx, dy] = NS.DIRS[dir], nx = at.x + cx + dx, ny = at.y + cy + dy, inside = nx >= 0 && ny >= 0 && nx < WORLD && ny < WORLD;
+          const t = inside ? G.view.terrain[ny * WORLD + nx] : 0, joins = t >= 1 && t <= 4;
+          // on tiered islands an end that meets another level gets a lift
+          const lift = joins && HEIGHTS.on && G.view.level[ny * WORLD + nx] !== HEIGHTS.active;
+          if (lift) lifts++;
+          this.end(ends++, at.x + cx, at.y + cy, dir, joins, lift);
         }
-        tip = err ? errorText(err) : 'Click to lay · R to rotate · the yellow ends join';
+        const level = HEIGHTS.on ? ` on the ${LEVEL_NAMES[HEIGHTS.active].toLowerCase()} level (Q ▼ E ▲)` : '';
+        tip = err ? errorText(err) : `Click to lay${level} · R to rotate · the yellow ends join${lifts ? ' · a lift joins each blue end to its level' : ''}`;
+        if (HEIGHTS.on) {
+          this.grid.visible = true;
+          this.grid.position.set(wx(at.x + 0.5), HEIGHTS.active * TIER + 0.02, wz(at.y + 0.5));
+        }
         bad = !!err;
         showEnemies = true;
       }
@@ -161,7 +199,7 @@ AFRAME.registerComponent('ns-placement', {
       if (aims) {
         const [dx, dy] = NS.DIRS[G.facing], cx = wx(a.x + def.footX / 2), cz = wz(a.y + def.footY / 2);
         this.arrow.visible = true;
-        this.arrow.position.set(cx + dx * (def.footX / 2 + 1.2), groundAt(a.x + 0.5, a.y + 0.5) + 0.6, cz + dy * (def.footY / 2 + 1.2));
+        this.arrow.position.set(cx + dx * (def.footX / 2 + 1.2), placeAt(a.x + 0.5, a.y + 0.5) + 0.6, cz + dy * (def.footY / 2 + 1.2));
         this.arrow.rotation.set(dy * Math.PI / 2, 0, -dx * Math.PI / 2);
       }
       tip = err === 'no energy' ? energyTip(power)

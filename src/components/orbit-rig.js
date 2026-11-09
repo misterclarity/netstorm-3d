@@ -4,6 +4,7 @@
  * emitted on the scene as `ns-tap`; pointer movement without a press as `ns-hover`.
  */
 import { keysOff } from '../state.js';
+import { HEIGHTS } from '../heights.js';
 
 const { THREE } = AFRAME;
 
@@ -164,8 +165,9 @@ AFRAME.registerComponent('orbit-rig', {
       if (k.has('arrowright') || k.has('d')) this.pan(-sp, 0);
       if (k.has('arrowup') || k.has('w')) this.pan(0, sp);
       if (k.has('arrowdown') || k.has('s')) this.pan(0, -sp);
-      if (k.has('q')) this.goal.th += dt * 0.0016;
-      if (k.has('e')) this.goal.th -= dt * 0.0016;
+      // (on tiered islands Q and E change the level instead: ns-game.js)
+      if (k.has('q') && !HEIGHTS.on) this.goal.th += dt * 0.0016;
+      if (k.has('e') && !HEIGHTS.on) this.goal.th -= dt * 0.0016;
     }
     if (this.autoRotate) this.goal.th += dt * 0.00006;
     const a = 1 - Math.pow(0.0025, dt / 1000);

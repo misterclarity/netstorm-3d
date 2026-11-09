@@ -9,6 +9,7 @@ import { modelKind } from './models.js';
 import { describeBuild, loadNewer } from './version.js';
 import { toScene } from './space.js';
 import { SPELL_MODES, SPELL_IDS, spellText, spellName } from './spells.js';
+import { HEIGHTS, LEVEL_NAMES } from './heights.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -78,6 +79,19 @@ export class Hud {
     if ($('logList')) $('logList').innerHTML = '';
     this.closeModal();
     this.updateTop();
+    this.showLevel(true);
+  }
+
+  /** Tiered islands: the level bridges are laid on, by the bridge pieces (Q and E change it). */
+  showLevel(quiet = false) {
+    const badge = $('levelBadge');
+    if (!badge) return;
+    badge.hidden = !HEIGHTS.on;
+    if (!HEIGHTS.on) return;
+    const name = LEVEL_NAMES[HEIGHTS.active];
+    badge.textContent = `· ${name} level · Q ▼ E ▲`;
+    badge.className = `level-${HEIGHTS.active < 0 ? 'low' : HEIGHTS.active > 0 ? 'high' : 'mid'}`;
+    if (!quiet) this.toast(`${name} level: bridges are laid here`);
   }
 
   modalOpen() {
@@ -651,7 +665,7 @@ export class Hud {
     const s = G.setup, cap = (x) => x[0].toUpperCase() + x.slice(1);
     const enemy = [...G.world.players.values()].find((p) => p.id !== ME);
     this.modal(`<h2>Skirmish</h2>
-      <p class="text">You are ${cap(s.theme)}; ${escapeHtml(enemy?.name ?? 'the computer')} is ${cap(s.enemyTheme)} and plays at ${s.difficulty} level. ${s.islands} islands${s.tiers === 'tiered' ? ' at three heights, bridges climbing between them (only the look so far: height does not yet change the battle)' : ''}, map ${s.seed}.</p>
+      <p class="text">You are ${cap(s.theme)}; ${escapeHtml(enemy?.name ?? 'the computer')} is ${cap(s.enemyTheme)} and plays at ${s.difficulty} level. ${s.islands} islands${s.tiers === 'tiered' ? ' on three levels: you lay bridges on the level shown by your bridge pieces (Q goes down, E up), and where a bridge meets another level a lift carries walkers up or down, slowly and exposed to fire' : ''}, map ${s.seed}.</p>
       <ol><li>Win by capturing the enemy’s Priest and sacrificing him at your Altar; lose if he does it to you.</li>
       <li>You know the ${cap(s.theme)} units (${escapeHtml(this.furyUnits(s.theme))}) and the Sun’s first ones. Your Priest builds the Workshops that make them (a ${cap(s.theme)} Workshop for the ${cap(s.theme)} units), and an Altar.</li>
       <li>New geysers appear during the battle. Golems carry their Storm Power home.</li>
@@ -700,10 +714,10 @@ export class Hud {
     const was = G.paused;
     if (G.started) G.paused = true;
     this.modal(`<h2>Controls</h2><ol style="list-style:none;padding:0">
-      <li><b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>Q</kbd><kbd>E</kbd> turn</li>
+      <li><b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>Q</kbd><kbd>E</kbd> turn (on tiered islands: the level, below)</li>
       <li><b>Select:</b> click a unit or building. With a Golem or air ship selected, click a geyser to collect, a downed enemy Priest to capture him, or ground to send it there. With your Priest selected, click ground to walk, or your Altar to perform a sacrifice.</li>
       <li><b>Several at once:</b> <kbd>Shift</kbd>-click Golems and air ships to add or remove them · double-click one for all of its kind on the screen · <kbd>Ctrl</kbd>-drag (<kbd>⌘</kbd>-drag on a Mac) a box around them. An order then goes to all. <kbd>I</kbd> picks the next idle one.</li>
-      <li><b>Bridges:</b> click a piece (or <kbd>1</kbd>–<kbd>6</kbd>), then the map. <kbd>R</kbd> rotates. Pieces join only by their ends; the yellow dot marks the cell under the cursor.</li>
+      <li><b>Bridges:</b> click a piece (or <kbd>1</kbd>–<kbd>6</kbd>), then the map. <kbd>R</kbd> rotates. Pieces join only by their ends; the yellow dot marks the cell under the cursor. On tiered islands a piece is laid on the level shown by the pieces: <kbd>Q</kbd> goes a level down, <kbd>E</kbd> up. Where a bridge joins another level a lift stands; walkers ride it slowly and take half again the damage on the way.</li>
       <li><b>Build:</b> click a card, then the map. <kbd>R</kbd> turns cannons. Hold <kbd>Shift</kbd> to build several. Rings in each Fury’s colour show your Energy (the ones that count for the spot light up, and the tip says what is missing); yellow, the gun’s range. The dots on a card are the Energy it needs.</li>
       <li><b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <b>Salvage:</b> <kbd>Delete</kbd></li>
       <li><b>Look:</b> <kbd>H</kbd> your Temple · <kbd>P</kbd> your Priest · <kbd>F</kbd> follow the selected unit · click or drag on the minimap</li>

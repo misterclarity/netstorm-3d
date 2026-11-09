@@ -44,6 +44,11 @@
   #bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 10px; display: flex; gap: 10px; padding: 8px; z-index: 10; max-width: calc(100vw - 20px); overflow-x: auto; }
   .group { display: flex; flex-direction: column; gap: 4px; }
   .group > span { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding-left: 2px; white-space: nowrap; }
+  /* the level bridges are laid on (tiered islands) */
+  #levelBadge { font-weight: 600; letter-spacing: 0.04em; }
+  #levelBadge.level-high { color: #ffd27a; }
+  #levelBadge.level-mid { color: #e8eef8; }
+  #levelBadge.level-low { color: #8fd0ff; }
   .cards { display: flex; gap: 6px; }
   .card { position: relative; width: 76px; height: 92px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 6px 4px 5px; font-size: 11px; text-align: center; line-height: 1.15; overflow: hidden; }
   .card:hover:not(.off) { border-color: rgba(255,255,255,0.35); }

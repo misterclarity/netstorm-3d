@@ -12,7 +12,7 @@
  * changes hands only recolours its own: no new layout, no new meshes.
  */
 import { G, WORLD, wx, wz, hash, playerTheme } from '../state.js';
-import { HEIGHTS } from '../heights.js';
+import { heightOfCell } from '../heights.js';
 
 const { THREE } = AFRAME;
 const ISLAND = 1;
@@ -98,7 +98,7 @@ AFRAME.registerComponent('ns-decor', {
     const lots = { trunk: [], crown: [], pine: [], pineTop: [], bush: [], rock: [], flower: [], tuft: [] }, cells = new Set();
     // with tiered islands (heights.js), on the ground of its island's height
     const put = (kind, cell, x, z, scale, role, pick, turn) => {
-      lots[kind].push({ cell, x, y: HEIGHTS.on ? HEIGHTS.land[cell] : 0, z, scale, turn, role, pick, hidden: false });
+      lots[kind].push({ cell, x, y: heightOfCell(cell % WORLD, Math.floor(cell / WORLD)), z, scale, turn, role, pick, hidden: false });
       cells.add(cell);
     };
     const island = (x, y) => x >= 0 && y >= 0 && x < WORLD && y < WORLD && v.terrain[y * WORLD + x] === ISLAND;
