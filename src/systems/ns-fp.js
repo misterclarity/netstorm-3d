@@ -94,10 +94,13 @@ AFRAME.registerSystem('ns-fp', {
     window.addEventListener('blur', () => { this.keys.clear(); if (this.active) this.steer(); });
     document.addEventListener('mousemove', (e) => {
       if (!this.active || document.pointerLockElement !== this.el.canvas) return;
+      // the first movement after the pointer is locked can be a jump across the screen (and some
+      // browsers send one now and then): not a turn of his head
+      if (this.fresh || Math.abs(e.movementX) > 250 || Math.abs(e.movementY) > 250) { this.fresh = false; return; }
       this.yaw -= e.movementX * LOOK;
       this.pitch = THREE.MathUtils.clamp(this.pitch - e.movementY * LOOK, -1.45, 1.35);
     });
-    document.addEventListener('pointerlockchange', () => this.hud());
+    document.addEventListener('pointerlockchange', () => { this.fresh = true; this.hud(); });
     this.el.addEventListener('render-target-loaded', () => this.bind());
     if (this.el.canvas) this.bind();
   },

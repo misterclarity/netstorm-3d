@@ -1573,6 +1573,8 @@ SCENARIOS.firstperson = async () => {
       while (n < 8 && free(p.x + dx * (n + 1), p.y + dy * (n + 1))) n++;
       if (!best || n > best.n) best = { dx, dy, n };
     }
+    // (the pointer let go of: a browser that locks it to the view may turn the head with it)
+    document.exitPointerLock?.();
     fp.yaw = Math.atan2(-best.dx, -best.dy);
     fp.pitch = -0.1;
     return { ...best, x: p.x, y: p.y };
@@ -1669,6 +1671,7 @@ SCENARIOS.dungeon = async () => {
   await shot('dungeon-portal');
   // V, E: down into the dungeon; the islands, the sky and the clouds put away, the dungeon shown
   await page.keyboard.press('v');
+  await page.evaluate(() => document.exitPointerLock?.());
   await play(0.2);
   await page.keyboard.press('e');
   await play(0.3);
@@ -1763,9 +1766,11 @@ SCENARIOS.dungeon = async () => {
     G.paused = true;
     while (G.world.tick < (NS.DAY_SECONDS + 40) * NS.TPS) { for (let i = 0; i < 200; i++) if (!stepWorld()) { flushPendingAi(); stepWorld(); } await new Promise((r) => setTimeout(r, 0)); }
     document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(p.x + 0.5), window.NS3D.wz(p.y + 0.5), 18);
-    await new Promise((r) => setTimeout(r, 1500));
-    const el = window.NS3D.game.units().byId.get(p.id);
-    return { night: G.world.isNight(), light: el.components['ns-unit'].halo?.intensity ?? 0 };
+    // (the view takes a while to draw again after the dungeon: its lights gone, the islands' shaders
+    // are made anew)
+    const el = window.NS3D.game.units().byId.get(p.id), end = performance.now() + 30000;
+    while (!(el.components['ns-unit'].halo?.intensity > 3) && performance.now() < end) await new Promise((r) => setTimeout(r, 250));
+    return { night: G.world.isNight(), light: el.components['ns-unit'].halo?.intensity ?? 0, state: p.state, below: G.world.below.has(p.id) };
   });
   if (!halo.night || !(halo.light > 3)) throw new Error(`no light about the Priest at night: ${JSON.stringify(halo)}`);
   await page.waitForTimeout(1500);
