@@ -5,6 +5,7 @@
 import { NS, DATA, G, MISSION, TPS, ME, WORLD, defs, origin } from './state.js';
 import { settleResidences } from './residences.js';
 import { resetHeights } from './heights.js';
+import { applySettings } from './settings.js';
 
 /** Skirmish settings the menu starts from. */
 export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, spells: 'none', tiers: 'level', seed: 42 };
@@ -41,6 +42,8 @@ export function newGame(setup = G.setup) {
   // a random map's islands get the Residences a mission's map has (src/residences.js)
   if (!G.mission) settleResidences(G.world, options.seed);
   G.view = G.world.view();
+  // the player's settings that are rules: day and night (src/settings.js)
+  applySettings(G.world);
   // islands on three levels, if the skirmish was set up so (src/heights.js)
   resetHeights(!G.mission && setup.tiers === 'tiered', setup.seed, setup.difficulty);
   G.schedule = new NS.AiSchedule(TPS);

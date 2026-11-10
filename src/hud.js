@@ -10,6 +10,7 @@ import { describeBuild, loadNewer } from './version.js';
 import { toScene } from './space.js';
 import { SPELL_MODES, SPELL_IDS, spellText, spellName } from './spells.js';
 import { HEIGHTS, LEVEL_NAMES } from './heights.js';
+import { loadSettings, saveSettings, NIGHT_REACH } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -116,6 +117,20 @@ export class Hud {
     $('storm').innerHTML = `⚡ <b>${me ? Math.floor(me.storm) : 0}</b>`;
     const secs = Math.floor((G.world?.tick ?? 0) / TPS);
     $('clock').innerHTML = `⏱ <b>${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}</b>`;
+    // day and night (a setting): which it is, and how long until it turns
+    const day = $('daytime'), w = G.world;
+    if (day) {
+      day.hidden = !w?.nights;
+      if (w?.nights) {
+        const cycle = NS.DAY_SECONDS + NS.NIGHT_SECONDS, into = (w.tick / TPS) % cycle, night = into >= NS.DAY_SECONDS;
+        const left = Math.ceil((night ? cycle : NS.DAY_SECONDS) - into), clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+        day.innerHTML = `${night ? '☾' : '☀'} <b>${clock}</b>`;
+        day.classList.toggle('night', night);
+        day.title = night
+          ? `Night, ${clock} to dawn: guns reach ${Math.round(w.nightShare * 100)}% less, and a Sacrifice waits for the sun`
+          : `Day, ${clock} to nightfall`;
+      }
+    }
     $('pause').textContent = G.paused ? '▶ Resume' : 'Pause';
     $('pause').classList.toggle('on', G.paused && G.started);
     $('speed').textContent = `${G.speed}×`;
@@ -607,7 +622,7 @@ export class Hud {
           </div>
           <p class="level" id="skLevelNote"></p>
           <button class="main" data-start="skirmish">Start skirmish</button></section>
-      </div>`, [{ label: 'How to play', act: () => this.howToPlay(() => this.menu()) }]);
+      </div>`, [{ label: 'Settings', act: () => this.settings(() => this.menu()) }, { label: 'How to play', act: () => this.howToPlay(() => this.menu()) }]);
     const box = $('modalBox');
     box.querySelector('#skDice').onclick = () => { box.querySelector('#skSeed').value = String(Math.floor(Math.random() * 100000)); };
     // each level's line under its choice, kept up to date as it changes
@@ -637,6 +652,28 @@ export class Hud {
       try { localStorage.setItem('netstorm-3d:skirmish', JSON.stringify(setup)); } catch { /* no storage */ }
       this.game.start(setup);
     };
+  }
+
+  /** Settings: rules a game takes as it starts (src/settings.js); `back` returns to where it was opened. */
+  settings(back) {
+    const s = loadSettings(), share = (n) => (n ? `−${n}%` : 'as by day') + (n === 25 ? ' (default)' : '');
+    this.modal(`<h2>Settings</h2>
+      <p class="text">These are rules: they hold from the next game you start.</p>
+      <div class="form">
+        <label>Day and night <select id="stNights"><option value="on" ${s.nights ? 'selected' : ''}>On</option><option value="off" ${s.nights ? '' : 'selected'}>Off</option></select></label>
+        <label>Guns' reach at night <select id="stNightReach">${NIGHT_REACH.map((n) => `<option value="${n}" ${n === s.nightReach ? 'selected' : ''}>${share(n)}</option>`).join('')}</select></label>
+      </div>
+      <p class="level">A day lasts ${NS.DAY_SECONDS / 60} minutes and a night ${NS.NIGHT_SECONDS / 60}, from a morning at the start of the battle. At night
+        every gun reaches less far (its ring shows how far), and a Sacrifice waits for the sun: the Priest calls out to it, so his
+        runes stop at nightfall and go on at dawn, the captive still chained. Off, it is always day, as in the original.</p>`,
+    [{ label: 'Back', act: () => back() }, {
+      label: 'Save', main: true,
+      act: () => {
+        const box = $('modalBox');
+        saveSettings({ nights: box.querySelector('#stNights').value === 'on', nightReach: Number(box.querySelector('#stNightReach').value) });
+        back();
+      },
+    }]);
   }
 
   begin() {
@@ -770,6 +807,13 @@ export class Hud {
         and the Crossbow fire the way they face. Turn them with <kbd>R</kbd> while placing them. The Wind
         Tower is shielded on the side it faces. Towers and barricades hold a line, air bases send flyers at
         the enemy, and the Vander Tower shoots flyers down.</p>
+      <h3>Day and night</h3>
+      <p>Unless it is turned off in Settings, a day of ${NS.DAY_SECONDS / 60} minutes follows the start of the battle,
+        then a night of ${NS.NIGHT_SECONDS / 60}, and so on; the clock by the Storm Power says which, and how long
+        until it turns. At night every gun reaches less far (a quarter less unless Settings say otherwise; the
+        rings show it), so a night is the time to move carriers and lay bridges past the enemy’s guns. And a
+        Priest calls out to the sun: a Sacrifice stops at nightfall and goes on at dawn, the captive still
+        chained, which leaves the night to his side to break the Altar and free him.</p>
       <h3>Capturing the enemy Priest</h3>
       <ol><li>Build guns within reach of the enemy Priest and knock him out: he falls when he is below half
         his health.</li>

@@ -1200,6 +1200,55 @@ SCENARIOS.tiers = async () => {
   return errors;
 };
 
+SCENARIOS.night = async () => {
+  const { page, errors } = await open({ width: 1100, height: 700 });
+  const shot = async (name) => { if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/${name}.png` }); };
+  // Settings, from the main menu: day and night on, a quarter less reach by default; set it to 40%
+  await page.click('#modal button:has-text("Settings")');
+  await page.waitForSelector('#stNightReach');
+  const defaults = await page.evaluate(() => ({ nights: document.getElementById('stNights').value, reach: document.getElementById('stNightReach').value }));
+  if (defaults.nights !== 'on' || defaults.reach !== '25') throw new Error(`the settings' defaults are not day and night on, -25%: ${JSON.stringify(defaults)}`);
+  await page.selectOption('#stNightReach', '40');
+  await page.click('#modal button:has-text("Save")');
+  await page.waitForSelector('#skTheme');
+  await page.selectOption('#skTheme', 'rain');
+  await page.selectOption('#skEnemy', 'thunder');
+  await page.fill('#skSeed', '7');
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  await page.click('#modal button.main');
+  const day = await page.evaluate(() => ({ nights: window.NS3D.G.world.nights, share: window.NS3D.G.world.nightShare, night: window.NS3D.G.world.isNight(), clock: document.getElementById('daytime').textContent, shown: !document.getElementById('daytime').hidden }));
+  if (!day.nights || day.share !== 0.4 || day.night || !day.shown || !day.clock.includes('☀')) throw new Error(`the game did not take the settings, or does not begin by day: ${JSON.stringify(day)}`);
+  // on to the night: the clock turns to the moon, a word at nightfall, the sky and the light go dark
+  await page.evaluate(async () => {
+    const { G, NS, stepWorld, flushPendingAi } = window.NS3D;
+    G.paused = true;
+    while (G.world.tick < (NS.DAY_SECONDS + 40) * NS.TPS) {
+      for (let i = 0; i < 300; i++) if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    G.paused = false;
+  });
+  await page.waitForFunction(() => document.getElementById('daytime').textContent.includes('☾') && document.querySelector('a-sky').getObject3D('mesh').material.uniforms.night.value > 0.99, null, { timeout: 20000 }).catch(() => {});
+  const night = await page.evaluate(() => {
+    const sun = document.getElementById('sun').getObject3D('light'), sky = document.querySelector('a-sky').getObject3D('mesh').material;
+    return {
+      night: window.NS3D.G.world.isNight(), clock: document.getElementById('daytime').textContent,
+      log: [...document.querySelectorAll('#logList li')].map((li) => li.textContent).join(' | '),
+      sun: sun.intensity, sky: sky.uniforms.night.value,
+    };
+  });
+  if (!night.night || !night.clock.includes('☾') || !/Night falls: guns reach 40% less/.test(night.log) || night.sun > 1 || night.sky < 0.99) throw new Error(`no night: ${JSON.stringify(night)}`);
+  if (process.env.SHOT) {
+    await page.evaluate(() => document.querySelector('a-scene').systems['ns-art'].setMode('models'));
+    await page.keyboard.press('g');
+    await page.waitForTimeout(1500);
+    await shot('night');
+  }
+  console.log(`  night: ${night.clock.trim()} to dawn, the sun at ${night.sun.toFixed(2)}, the reach a ${40}% shorter`);
+  return errors;
+};
+
 SCENARIOS.levels = async () => {
   const { page, errors } = await open();
   // each choice of level has its line, and the mission is played at the level chosen for it

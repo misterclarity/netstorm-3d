@@ -19,6 +19,7 @@
 <div id="top" class="panel">
   <div class="stat" id="storm" title="Storm Power: what everything costs">⚡ <b>0</b></div>
   <div class="stat" id="clock">⏱ <b>0:00</b></div>
+  <div class="stat" id="daytime" hidden>☀ <b>4:00</b></div>
   <div class="sep"></div>
   <button class="tb" id="pause" title="Pause (Space)">Pause</button>
   <button class="tb" id="speed" title="Game speed (+ / −)">1×</button>
@@ -83,7 +84,7 @@
 
   <!-- sky and clouds -->
   <a-sky radius="1200" segments-width="48" segments-height="24" material="shader: ns-sky; sunDirection: -0.53 0.71 0.41"></a-sky>
-  <a-entity light="type: hemisphere; color: #e3eefc; groundColor: #7a6248; intensity: 1.15"></a-entity>
+  <a-entity id="skylight" light="type: hemisphere; color: #e3eefc; groundColor: #7a6248; intensity: 1.15"></a-entity>
   <a-entity id="clouds"
             ns-clouds__low="clusters: 85; seed: 11; innerRadius: 20; outerRadius: 480; height: -62; spread: 16; size: 7; spin: 0.004"
             ns-clouds__high="clusters: 16; seed: 23; innerRadius: 125; outerRadius: 340; height: 8; spread: 26; size: 5; spin: -0.006"></a-entity>

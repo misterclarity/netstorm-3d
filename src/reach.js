@@ -2,7 +2,8 @@
  * Where a unit reaches, measured as the simulation measures it (after netstorm-web's
  * controls.ts drawReach): a Generator's or Temple's Energy and an air base's hunting ground as
  * circles round its middle; for a shooter a square of its range round its centre cell, the
- * Crossbow's 30° arc, or a cannon's straight line from the muzzle. All in world cells.
+ * Crossbow's 30° arc, or a cannon's straight line from the muzzle, shorter at night. All in world
+ * cells.
  */
 import { NS, G, WORLD } from './state.js';
 import { HEIGHTS, TIER } from './heights.js';
@@ -37,7 +38,9 @@ export function reachOf(def, x, y, facing = 0) {
     }
   }
   if (!def.dps || !def.range) return shapes;
-  const cx = x + (def.footX >> 1), cy = y + (def.footY >> 1), r = def.range;
+  // at night (a setting) a gun reaches less far, as the house rules measure it
+  const w = G.world, r = w?.isNight?.() ? Math.max(1, Math.round(def.range * (1 - w.nightShare))) : def.range;
+  const cx = x + (def.footX >> 1), cy = y + (def.footY >> 1);
   if (def.id === 'windarcher') {
     const [ax, ay] = NS.DIRS[facing], spread = r * ARC_TAN;
     const corner = (side) => [cx + 0.5 + ax * r - ay * spread * side, cy + 0.5 + ay * r + ax * spread * side];

@@ -1590,6 +1590,95 @@ export class World {`,
   now: `export { BRIDGE_SCAN, connectedToTemple } from './rules/bridges.js';`,
 });
 
+// Day and night (netstorm-3d; the player sets it). A day of DAY_SECONDS from the start of the
+// battle, then a night of NIGHT_SECONDS, and so on; at night every gun reaches `nightShare` less
+// (a quarter by default, rounded, never under a cell), and a Sacrifice waits for the sun: a Priest
+// calls out to it, so his runes stop at nightfall and go on at dawn, the captive still chained.
+// With `nights` off there is only day, as in the original.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'day and night',
+  was: `import {
+  W,
+  H,
+  PIECE_INTERVAL,`,
+  now: `import {
+  TPS,
+  W,
+  H,
+  PIECE_INTERVAL,`,
+}, {
+  file: 'world.ts',
+  why: 'day and night',
+  was: `/** (netstorm-3d) The height of a level above the one below, in cells, on tiered islands. */`,
+  now: `/** (netstorm-3d) The length of a day and of a night, in seconds of the battle. */
+export const DAY_SECONDS = 240;
+export const NIGHT_SECONDS = 120;
+
+/** (netstorm-3d) The height of a level above the one below, in cells, on tiered islands. */`,
+}, {
+  file: 'world.ts',
+  why: 'day and night',
+  was: `  /** (netstorm-3d) Whether the islands stand on levels: a skirmish setting. */
+  tiered = false;`,
+  now: `  /** (netstorm-3d) Whether the islands stand on levels: a skirmish setting. */
+  tiered = false;
+  /** (netstorm-3d) Whether days and nights follow each other; a setting. */
+  nights = false;
+  /** (netstorm-3d) How much shorter a gun's reach is at night, 0 to 1; a setting. */
+  nightShare = 0.25;`,
+}, {
+  file: 'world.ts',
+  why: 'day and night',
+  was: `  /** (netstorm-3d) The height of the ground or bridge of a cell, in cells; 0 on a level map. */`,
+  now: `  /** (netstorm-3d) Whether it is night: after DAY_SECONDS of day, NIGHT_SECONDS of night, and so on. */
+  isNight(): boolean {
+    return this.nights && (this.tick / TPS) % (DAY_SECONDS + NIGHT_SECONDS) >= DAY_SECONDS;
+  }
+
+  /** (netstorm-3d) The height of the ground or bridge of a cell, in cells; 0 on a level map. */`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'day and night: guns reach less at night',
+  was: `/** (netstorm-3d) The damage a walker riding a lift between levels takes, as a share of the hit. */`,
+  now: `/** (netstorm-3d) A gun's reach now: at night \`nightShare\` less, rounded, never under a cell. */
+function reachNow(world: World, range: number): number {
+  return world.isNight() ? Math.max(1, Math.round(range * (1 - world.nightShare))) : range;
+}
+
+/** (netstorm-3d) The damage a walker riding a lift between levels takes, as a share of the hit. */`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'day and night: guns reach less at night',
+  was: `  const range = airborne(world, target) ? def.airRange || def.range : def.range;`,
+  now: `  const range = reachNow(world, airborne(world, target) ? def.airRange || def.range : def.range);`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'day and night: guns reach less at night',
+  was: `  for (let r = 0; r < def.range && world.inside(x, y); r++, x += dx, y += dy) {`,
+  now: `  for (let r = 0; r < reachNow(world, def.range) && world.inside(x, y); r++, x += dx, y += dy) {`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'day and night: guns reach less at night',
+  was: `  for (let r = 1; r <= def.range; r++) {`,
+  now: `  for (let r = 1; r <= reachNow(world, def.range); r++) {`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'day and night: guns reach less at night',
+  was: `      if (across * across + up * up > world.def(b.type).range ** 2) {`,
+  now: `      if (across * across + up * up > reachNow(world, world.def(b.type).range) ** 2) {`,
+}, {
+  file: 'rules/capture.ts',
+  why: 'day and night: a Sacrifice waits for the sun',
+  was: `  // The Sacrifice commences whenever the owner's priest is at the altar; away from it, it pauses.`,
+  now: `  // (netstorm-3d) a Priest calls out to the sun: by night the Sacrifice waits for the dawn
+  if (world.isNight()) {
+    return;
+  }
+
+  // The Sacrifice commences whenever the owner's priest is at the altar; away from it, it pauses.`,
+});
+
 export function houseRules() {
   return {
     name: 'house-rules',

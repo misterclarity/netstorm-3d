@@ -156,6 +156,22 @@ AFRAME.registerSystem('ns-game', {
     else rig.setHome(new THREE.Vector3(wx(temple.x + temple.fx / 2), groundAt(temple.x + 0.5, temple.y + 0.5), wz(temple.y + temple.fy / 2) + 6), 70);
   },
 
+  /** Day and night (a setting, src/settings.js): a word at nightfall and at dawn. */
+  watchNight() {
+    const w = G.world, night = w.isNight();
+    if (this.nightOf !== w) {
+      this.nightOf = w;
+      this.wasNight = night;
+      return;
+    }
+    if (night === this.wasNight) return;
+    this.wasNight = night;
+    const chained = [...G.view.entities.values()].some((e) => e.kind === 'priest' && e.state === 'chained');
+    this.hud.toast(night
+      ? `Night falls: guns reach ${Math.round(w.nightShare * 100)}% less${chained ? '; the Sacrifice waits for the dawn' : ''}`
+      : `Dawn: guns reach as far as ever${chained ? ', and the Sacrifice goes on' : ''}`);
+  },
+
   tick(t, dt) {
     if (!G.world || !this.hud) return;
     dt = Math.min(dt, 250);
@@ -167,6 +183,7 @@ AFRAME.registerSystem('ns-game', {
       updateHeights();
       this.el.emit('ns-terrain');
     }
+    this.watchNight();
     this.watchBuildings();
     this.watchPriest();
     this.minimap.follow();

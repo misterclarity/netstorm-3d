@@ -46,6 +46,9 @@
   .group > span { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding-left: 2px; white-space: nowrap; }
   /* the level bridges are laid on (tiered islands) */
   #levelBadge { font-weight: 600; letter-spacing: 0.04em; }
+  /* day and night: the clock by the Storm Power, moonlit at night */
+  #daytime b { color: #ffd27a; }
+  #daytime.night b { color: #b9c8ff; }
   #levelBadge.level-high { color: #ffd27a; }
   #levelBadge.level-mid { color: #e8eef8; }
   #levelBadge.level-low { color: #8fd0ff; }

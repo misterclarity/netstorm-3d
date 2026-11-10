@@ -299,4 +299,46 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   console.log('reach: a Disc Thrower throws level, not down; a Whirligig hunts in a sphere');
 }
 
+// Day and night (scripts/house-rules.mjs): at night a Disc Thrower reaches a quarter less, so a
+// Golem 7 cells off is safe from it; by day it is hit. A Sacrifice waits for the dawn.
+{
+  const fresh = () => {
+    const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+    w.nights = true;
+    w.nightShare = 0.25;
+    for (let y = 4; y < 60; y++) for (let x = 4; x < 60; x++) { w.terrain[y * NS.W + x] = 1; w.owner[y * NS.W + x] = 0; }
+    w.invalidateTerrain();
+    return w;
+  };
+  const night = NS.DAY_SECONDS * NS.TPS;
+  const thrown = (at) => {
+    const w = fresh();
+    w.tick = at;
+    const disc = w.spawnBuilding('sunarcher', NS.ME, 10, 10, 0);
+    disc.rising = 0;
+    const mark = w.spawnTransport('sunwalker', 2, 18, 11);
+    const hp = mark.hp;
+    for (let i = 0; i < 8 * NS.TPS; i++) w.step([]);
+    return { night: w.isNight(), hurt: hp - mark.hp };
+  };
+  const byDay = thrown(0), byNight = thrown(night + NS.TPS);
+  if (byDay.night || !(byDay.hurt > 0)) fail(`by day a Disc Thrower did not hit a Golem 7 cells off: ${JSON.stringify(byDay)}`);
+  if (!byNight.night || byNight.hurt !== 0) fail(`at night a Disc Thrower hit a Golem 7 cells off: ${JSON.stringify(byNight)}`);
+  const ritual = (at) => {
+    const w = fresh();
+    w.tick = at;
+    const altar = w.spawnBuilding('altar', NS.ME, 20, 20, 0);
+    altar.rising = 0;
+    const mine = w.priestOf(NS.ME), theirs = w.priestOf(2);
+    Object.assign(mine, { x: 19, y: 22, path: [], goal: null });
+    Object.assign(theirs, { state: 'chained', chainedAt: altar.id, carriedBy: null, x: 23, y: 23, runes: 0, runeTimer: 0 });
+    for (let i = 0; i < 30 * NS.TPS && w.isNight() === (at >= night); i++) w.step([]);
+    return { night: w.isNight(), runes: theirs.runes };
+  };
+  const dayRunes = ritual(0), nightRunes = ritual(night + NS.TPS);
+  if (!(dayRunes.runes > 0)) fail(`by day a Sacrifice did not go on: ${JSON.stringify(dayRunes)}`);
+  if (nightRunes.runes !== 0) fail(`at night a Sacrifice went on: ${JSON.stringify(nightRunes)}`);
+  console.log(`day and night: at night a Disc Thrower reaches a quarter less; a Sacrifice waits for the dawn (${dayRunes.runes} runes by day, none by night)`);
+}
+
 console.log(`check passed: ${played}`);
