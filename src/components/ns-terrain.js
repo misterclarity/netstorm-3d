@@ -7,7 +7,7 @@
  * flat on theirs, and where a bridge joins another level a lift stands, its car riding up and down
  * with whoever rides it.
  */
-import { G, WORLD, FURY_TILES, GROUND_PAINT, wx, wz, hash, playerTheme } from '../state.js';
+import { G, NS, WORLD, FURY_TILES, GROUND_PAINT, wx, wz, hash, playerTheme } from '../state.js';
 import { HEIGHTS, heightOfCell } from '../heights.js';
 
 const { THREE } = AFRAME;
@@ -355,8 +355,54 @@ AFRAME.registerComponent('ns-terrain', {
     }
   },
 
+  /**
+   * A lift that has been hit shows what is left of it over its head, as a building's bar: its car
+   * takes every hit on those riding it (the house rules), and bursts when it is spent.
+   */
+  liftBars() {
+    const hits = G.world?.lifts, parent = this.liftCar?.parent;
+    this.bars ??= new Map();
+    const seen = new Set();
+    if (hits?.size && this.liftIndex && parent) {
+      const cam = this.el.sceneEl.camera, q = new THREE.Quaternion(), up = new THREE.Quaternion();
+      parent.getWorldQuaternion(up).invert();
+      cam?.getWorldQuaternion(q);
+      for (const [key, left] of hits) {
+        const n = this.liftIndex.get(key);
+        if (n === undefined) continue;
+        const lift = this.liftsShown[n], f = Math.max(0, Math.min(1, left / NS.LIFT_HP));
+        let bar = this.bars.get(key);
+        if (!bar) {
+          const group = new THREE.Group();
+          const back = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.2), new THREE.MeshBasicMaterial({ color: '#1b1f27', transparent: true, opacity: 0.85, depthWrite: false }));
+          const fill = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.12), new THREE.MeshBasicMaterial({ color: '#6fd08c', depthWrite: false }));
+          fill.position.z = 0.001;
+          back.renderOrder = 10;
+          fill.renderOrder = 11;
+          group.add(back, fill);
+          parent.add(group);
+          bar = { group, fill };
+          this.bars.set(key, bar);
+        }
+        bar.group.position.set(wx(lift.x), lift.high + 2.1, wz(lift.y));
+        bar.group.quaternion.copy(up).multiply(q);
+        bar.fill.scale.x = Math.max(0.001, f);
+        bar.fill.position.x = -0.7 * (1 - f);
+        bar.fill.material.color.set(f > 0.6 ? '#6fd08c' : f > 0.3 ? '#f2c14e' : '#ff7a6b');
+        seen.add(key);
+      }
+    }
+    for (const [key, bar] of this.bars) {
+      if (seen.has(key)) continue;
+      bar.group.removeFromParent();
+      for (const m of bar.group.children) { m.geometry.dispose(); m.material.dispose(); }
+      this.bars.delete(key);
+    }
+  },
+
   tick(t, dt) {
     if (this.liftsShown?.length) this.moveCars(Math.min(dt, 100));
+    if (this.liftsShown?.length || this.bars?.size) this.liftBars();
     this.lastFrame = t;
   },
 

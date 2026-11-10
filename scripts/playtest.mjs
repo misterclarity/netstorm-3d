@@ -774,14 +774,15 @@ SCENARIOS.dragon = async () => {
     const free = (x0, y0, nx, ny) => {
       for (let y = y0; y < y0 + ny; y++) for (let x = x0; x < x0 + nx; x++) {
         const i = w.inside(x, y) ? w.at(x, y) : -1;
-        if (i < 0 || w.terrain[i] !== 1 || w.owner[i] !== 1 || w.occupant[i] || w.priestAt(x, y) || w.residenceAt(x, y)) return false;
+        if (i < 0 || w.terrain[i] !== 1 || w.owner[i] !== 1 || w.occupant[i] || w.priestAt(x, y) || w.residenceAt(x, y) || w.treeAt(x, y)) return false;
       }
       return true;
     };
-    // a 3×3 site with a free cell 6 to 9 cells east of it, on its line of fire: seen from the side
+    // a 3×3 site with a free cell 6 to 9 cells east of it, on its line of fire with nothing in the
+    // way (no cover: house rules): seen from the side
     for (let y = t.y - 14; y < t.y + 14; y++) for (let x = t.x - 16; x < t.x + 20; x++) {
       if (!free(x, y, 3, 3)) continue;
-      const foe = [6, 7, 8, 9].map((d) => [x + 2 + d, y + 1]).find(([fx, fy]) => free(fx, fy, 1, 1));
+      const foe = [6, 7, 8, 9].map((d) => [x + 2 + d, y + 1]).find(([fx, fy]) => free(x + 3, y + 1, fx - x - 2, 1));
       if (!foe) continue;
       const gun = w.spawnBuilding('thundercannon', 1, x, y, 1);
       gun.rising = 0;
@@ -1095,9 +1096,11 @@ SCENARIOS.tiers = async () => {
   if (joined < 2 || joined > 4) throw new Error(`the second piece did not join the first bridge's end: ${JSON.stringify({ end, second, joined })}`);
   await page.keyboard.press('Escape');
   const want = 1;
-  // a Golem rides the lift: drawn between the levels on the way, the car with it
+  // a Golem rides the lift: drawn between the levels on the way, the car with it; a hit on him
+  // half way is the lift's, whose bar shows what is left of it
   const ride = await page.evaluate(async () => {
-    const { G, HEIGHTS, submit, stepWorld } = window.NS3D, lift = HEIGHTS.lifts[HEIGHTS.lifts.length - 1];
+    const { G, NS, HEIGHTS, submit, stepWorld } = window.NS3D, lift = HEIGHTS.lifts[HEIGHTS.lifts.length - 1];
+    let hit = null;
     G.paused = true;
     const land = G.view.terrain[lift.b] === 1 ? lift.b : lift.a, deck = land === lift.a ? lift.b : lift.a;
     const golem = G.world.spawnTransport('sunwalker', 1, land % 256, Math.floor(land / 256));
@@ -1109,10 +1112,17 @@ SCENARIOS.tiers = async () => {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const el = document.querySelector('[ns-units]').components['ns-units'].byId.get(golem.id);
       if (el) seen.push({ y: el.object3D.position.y, car: document.getElementById('terrain')?.components['ns-terrain']?.cars.get(lift.key) });
+      if (!hit && G.world.liftLevels(golem) > 0 && seen.length > 3) {
+        const hp = golem.hp;
+        NS.damage(G.world, 2, golem, 150);
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        hit = { rider: hp - golem.hp, lift: G.world.lifts.get(lift.key), bar: !!document.getElementById('terrain')?.components['ns-terrain']?.bars?.get(lift.key)?.group.visible };
+      }
     }
     G.paused = false;
-    return { low: lift.low, high: lift.high, seen, rode: there() };
+    return { low: lift.low, high: lift.high, seen, rode: there(), hit };
   });
+  if (!ride.hit || ride.hit.rider !== 0 || ride.hit.lift !== 250 || !ride.hit.bar) throw new Error(`a hit on a lift's rider: ${JSON.stringify(ride.hit)}`);
   const between = ride.seen.filter((s) => s.y > ride.low + 0.5 && s.y < ride.high - 0.5);
   if (!between.length || between.some((s) => s.car === undefined || Math.abs(s.car - s.y) > 0.01)) throw new Error(`no ride drawn on the lift: ${JSON.stringify({ ...ride, seen: ride.seen.slice(0, 6) })}`);
   await page.keyboard.press('Escape');
@@ -1196,7 +1206,7 @@ SCENARIOS.tiers = async () => {
       await shot(name);
     }
   }
-  console.log(`  levels ${start.levels.join(' ')} (homes on the middle), pieces snapped to the rim on level ${want} and to its end, a ride drawn in ${between.length} frames, ${stand.lifts} lifts, ${stand.raised} raised units, ${picks.tried - picks.wrong.length}/${picks.tried} picks`);
+  console.log(`  levels ${start.levels.join(' ')} (homes on the middle), pieces snapped to the rim on level ${want} and to its end, a ride drawn in ${between.length} frames (a hit on the rider the lift's: ${ride.hit.lift} left), ${stand.lifts} lifts, ${stand.raised} raised units, ${picks.tried - picks.wrong.length}/${picks.tried} picks`);
   return errors;
 };
 
@@ -1559,7 +1569,8 @@ SCENARIOS.firstperson = async () => {
     let best = null;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       let n = 0;
-      while (n < 8 && G.view.walkable(NS.ME, p.x + dx * (n + 1), p.y + dy * (n + 1)) && !G.view.takenBy(p.x + dx * (n + 1), p.y + dy * (n + 1))) n++;
+      const free = (x, y) => G.view.walkable(NS.ME, x, y) && !G.view.takenBy(x, y) && !G.world.treeAt(x, y) && !G.world.houseAt(x, y);
+      while (n < 8 && free(p.x + dx * (n + 1), p.y + dy * (n + 1))) n++;
       if (!best || n > best.n) best = { dx, dy, n };
     }
     fp.yaw = Math.atan2(-best.dx, -best.dy);
@@ -1569,13 +1580,19 @@ SCENARIOS.firstperson = async () => {
   await page.keyboard.down('w');
   await play(2.5);
   await page.keyboard.up('w');
+  // let go: the view stops dead where it was, and the rules stop him there, no glide after
+  const camAt = () => page.evaluate(() => { const c = document.getElementById('camera').object3D.position; return [c.x, c.z]; });
+  await page.evaluate(() => document.querySelector('a-scene').systems['ns-fp'].tick(window.fpClock, 16));
+  const released = await camAt();
   await play(1);
+  const rested = await camAt();
   const walked = await page.evaluate(({ x, y, dx, dy }) => {
-    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME);
-    return { along: (p.x - x) * dx + (p.y - y) * dy, aside: Math.abs((p.x - x) * dy - (p.y - y) * dx), path: p.path.length };
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), s = G.world.walking.get(p.id);
+    return { along: (p.x - x) * dx + (p.y - y) * dy, aside: Math.abs((p.x - x) * dy - (p.y - y) * dx), path: p.path.length, hand: !!s, v: s ? [s.vx, s.vy] : null };
   }, way);
+  const glide = Math.hypot(rested[0] - released[0], rested[1] - released[1]);
   if (way.n >= 4 && !(walked.along >= 3 && walked.aside <= 1)) throw new Error(`W did not walk him ahead: ${JSON.stringify({ way, walked })}`);
-  if (walked.path > 0) throw new Error(`he did not stop when W was let go: ${JSON.stringify(walked)}`);
+  if (!walked.hand || walked.v.join() !== '0,0' || glide > 0.02) throw new Error(`he did not stop dead when W was let go: ${JSON.stringify({ walked, glide })}`);
   await page.waitForTimeout(1500);
   await shot('firstperson');
   // Tab picks a Priest build, laid at the crosshair (its ghost there); Esc puts it away
@@ -1618,7 +1635,7 @@ SCENARIOS.firstperson = async () => {
     return { fp: window.NS3D.G.fp, rig: cam.components['orbit-rig'].enabled, fov: cam.getAttribute('camera').fov, hud: document.getElementById('fp').hidden };
   });
   if (out.fp || !out.rig || out.fov !== 45 || !out.hud) throw new Error(`not back above: ${JSON.stringify(out)}`);
-  console.log(`  in his eyes ${inside.y.toFixed(2)} above the ground; walked ${walked.along} cells ahead with W and stopped; Tab chose ${build.tool.type}; prayed for ${prayed.prayer}; a click walked him to the crosshair; back above`);
+  console.log(`  in his eyes ${inside.y.toFixed(2)} above the ground; walked ${walked.along} cells ahead with W and stopped dead (${glide.toFixed(3)} after); Tab chose ${build.tool.type}; prayed for ${prayed.prayer}; a click walked him to the crosshair; back above`);
   return errors;
 };
 

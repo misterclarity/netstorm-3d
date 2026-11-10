@@ -1,43 +1,59 @@
 /**
- * First person: the player takes over the Priest and sees through his eyes. V (or the toolbar's
- * Priest's view button) goes in and out. W A S D or the arrows walk him, the mouse looks about (the
- * pointer is locked to the view; a click on the view locks it, Esc lets it go), and a crosshair
+ * First person: the player takes over the Priest and sees through his eyes. V (or Eyes by the
+ * minimap) goes in and out. W A S D or the arrows walk him, the mouse looks about (the pointer is
+ * locked to the view, raw where the browser allows; a click on the view locks it, Esc lets it go),
+ * keys and mouse together as in any first-person game, and a crosshair
  * points at what he would act on: a click there acts as a click of the overhead view with him
  * selected (to a geyser to collect, a crystal to fetch, his Altar to perform the Sacrifice, ground
  * to walk to) or lays what is chosen to build, which the mouse wheel or Tab picks among his Priest
  * builds. Q casts the Spell he holds round him, R prays (Shift+R picks the prayer), B banks the
  * crystal he holds at the Temple, X drops it.
  *
- * The rules walk him as ever: each step is an order to walk to a cell ahead of him (movePriest),
- * so the world, its replays and the computer's copy of it are the same in first person as from
- * above. How he is walked and where his eyes are is the `place` below: the islands' now; a dungeon
- * behind a cave mouth will bring its own (its cells, its floor's height), and the view, the
- * crosshair and his actions stay as they are.
+ * He is walked by the rules (steerPriest, scripts/house-rules.mjs): the way the keys point from
+ * where he looks, at any angle, at his pace, sliding along what he cannot step onto; the order
+ * goes in the moment the keys change, with the share of the tick it was given at, and the view
+ * draws him a frame at a time where the rules' own step (walkStep) will put him, so he answers the
+ * keys at once and stops dead when they are let go. How he is walked and where his eyes are is
+ * the `place` below: the islands' now; a dungeon behind a cave mouth will bring its own, and the
+ * view, the crosshair and his actions stay as they are.
  */
 import { NS, THREE, G, ME, defs, TPS, wx, wz } from '../state.js';
 import { submit } from '../game.js';
 import { groundCell, toScene } from '../space.js';
 import { spellName } from '../spells.js';
+import { groundAt } from '../heights.js';
 
 /** His eyes above the ground he stands on, in cells; lying knocked out, near it. */
 const EYE = 1.45, EYE_DOWN = 0.35;
-/** How far ahead of him a walk is ordered, in cells: far enough that he does not stop between orders. */
-const AHEAD = 2.5;
-/** The least time between two walking orders, ms. */
-const STEER_MS = 220;
 const LOOK = 0.0022;
 const FOV = 70;
 const WALK_KEYS = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
 
-/** The islands as a place to walk: the world's cells, his order to walk, his eyes' height. */
+/** The islands as a place to walk: the rules walk him (steerPriest), and say where he will be. */
 const ISLANDS = {
-  /** Whether he may stand on cell (x, y). */
-  canStand(x, y) {
-    return G.view.walkable(ME, x, y) && !G.view.takenBy?.(x, y);
+  /** Steer him: (vx, vy) hundredths of his pace on the map's axes, from `lead` hundredths of the coming tick on. */
+  steer(vx, vy, lead) {
+    submit({ t: 'steerPriest', vx, vy, lead });
+    return G.commands[G.commands.length - 1];
   },
-  /** Order him to walk to cell (x, y). */
-  walkTo(x, y) {
-    submit({ t: 'movePriest', x, y });
+  /** Where he stands now in cells, `alpha` of the coming tick on, by the rules' own step and the
+   * order waiting for it; null while the rules do not walk him by hand (a ride on a lift, an order
+   * from above). */
+  at(p, alpha, order) {
+    // walked by hand, or about to be: from the middle of his cell, as the rules start him (and
+    // start him again when he has been carried or thrown off the cell he was walked in)
+    const SUB = NS.WALK_SUB, mid = { x: p.x * SUB + SUB / 2, y: p.y * SUB + SUB / 2, vx: 0, vy: 0, ride: false };
+    let s = G.world.walking?.get(p.id) ?? (order ? mid : null);
+    if (s && !s.ride && (Math.floor(s.x / SUB) !== p.x || Math.floor(s.y / SUB) !== p.y)) s = { ...mid, vx: s.vx, vy: s.vy };
+    if (!s || s.ride || (p.path.length && !order)) return null;
+    let x = s.x, y = s.y;
+    if (p.state === 'normal' && !(p.casting > 0) && G.view.terrain[p.y * NS.W + p.x] !== 0) {
+      const lead = order ? order.lead / 100 : 1;
+      const first = NS.walkStep(G.world, p, x, y, s.vx, s.vy, Math.min(alpha, lead));
+      ({ x, y } = first);
+      if (order && alpha > lead && !first.ride) ({ x, y } = NS.walkStep(G.world, p, x, y, order.vx, order.vy, alpha - lead));
+    }
+    return [x / NS.WALK_SUB, y / NS.WALK_SUB];
   },
 };
 
@@ -48,18 +64,18 @@ AFRAME.registerSystem('ns-fp', {
     this.keys = new Set();
     this.yaw = 0;
     this.pitch = -0.15;
-    this.lastSteer = 0;
-    this.sent = null;
+    this.v = [0, 0];
+    this.order = null;
     this.prayer = 0;
     this.raycaster = new THREE.Raycaster();
     this.centre = new THREE.Vector2(0, 0);
     this.eye = new THREE.Vector3();
     window.addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
-      if (this.active && WALK_KEYS.has(k) && !e.target?.closest?.('input,textarea,select')) { this.keys.add(k); e.preventDefault(); }
+      if (this.active && WALK_KEYS.has(k) && !e.target?.closest?.('input,textarea,select')) { this.keys.add(k); e.preventDefault(); this.steer(); }
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('keyup', (e) => { this.keys.delete(e.key.toLowerCase()); if (this.active) this.steer(); });
+    window.addEventListener('blur', () => { this.keys.clear(); if (this.active) this.steer(); });
     document.addEventListener('mousemove', (e) => {
       if (!this.active || document.pointerLockElement !== this.el.canvas) return;
       this.yaw -= e.movementX * LOOK;
@@ -111,7 +127,8 @@ AFRAME.registerSystem('ns-fp', {
     this.pitch = -0.15;
     game.select([p.id]);
     game.setTool({ kind: 'select' });
-    this.sent = null;
+    this.v = [0, 0];
+    this.order = null;
     document.body.classList.add('fp');
     this.lock();
     this.hud();
@@ -121,9 +138,10 @@ AFRAME.registerSystem('ns-fp', {
   leave() {
     if (!this.active) return;
     const p = this.priest(), rig = this.rig(), cam = document.getElementById('camera');
+    this.keys.clear();
+    this.steer(); // he stops where he is
     this.active = false;
     G.fp = null;
-    this.keys.clear();
     if (document.pointerLockElement) document.exitPointerLock();
     cam.setAttribute('camera', { fov: this.camera?.fov ?? 45, near: this.camera?.near ?? 0.3 });
     if (rig) {
@@ -137,9 +155,15 @@ AFRAME.registerSystem('ns-fp', {
     this.hud();
   },
 
+  /** The pointer locked to the view, raw (no pointer acceleration) where the browser allows. */
   lock() {
     const canvas = this.el.canvas;
-    try { canvas?.requestPointerLock?.()?.catch?.(() => {}); } catch { /* not granted without a gesture: a click on the view asks again */ }
+    if (!canvas?.requestPointerLock || document.pointerLockElement === canvas) return;
+    const plain = () => { try { canvas.requestPointerLock()?.catch?.(() => {}); } catch { /* a click on the view asks again */ } };
+    try {
+      const asked = canvas.requestPointerLock({ unadjustedMovement: true });
+      if (asked?.catch) asked.catch(plain);
+    } catch { plain(); }
   },
 
   /** A key in first person; true when it was the Priest's. */
@@ -199,7 +223,6 @@ AFRAME.registerSystem('ns-fp', {
     }
     const done = game.order(cell.x, cell.y, target);
     if (done === true) game.sound().voice(p, target && target.owner !== ME ? 'pickup' : 'move');
-    this.sent = null;
   },
 
   cast() {
@@ -234,36 +257,26 @@ AFRAME.registerSystem('ns-fp', {
     this.hud();
   },
 
-  /** Walk him by the keys held: an order to a cell ahead, the way they point from where he looks. */
-  steer(p, now) {
-    const k = this.keys;
+  /**
+   * Steer him by the keys held, the way they point from where he looks, at once: one order a tick,
+   * the first change in it setting when it begins (its share of the tick), the last the way.
+   */
+  steer() {
+    const p = this.priest(), k = this.keys;
+    if (!p) return;
     const fw = (k.has('w') || k.has('arrowup') ? 1 : 0) - (k.has('s') || k.has('arrowdown') ? 1 : 0);
     const rt = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0);
-    if (!fw && !rt) {
-      // let go: he stops on the cell he is stepping onto
-      if (this.sent && p.path.length > 1) this.place.walkTo(p.path[0][0], p.path[0][1]);
-      this.sent = null;
-      return;
+    let vx = 0, vy = 0;
+    if (fw || rt) {
+      // forward is where the camera looks (−Z turned by the yaw): in cells (−sin, −cos)
+      const s = Math.sin(this.yaw), c = Math.cos(this.yaw), dx = -s * fw + c * rt, dy = -c * fw - s * rt, len = Math.hypot(dx, dy);
+      vx = Math.round((dx / len) * 100);
+      vy = Math.round((dy / len) * 100);
     }
-    if (p.state !== 'normal' || now - this.lastSteer < STEER_MS) return;
-    // forward is where the camera looks (−Z turned by the yaw): in cells (−sin, −cos)
-    const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
-    let dx = -s * fw + c * rt, dy = -c * fw - s * rt;
-    const len = Math.hypot(dx, dy);
-    dx /= len;
-    dy /= len;
-    const [fx, fy] = p.path.length ? p.path[0] : [p.x, p.y];
-    let goal = null;
-    for (const far of [AHEAD, 1.5, 1]) {
-      const x = Math.round(fx + dx * far), y = Math.round(fy + dy * far);
-      if ((x !== p.x || y !== p.y) && this.place.canStand(x, y)) { goal = [x, y]; break; }
-    }
-    if (!goal) return;
-    const same = this.sent && this.sent[0] === goal[0] && this.sent[1] === goal[1];
-    if (same && p.path.length > 1) return;
-    this.lastSteer = now;
-    this.sent = goal;
-    this.place.walkTo(goal[0], goal[1]);
+    if (vx === this.v[0] && vy === this.v[1]) return;
+    this.v = [vx, vy];
+    if (this.order && G.commands.includes(this.order)) Object.assign(this.order, { vx, vy });
+    else this.order = this.place.steer(vx, vy, Math.round(G.clock.alpha * 100));
   },
 
   tick(t, dt) {
@@ -272,18 +285,25 @@ AFRAME.registerSystem('ns-fp', {
     // out of his eyes when he is gone, the battle is over or over again, or a table is put up
     if (!p || !G.started || G.ended || this.game().xr().mode) { this.leave(); return; }
     G.fp.id = p.id;
-    this.steer(p, t);
-    // his eyes: where his figure is drawn (ns-units smooths his walk), on the ground he stands on
-    const el = this.game().units()?.byId.get(p.id);
-    if (el) {
-      const pos = el.object3D.position;
-      const eye = p.state === 'down' ? EYE_DOWN : EYE;
-      const target = toScene(this.eye.set(pos.x, pos.y + eye, pos.z));
-      const cam = document.getElementById('camera').object3D;
-      if (cam.position.distanceTo(target) > 6) cam.position.copy(target);
-      else cam.position.lerp(target, 1 - Math.exp(-dt / 60));
-      cam.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    // turning with a key held turns his way too
+    if (this.keys.size) this.steer();
+    // his eyes: where the rules will have him this frame (walked by hand), else where his figure is
+    // drawn (a ride on a lift, a walk ordered from above)
+    const eye = p.state === 'down' ? EYE_DOWN : EYE, cam = document.getElementById('camera').object3D;
+    const pending = this.order && G.commands.includes(this.order) ? this.order : null;
+    const at = this.place.at(p, G.clock.alpha, pending);
+    let target = null;
+    if (at) target = toScene(this.eye.set(wx(at[0]), groundAt(at[0], at[1]) + eye, wz(at[1])));
+    else {
+      const el = this.game().units()?.byId.get(p.id);
+      if (el) target = toScene(this.eye.copy(el.object3D.position).setY(el.object3D.position.y + eye));
     }
+    if (target) {
+      // to the hair while walked by hand; a short glide onto a ride or off it
+      if (at || cam.position.distanceTo(target) > 6) cam.position.copy(target);
+      else cam.position.lerp(target, 1 - Math.exp(-dt / 50));
+    }
+    cam.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
     // the crosshair is the pointer: the hover, the ghost of what is to be laid, the tip by it
     const ray = this.ray();
     if (ray) {

@@ -198,9 +198,10 @@ if (!sites || !short) fail(`the Energy check saw ${sites} sites, ${short} short 
 console.log(`energy: ${sites} sites agree with the rules, ${short} of them short of Energy`);
 
 // Tiered islands (scripts/house-rules.mjs): a Golem walking off its island onto a bridge a level
-// up rides a lift, LIFT_SECONDS longer than the same step on one level, and takes LIFT_EXPOSURE
-// times the damage on the way. A piece the player lays goes on the level asked for; one laid
-// without (as the computer lays them) on the level of what it joins.
+// up rides a lift, LIFT_SECONDS longer than the same step on one level; the lift takes the hits on
+// it, the Golem none, and spent (LIFT_HP) it bursts: the bridge falls with the Golem in its car, and
+// a Priest in it is thrown onto the island, knocked out. A piece the player lays goes on the level
+// asked for; one laid without (as the computer lays them) on the level of what it joins.
 {
   const lifted = (rise) => {
     const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
@@ -219,16 +220,51 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     if (!rider.path.length) fail('a Golem would not walk onto the bridge');
     const riding = w.liftLevels(rider), hp = rider.hp;
     NS.damage(w, 2, rider, 10);
-    const hurt = hp - rider.hp;
+    const hurt = hp - rider.hp, lift = w.lifts.get(NS.liftKey(sky - 1, sky)) ?? null;
     let ticks = 1;
     while (rider.x !== x + 1 && ticks < 2000) { w.step([]); ticks++; }
-    return { riding, hurt, ticks };
+    return { riding, hurt, lift, ticks };
   };
   const flat = lifted(0), up = lifted(1);
+  if (flat.hurt !== 10 || flat.lift !== null || up.hurt !== 0 || up.lift !== NS.LIFT_HP - 10) fail(`a hit on a lift's rider: on the ground ${JSON.stringify(flat)}, on the lift ${JSON.stringify(up)}`);
+  // a lift spent: it bursts, its bridge falls with the Golem riding it; a Priest in it is thrown onto the island, knocked out
+  const burst = (who) => {
+    const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+    w.tiered = true;
+    const t = w.templeOf(NS.ME);
+    let x = t.x;
+    while (w.terrain[t.y * NS.W + x + 1] !== 0) x++;
+    const sky = t.y * NS.W + x + 1;
+    w.terrain[sky] = 2;
+    w.owner[sky] = NS.ME;
+    w.links[sky] = 0;
+    w.level[sky] = 1;
+    w.invalidateTerrain();
+    let rider;
+    if (who === 'golem') {
+      rider = w.spawnTransport('sunwalker', NS.ME, x, t.y);
+      w.step([{ t: 'moveTransport', player: NS.ME, transport: rider.id, x: x + 1, y: t.y }]);
+    } else {
+      rider = w.priestOf(NS.ME);
+      Object.assign(rider, { x, y: t.y, path: [], goal: 'idle' });
+      w.step([{ t: 'movePriest', player: NS.ME, x: x + 1, y: t.y }]);
+    }
+    for (let i = 0; i < 3 && !w.liftLevels(rider); i++) w.step([]);
+    if (!w.liftLevels(rider)) fail(`the ${who} did not ride the lift`);
+    w.drainEvents();
+    NS.damage(w, 2, rider, NS.LIFT_HP / 2);
+    const held = rider.hp;
+    NS.damage(w, 2, rider, NS.LIFT_HP / 2);
+    const events = w.drainEvents().map((e) => e.what);
+    for (let i = 0; i < 3; i++) w.step([]);
+    return { held, hp: rider.hp, gone: !w.entities.has(rider.id), fell: w.terrain[sky] === 0, events, at: [rider.x - x, rider.y - t.y], state: rider.state };
+  };
+  const golemBurst = burst('golem'), priestBurst = burst('priest');
+  if (!golemBurst.fell || !golemBurst.gone || !golemBurst.events.includes('lift destroyed')) fail(`a lift spent with a Golem in it: ${JSON.stringify(golemBurst)}`);
+  if (!priestBurst.fell || priestBurst.held !== 100 || priestBurst.state !== 'down' || priestBurst.at.join() !== '0,0') fail(`a lift spent with a Priest in it: ${JSON.stringify(priestBurst)}`);
   const longer = (up.ticks - flat.ticks) / NS.TPS;
   if (flat.riding !== 0 || up.riding !== 1) fail(`lift levels: flat ${flat.riding}, up ${up.riding}`);
   if (Math.abs(longer - NS.LIFT_SECONDS) > 0.3) fail(`a lift ride took ${longer} s longer than a step, not ${NS.LIFT_SECONDS}`);
-  if (Math.abs(up.hurt - flat.hurt * NS.LIFT_EXPOSURE) > 0.01) fail(`on a lift a Golem lost ${up.hurt} of a hit that took ${flat.hurt} off one on the ground`);
 
   const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
   w.tiered = true;
@@ -252,7 +288,7 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   const asked = layOn(1), joined = layOn(undefined);
   if (asked !== 1) fail(`a piece asked for on level 1 went on ${asked}`);
   if (joined !== 0 && joined !== 1) fail(`a piece laid without a level went on ${joined}`);
-  console.log(`lifts: a ride takes ${longer.toFixed(1)} s more and a hit ${NS.LIFT_EXPOSURE} times as much; pieces go on the level asked for`);
+  console.log(`lifts: a ride takes ${longer.toFixed(1)} s more; the lift takes the hits, not its rider, and spent it bursts (the bridge falls, the Golem with it, the Priest thrown down knocked out); pieces go on the level asked for`);
 }
 
 // Reach on tiered islands (scripts/house-rules.mjs): a Sun Disc Thrower does not throw down at a
@@ -509,6 +545,112 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   }
 
   console.log(`the moon and the Furies: ${phases.slice(0, 4).join(', ')}; Rain ${rain.join('/')}; a Sun Cannon's shot at a Golem ${shot}; a Priest heals ${healDay} by day, ${healNight} at night; a crystal ${crystalDay} by day, ${crystalNight} at night`);
+}
+
+// Walking by hand and cover (scripts/house-rules.mjs): a Priest steered walks his pace the way he
+// is steered, to the hair the view foresees, diagonally as well, stops where he is the moment he
+// is told, slides along the rim instead of stepping off it, does not walk into a tree, breaks a
+// prayer off, and an order from above walks him by the grid again. A shot at a Golem behind an
+// enemy Generator hits the Generator; behind a tree it is stopped; from a level above it gets
+// through; and a gun does not aim at a unit in cover.
+{
+  const fresh = () => {
+    const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+    for (let y = 4; y < 60; y++) for (let x = 4; x < 60; x++) { w.terrain[y * NS.W + x] = 1; w.owner[y * NS.W + x] = 0; }
+    for (const e of [...w.entities.values()]) if (e.kind === 'building' && e.x < 64 && e.y < 64) w.entities.delete(e.id);
+    w.invalidateTerrain();
+    return w;
+  };
+  const S = NS.WALK_SUB, step = (1.8 * S) / NS.TPS;
+  const steer = (w, vx, vy, lead = 0) => w.step([{ t: 'steerPriest', player: NS.ME, vx, vy, lead }]);
+  // an open stretch of ground with no tree on it, n cells east of (x, y)
+  const open = (w, n) => {
+    for (let y = 10; y < 50; y++) for (let x = 10; x < 50 - n; x++) {
+      let ok = true;
+      for (let k = -1; k <= n; k++) for (let j = -1; j <= 1; j++) if (w.treeAt(x + k, y + j) || w.takenBy(x + k, y + j)) ok = false;
+      if (ok) return [x, y];
+    }
+    return fail('no open ground');
+  };
+  const w = fresh(), p = w.priestOf(NS.ME);
+  const [ox, oy] = open(w, 6);
+  Object.assign(p, { x: ox, y: oy, path: [], goal: 'idle' });
+  steer(w, 100, 0);
+  const s = w.walking.get(p.id), x0 = ox * S + S / 2;
+  for (let i = 0; i < 8; i++) w.step([]);
+  const ahead = NS.walkStep(w, p, s.x, s.y, s.vx, s.vy, 1);
+  w.step([]);
+  const walked = (s.x - x0) / S;
+  if (Math.abs(s.x - x0 - 10 * step) > 10 || s.y !== oy * S + S / 2 || p.x !== Math.floor(s.x / S)) fail(`a Priest steered east: ${JSON.stringify({ walked, s, p: [p.x, p.y] })}`);
+  if (Math.round(ahead.x) !== s.x || Math.round(ahead.y) !== s.y) fail(`the view's foresight of his step: ${JSON.stringify({ ahead, s })}`);
+  // let go half way into a tick: he walks that half and no more
+  const was = s.x;
+  steer(w, 0, 0, 50);
+  const stopped = s.x;
+  for (let i = 0; i < 5; i++) w.step([]);
+  if (Math.abs(stopped - was - step / 2) > 2 || s.x !== stopped) fail(`a Priest let go of: ${JSON.stringify({ was, stopped, now: s.x })}`);
+  // diagonally, at his pace
+  const d0 = [s.x, s.y];
+  steer(w, 71, -71);
+  for (let i = 0; i < 4; i++) w.step([]);
+  const diag = Math.hypot(s.x - d0[0], s.y - d0[1]) / (5 * step);
+  if (!(s.x > d0[0] && s.y < d0[1]) || Math.abs(diag - 1) > 0.02) fail(`a Priest steered north-east: ${JSON.stringify({ d0, s, diag })}`);
+  // to the rim of the island: he stops short of the sky
+  steer(w, 0, -100);
+  for (let i = 0; i < 400; i++) w.step([]);
+  if (w.terrain[(p.y - 1) * NS.W + p.x] !== 0 || s.y < p.y * S || s.y > p.y * S + S / 2) fail(`a Priest steered at the rim: ${JSON.stringify({ s, p: [p.x, p.y] })}`);
+  // walking breaks a prayer off; an order from above walks him by the grid again
+  steer(w, 0, 0);
+  Object.assign(p, { prayer: 'bombexplodesmall', praying: 50 });
+  steer(w, 0, 100);
+  if (p.praying !== 0) fail(`a Priest steered kept on praying: ${p.praying}`);
+  w.step([{ t: 'movePriest', player: NS.ME, x: p.x, y: p.y + 3 }]);
+  w.step([]);
+  if (w.walking.has(p.id) || !p.path.length) fail(`an order from above did not walk him by the grid: ${JSON.stringify({ walking: w.walking.get(p.id), path: p.path })}`);
+  // a tree stands in his way
+  let tree = null;
+  for (let y = 12; y < 50 && !tree; y++) for (let x = 12; x < 50 && !tree; x++) if (w.treeAt(x, y) && !w.takenBy(x - 1, y) && !w.treeAt(x - 1, y) && !w.treeAt(x - 2, y)) tree = [x, y];
+  if (!tree) fail('no tree on the island');
+  Object.assign(p, { x: tree[0] - 2, y: tree[1], path: [], goal: 'idle' });
+  w.walking.delete(p.id);
+  steer(w, 100, 0);
+  for (let i = 0; i < 30; i++) w.step([]);
+  if (p.x !== tree[0] - 1 || w.walking.get(p.id).x > tree[0] * S) fail(`a Priest walked into a tree: ${JSON.stringify({ tree, p: [p.x, p.y], s: w.walking.get(p.id) })}`);
+
+  // cover
+  const shotAt = (setup, type = 'sunarcher') => {
+    const ww = fresh();
+    const [gx, gy] = open(ww, 9);
+    const gun = ww.spawnBuilding(type, NS.ME, gx, gy - 1, 1);
+    gun.rising = 0;
+    const walker = ww.spawnTransport('sunwalker', 2, gx + 7, gy);
+    const cover = setup(ww, gun, walker);
+    const hp = walker.hp, coverHp = cover?.hp;
+    for (let i = 0; i < 12 * NS.TPS; i++) ww.step([]);
+    return { hurt: hp - walker.hp, coverHurt: cover ? coverHp - cover.hp : null, inCover: !!NS.coverFor(ww, gun, walker) };
+  };
+  const bare = shotAt(() => null);
+  const behindGenerator = shotAt((ww, gun, walker) => { const g = ww.spawnBuilding('windbattery', 2, walker.x - 2, walker.y, 0); g.rising = 0; return g; });
+  const behindTree = shotAt((ww, gun, walker) => {
+    let t = null;
+    for (let y = 12; y < 50 && !t; y++) for (let x = 20; x < 50 && !t; x++) if (ww.treeAt(x, y) && !ww.takenBy(x + 1, y) && !ww.treeAt(x + 1, y)) t = [x, y];
+    walker.x = t[0] + 1; walker.y = t[1];
+    ww.moveTransportIndex?.(walker, gun.x + 7, gun.y + 1);
+    gun.x = t[0] - 6; gun.y = t[1] - 1;
+    return null;
+  });
+  if (!(bare.hurt > 0) || bare.inCover) fail(`a Golem in the open: ${JSON.stringify(bare)}`);
+  if (behindGenerator.hurt !== 0 || !behindGenerator.inCover) fail(`a Golem behind an enemy Generator: ${JSON.stringify(behindGenerator)}`);
+  if (behindTree.hurt !== 0 || !behindTree.inCover) fail(`a Golem behind a tree: ${JSON.stringify(behindTree)}`);
+  const fromAbove = shotAt((ww, gun, walker) => {
+    ww.tiered = true;
+    for (let y = gun.y; y < gun.y + gun.fy; y++) for (let x = gun.x; x < gun.x + gun.fx; x++) ww.level[y * NS.W + x] = 1;
+    const g = ww.spawnBuilding('windbattery', NS.ME, walker.x - 2, walker.y, 0);
+    g.rising = 0;
+    return g;
+  }, 'windarcher');
+  if (!(fromAbove.hurt > 0) || fromAbove.inCover) fail(`a Golem in cover from a gun a level up: ${JSON.stringify(fromAbove)}`);
+  console.log(`walking by hand: ${walked.toFixed(2)} cells in a second, stopped on the hair, ${diag.toFixed(2)} of his pace diagonally, short of the rim and of a tree; cover: a Golem in the open lost ${bare.hurt}, behind a Generator nothing (the Generator ${behindGenerator.coverHurt}), behind a tree nothing, from a level up ${fromAbove.hurt}`);
 }
 
 console.log(`check passed: ${played}`);

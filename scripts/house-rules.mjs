@@ -2125,6 +2125,606 @@ CHANGES.push({
   ], 'snapshot');`,
 });
 
+// Walking by hand, cover, and lifts that stand as buildings (netstorm-3d).
+//
+// Walking by hand: a Priest taken over in first person (src/systems/ns-fp.js) is walked by
+// `steerPriest` orders: a way to go, in hundredths of his pace along the map's two axes, from
+// `lead` hundredths of the coming tick on (the moment the keys changed, so that the world's step
+// and the view's foresight of it agree to the hair). He stands anywhere in his cell, in 1/WALK_SUB
+// of a cell (`walking`), walks the way he is steered at his pace, slides along what he cannot step
+// onto (as the pathfinder steps: walkable ground, joined bridge, no geyser, Obelisk or other
+// Priest; and in first person, no tree and no Residence's house), and stops where he is the moment
+// the keys are let go. A step onto another level is a ride on the lift, as ever. An order from
+// above walks him by the grid again. Walking breaks his prayer off; he does not walk while he
+// casts; a crystal he holds is banked as he passes beside his Temple.
+//
+// Cover: a shot at a unit on the ground is taken by what stands between it and the gun within
+// COVER cells of the unit (a building of anyone, a tree, a Residence's house): a building of the
+// gun's enemy takes the hit, anything else stops it. Guns do not aim at a unit in cover. A gun a
+// level or more above the unit fires down over it, and flyers and Spells strike from above. The
+// trees are the rules' own now: `treeGrows` is where src/components/ns-decor.js draws them, and
+// `treeAt` leaves out those it clears around buildings, geysers, Obelisks and Residences.
+//
+// Lifts: each lift (a join of two levels) has LIFT_HP and takes every hit on those riding it,
+// which take none, as the hits on a building's crew would; spent, it bursts, and the bridge it
+// hangs from falls: carriers in its car fall with it (a captive set down on the ground it stood by,
+// still knocked out), a Priest is thrown onto that ground knocked out. Nobody stays in a lift: a
+// ride always ends on a cell, an order to stop sets the rider back where he got on, and fire on
+// the riders wears the lift down to its fall, so the car is cover for a crossing under fire and no
+// more. A lift's wear goes with the bridge, and a new one hangs whole.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'walking by hand, cover and lifts',
+  was: `  /** (netstorm-3d) How much shorter a gun's reach is at night, 0 to 1; a setting. */`,
+  now: `  /** (netstorm-3d) Priests walked by hand (first person), by id: where they stand in 1/WALK_SUB of a
+   * cell, the way they are steered (hundredths of their pace), an order of this tick, a lift ride. */
+  walking = new Map<number, { x: number; y: number; vx: number; vy: number; next: { vx: number; vy: number; lead: number; } | null; ride: boolean; }>();
+  /** (netstorm-3d) The hit points left to the lifts that have been hit, by the key of the cells they join. */
+  lifts = new Map<string, number>();
+  /** (netstorm-3d) How much shorter a gun's reach is at night, 0 to 1; a setting. */`,
+}, {
+  file: 'world.ts',
+  why: 'walking by hand, cover and lifts',
+  was: `  /** Whether (x, y) lies under a Residence, where nothing can be built. */`,
+  now: `  /** (netstorm-3d) Whether a tree grows on cell (x, y): island ground, the more often near its rim
+   * (src/components/ns-decor.js draws them where this says). */
+  treeGrows(x: number, y: number): boolean {
+    const island = (cx: number, cy: number) => this.inside(cx, cy) && this.terrain[this.at(cx, cy)] === Terrain.Island;
+
+    if (!island(x, y)) {
+      return false;
+    }
+
+    let rim = 0;
+
+    for (const [dx, dy] of TREE_RIM) {
+      if (!island(x + dx!, y + dy!)) {
+        rim++;
+      }
+    }
+
+    return cellHash(x, y, 1) < TREE_ODDS + Math.min(rim, 3) * TREE_RIM_ODDS;
+  }
+
+  /** (netstorm-3d) Whether a tree stands on cell (x, y): one that grows there and is not cleared
+   * away, as ns-decor.js clears them: a cell round a building, three round a Temple, two round a
+   * geyser, one round an Obelisk, a Residence's ground. */
+  treeAt(x: number, y: number): boolean {
+    if (!this.treeGrows(x, y) || this.residenceAt(x, y)) {
+      return false;
+    }
+
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        if (!this.inside(x + dx, y + dy)) {
+          continue;
+        }
+
+        const e = this.entities.get(this.occupant[this.at(x + dx, y + dy)] ?? 0);
+        const far = Math.max(Math.abs(dx), Math.abs(dy));
+
+        if (
+          (e?.kind === 'building' && far <= (this.def(e.type).cls === 'Energy' ? 3 : 1))
+          || (e?.kind === 'geyser' && far <= 2) || (e?.kind === 'obelisk' && far <= 1)
+        ) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /** (netstorm-3d) Whether a Residence's house stands on cell (x, y): the middle of its ground. */
+  houseAt(x: number, y: number): boolean {
+    return this.residences.some(([rx, ry]) => x > rx && x < rx + RESIDENCE_FOOT - 1 && y > ry && y < ry + RESIDENCE_FOOT - 1);
+  }
+
+  /** (netstorm-3d) Where an entity stands, in cells: a Priest walked by hand anywhere in his cell,
+   * anything else in the middle of its cell or footprint. */
+  spotOf(e: Entity): [number, number] {
+    const s = this.walking.get(e.id);
+
+    // (where he was walked by hand, while he is still in that cell: he may have been carried off)
+    if (s && !s.ride && Math.floor(s.x / WALK_SUB) === e.x && Math.floor(s.y / WALK_SUB) === e.y) {
+      return [s.x / WALK_SUB, s.y / WALK_SUB];
+    }
+
+    return e.kind === 'building' ? [e.x + e.fx / 2, e.y + e.fy / 2] : [e.x + 0.5, e.y + 0.5];
+  }
+
+  /** Whether (x, y) lies under a Residence, where nothing can be built. */`,
+}, {
+  file: 'world.ts',
+  why: 'walking by hand, cover and lifts',
+  was: `/** (netstorm-3d) The height of a level above the one below, in cells, on tiered islands. */`,
+  now: `/** (netstorm-3d) The trees' odds on a cell of island ground, and how much more for each cell of
+ * the rim near it (src/components/ns-decor.js). */
+const TREE_ODDS = 0.03;
+const TREE_RIM_ODDS = 0.035;
+const TREE_RIM: ReadonlyArray<readonly [number, number]> = [[2, 0], [-2, 0], [0, 2], [0, -2], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+
+/** (netstorm-3d) A number 0 to 1 fixed by a cell and a salt: src/state.js's hash, for the trees. */
+export function cellHash(x: number, y: number, s: number): number {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(s | 0, 2246822519)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/** (netstorm-3d) The height of a level above the one below, in cells, on tiered islands. */`,
+}, {
+  file: 'world.ts',
+  why: 'walking by hand, cover and lifts',
+  was: `import { tickPriest, movePriest } from './rules/priest.js';`,
+  now: `import { tickPriest, movePriest, steerPriest, WALK_SUB } from './rules/priest.js';`,
+}, {
+  file: 'world.ts',
+  why: 'walking by hand, cover and lifts',
+  was: `      case 'moveTransport':
+        return moveTransportTo(this, c);`,
+  now: `      case 'moveTransport':
+        return moveTransportTo(this, c);
+      case 'steerPriest':
+        return steerPriest(this, c);`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'walking by hand',
+  was: `import { TPS, Terrain, type Priest } from '../state.js';`,
+  now: `import { TPS, Terrain, DIRS, type Priest } from '../state.js';`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'walking by hand',
+  was: `import { tickPrayer } from './spells.js';`,
+  now: `import { tickPrayer, breakPrayer } from './spells.js';`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'walking by hand',
+  was: `  if (tickPrayer(world, p)) {
+    return;
+  }
+
+  advance(world, p, PRIEST_SPEED);`,
+  now: `  // (netstorm-3d) walked by hand, in first person
+  if (walkByHand(world, p)) {
+    return;
+  }
+
+  if (tickPrayer(world, p)) {
+    return;
+  }
+
+  advance(world, p, PRIEST_SPEED);`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'walking by hand',
+  was: `export function movePriest(`,
+  now: `/** (netstorm-3d) A Priest walked by hand stands to 1/WALK_SUB of a cell. */
+export const WALK_SUB = 1024;
+/** (netstorm-3d) How far a Priest walked by hand keeps from what he cannot step onto. */
+const WALK_RADIUS = Math.round(WALK_SUB * 0.26);
+const WALK_STEP = (PRIEST_SPEED * WALK_SUB) / TPS;
+
+/** (netstorm-3d) Steer the player's Priest by hand: see scripts/house-rules.mjs. */
+export function steerPriest(
+  world: World,
+  c: { player: number; vx: number; vy: number; lead?: number; },
+): CommandError | null {
+  const p = world.priestOf(c.player);
+
+  if (!p || !Number.isFinite(c.vx) || !Number.isFinite(c.vy)) {
+    return 'priest unavailable';
+  }
+
+  let vx = Math.round(Math.max(-100, Math.min(100, c.vx)));
+  let vy = Math.round(Math.max(-100, Math.min(100, c.vy)));
+  const len = Math.hypot(vx, vy);
+
+  if (len > 100) {
+    vx = Math.round((vx * 100) / len);
+    vy = Math.round((vy * 100) / len);
+  }
+
+  let s = world.walking.get(p.id);
+
+  if (!s) {
+    if (!vx && !vy) {
+      return null;
+    }
+
+    s = { x: p.x * WALK_SUB + WALK_SUB / 2, y: p.y * WALK_SUB + WALK_SUB / 2, vx: 0, vy: 0, next: null, ride: false };
+    world.walking.set(p.id, s);
+  }
+
+  // the tick's first order sets when it begins; a later one in the same tick only the way
+  const lead = Math.round(Math.max(0, Math.min(100, Number(c.lead) || 0)));
+  s.next = { vx, vy, lead: s.next ? s.next.lead : lead };
+  return null;
+}
+
+/** (netstorm-3d) Whether a Priest walked by hand may step from his cell (x, y) the way \`dir\`: false;
+ * true; or 'ride' for a step onto another level, which the lift takes. */
+function walkOpen(world: World, p: Priest, x: number, y: number, dir: number): boolean | 'ride' {
+  const [dx, dy] = DIRS[dir]!;
+  const nx = x + dx, ny = y + dy;
+
+  if (
+    !world.walkable(p.owner, nx, ny) || !world.joined(x, y, dir) || world.takenBy(nx, ny)
+    || world.treeAt(nx, ny) || world.houseAt(nx, ny)
+  ) {
+    return false;
+  }
+
+  return world.tiered && world.level[world.at(nx, ny)] !== world.level[world.at(x, y)] ? 'ride' : true;
+}
+
+/** (netstorm-3d) Where a Priest walked by hand at (x, y) (in 1/WALK_SUB of a cell) is after
+ * \`share\` of a tick walking the way (vx, vy): along x, then along y, up to the edge of his cell
+ * where the next cannot be stepped onto, sliding along it; \`ride\` is a cell of another level his
+ * walk reaches, where he stops for the lift. For the view's foresight too (src/systems/ns-fp.js). */
+export function walkStep(
+  world: World,
+  p: Priest,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  share = 1,
+): { x: number; y: number; ride: [number, number] | null; } {
+  let ride: [number, number] | null = null;
+
+  for (const axis of [0, 1]) {
+    const d = ((axis ? vy : vx) / 100) * WALK_STEP * share;
+
+    if (!d || ride) {
+      continue;
+    }
+
+    const cx = Math.floor(x / WALK_SUB), cy = Math.floor(y / WALK_SUB), c = axis ? cy : cx;
+    const dir = axis ? (d > 0 ? 2 : 0) : (d > 0 ? 1 : 3);
+    const open = walkOpen(world, p, cx, cy, dir);
+    let v = (axis ? y : x) + d;
+
+    if (!open) {
+      v = d > 0 ? Math.min(v, Math.max((axis ? y : x), (c + 1) * WALK_SUB - WALK_RADIUS)) : Math.max(v, Math.min((axis ? y : x), c * WALK_SUB + WALK_RADIUS));
+    } else if (open === 'ride' && (d > 0 ? v >= (c + 1) * WALK_SUB : v < c * WALK_SUB)) {
+      v = d > 0 ? (c + 1) * WALK_SUB - 1 : c * WALK_SUB;
+      ride = axis ? [cx, cy + Math.sign(d)] : [cx + Math.sign(d), cy];
+    }
+
+    if (axis) {
+      y = v;
+    } else {
+      x = v;
+    }
+  }
+
+  return { x, y, ride };
+}
+
+/** (netstorm-3d) A tick of a Priest walked by hand; true while it keeps him from the rest of his tick. */
+function walkByHand(world: World, p: Priest): boolean {
+  const s = world.walking.get(p.id);
+
+  if (!s) {
+    return false;
+  }
+
+  if (s.ride) {
+    if (p.path.length) {
+      return false; // the lift takes him by the grid's step
+    }
+
+    // off the lift: on from the middle of the cell it set him down on
+    s.ride = false;
+    s.x = p.x * WALK_SUB + WALK_SUB / 2;
+    s.y = p.y * WALK_SUB + WALK_SUB / 2;
+  } else if (p.path.length && !s.next) {
+    world.walking.delete(p.id); // an order from above walks him by the grid again
+    return false;
+  }
+
+  // carried off, thrown down or set down elsewhere since: on from the middle of the cell he is in
+  if (Math.floor(s.x / WALK_SUB) !== p.x || Math.floor(s.y / WALK_SUB) !== p.y) {
+    s.x = p.x * WALK_SUB + WALK_SUB / 2;
+    s.y = p.y * WALK_SUB + WALK_SUB / 2;
+  }
+
+  const next = s.next;
+  s.next = null;
+  const walks = (vx: number, vy: number) => vx !== 0 || vy !== 0;
+
+  if (!walks(s.vx, s.vy) && !(next && walks(next.vx, next.vy))) {
+    if (next) {
+      s.vx = next.vx;
+      s.vy = next.vy;
+    }
+
+    return false;
+  }
+
+  // he stands still to cast; walking breaks a prayer off and ends an errand
+  if (p.casting > 0) {
+    if (next) {
+      s.vx = next.vx;
+      s.vy = next.vy;
+    }
+
+    return false;
+  }
+
+  if (p.praying > 0 || p.prayer) {
+    breakPrayer(p);
+  }
+
+  p.path = [];
+  p.move = 0;
+  p.goal = p.carrying === null ? 'idle' : 'home';
+  p.target = null;
+  const lead = next ? next.lead / 100 : 1;
+  let at = walkStep(world, p, s.x, s.y, s.vx, s.vy, lead);
+
+  if (next) {
+    s.vx = next.vx;
+    s.vy = next.vy;
+
+    if (!at.ride && lead < 1) {
+      at = walkStep(world, p, at.x, at.y, s.vx, s.vy, 1 - lead);
+    }
+  }
+
+  s.x = Math.round(at.x);
+  s.y = Math.round(at.y);
+  p.x = Math.floor(s.x / WALK_SUB);
+  p.y = Math.floor(s.y / WALK_SUB);
+
+  if (at.ride) {
+    p.path = [at.ride];
+    s.ride = true;
+  }
+
+  // a crystal he holds is banked as he passes beside his Temple (or an Outpost)
+  if (p.carrying !== null && !s.ride && world.depotsOf(p.owner).some((d) => world.adjacentTo(p.x, p.y, d))) {
+    arrive(world, p);
+  }
+
+  return true;
+}
+
+export function movePriest(`,
+}, {
+  file: 'index.ts',
+  why: 'walking by hand, cover and lifts',
+  was: `export { stepShare, LIFT_SECONDS } from './rules/movement.js';`,
+  now: `export { stepShare, LIFT_SECONDS } from './rules/movement.js';
+export { walkStep, WALK_SUB } from './rules/priest.js';`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'cover and lifts',
+  was: `import { shakeBridges } from './bridges.js';`,
+  now: `import { shakeBridges, collapse } from './bridges.js';
+import { WALK_SUB } from './priest.js';`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'lifts stand as buildings',
+  was: `/** (netstorm-3d) The damage a walker riding a lift between levels takes, as a share of the hit. */
+export const LIFT_EXPOSURE = 1.5;`,
+  now: `/** (netstorm-3d) A lift's hit points: every hit on those riding it is its own. */
+export const LIFT_HP = 400;
+
+/** (netstorm-3d) The key of the lift between cells i and j (src/heights.js's liftKey). */
+export function liftKey(i: number, j: number): string {
+  return i < j ? \`\${i}:\${j}\` : \`\${j}:\${i}\`;
+}
+
+/** (netstorm-3d) A hit on a walker riding a lift: the lift takes it, and bursts when it is spent. */
+function hitLift(world: World, by: number, rider: Entity & { path: readonly (readonly number[])[]; }, amount: number): void {
+  const [nx, ny] = rider.path[0]!;
+  const key = liftKey(world.at(rider.x, rider.y), world.at(nx!, ny!));
+  const left = +((world.lifts.get(key) ?? LIFT_HP) - amount).toFixed(HP_DECIMALS);
+
+  if (left > 0) {
+    world.lifts.set(key, left);
+    return;
+  }
+
+  breakLift(world, by, rider.x, rider.y, nx!, ny!);
+}
+
+/** (netstorm-3d) The lift between cells (ax, ay) and (bx, by) bursts: the bridge it hangs from falls
+ * with the carriers in its car; a Priest in it is thrown onto the ground it joins, knocked out. */
+export function breakLift(world: World, by: number, ax: number, ay: number, bx: number, bY: number): void {
+  const i = world.at(ax, ay), j = world.at(bx, bY);
+  world.lifts.delete(liftKey(i, j));
+  // the cell that falls: the bridge of the two (of two bridges, the one on the higher level)
+  const bridge = (k: number) => world.terrain[k] !== Terrain.Island;
+  const falls = bridge(i) && (!bridge(j) || world.level[i]! >= world.level[j]!) ? i : j;
+  const stays = falls === i ? j : i;
+  const sx = stays % W, sy = (stays / W) | 0;
+
+  for (const e of world.entities.values()) {
+    if ((e.kind !== 'transport' && e.kind !== 'priest') || !e.path.length) {
+      continue;
+    }
+
+    const ei = world.at(e.x, e.y), ej = world.at(e.path[0]![0]!, e.path[0]![1]!);
+
+    if (!((ei === i && ej === j) || (ei === j && ej === i))) {
+      continue;
+    }
+
+    if (e.kind === 'transport') {
+      if (flies(world.def(e.type))) {
+        continue;
+      }
+
+      const captive = e.carrying === null ? undefined : world.entities.get(e.carrying);
+
+      if (captive?.kind === 'priest') {
+        e.carrying = null;
+        captive.carriedBy = null;
+        captive.state = 'down';
+        captive.path = [];
+        captive.move = 0;
+        captive.x = sx;
+        captive.y = sy;
+      }
+
+      e.hp = 0;
+    } else if (e.state === 'normal') {
+      e.x = sx;
+      e.y = sy;
+      e.path = [];
+      e.move = 0;
+      e.hp = Math.min(e.hp, e.hpMax / 2 - 1);
+      const s = world.walking.get(e.id);
+
+      if (s) {
+        s.ride = false;
+        s.x = sx * WALK_SUB + WALK_SUB / 2;
+        s.y = sy * WALK_SUB + WALK_SUB / 2;
+      }
+    }
+  }
+
+  world.emit({ what: 'lift destroyed', who: world.owner[falls]!, data: { x: ax, y: ay, nx: bx, ny: bY, by } });
+  collapse(world, falls % W, (falls / W) | 0);
+}
+
+/** (netstorm-3d) Cover: of a ground unit, how far back toward the gun it is looked for. */
+export const COVER = 3;
+
+/** (netstorm-3d) What stands between a gun and a ground unit within COVER cells of the unit and
+ * takes its shots: { x, y, building } (a building of anyone), or { x, y } (a tree or a Residence's
+ * house); null when the unit stands in the open, or the gun is a level or more above it. */
+export function coverFor(
+  world: World,
+  gun: Gun,
+  target: Entity,
+): { x: number; y: number; building: Building | null; } | null {
+  if (
+    (target.kind !== 'transport' && target.kind !== 'priest') || airborne(world, target)
+    || world.liftLevels(target) > 0
+    || (world.tiered && world.levelsAbove(gun as Entity, target) >= 1)
+  ) {
+    return null;
+  }
+
+  const gx = gun.x + gun.fx / 2, gy = gun.y + gun.fy / 2;
+  const [tx, ty] = world.spotOf(target);
+  const far = Math.hypot(gx - tx, gy - ty);
+
+  if (far < 1) {
+    return null;
+  }
+
+  const ux = (gx - tx) / far, uy = (gy - ty) / far;
+
+  for (let d = 0.35; d <= Math.min(COVER, far); d += 0.25) {
+    const cx = Math.floor(tx + ux * d), cy = Math.floor(ty + uy * d);
+
+    if ((cx === target.x && cy === target.y) || !world.inside(cx, cy)) {
+      continue;
+    }
+
+    if (cx >= gun.x && cx < gun.x + gun.fx && cy >= gun.y && cy < gun.y + gun.fy) {
+      return null; // the gun itself, at the unit's side
+    }
+
+    const occ = world.entities.get(world.occupant[world.at(cx, cy)] ?? 0);
+
+    if (occ?.kind === 'building') {
+      return { x: cx, y: cy, building: occ };
+    }
+
+    if (world.treeAt(cx, cy) || world.houseAt(cx, cy)) {
+      return { x: cx, y: cy, building: null };
+    }
+  }
+
+  return null;
+}`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'lifts stand as buildings',
+  was: `  // (netstorm-3d) a walker riding a lift between levels hangs in the open
+  if (amount > 0 && (entity.kind === 'transport' || entity.kind === 'priest') && world.liftLevels(entity) > 0) {
+    amount *= LIFT_EXPOSURE;
+  }`,
+  now: `  // (netstorm-3d) a walker riding a lift is in its car: the lift takes the hit, as a building would
+  if ((entity.kind === 'transport' || entity.kind === 'priest') && world.liftLevels(entity) > 0) {
+    if (amount > 0) {
+      hitLift(world, by, entity, amount);
+    }
+
+    return;
+  }`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'cover',
+  was: `  // A ricochet pays only for an enemy, and comes from the side, past the Wind Tower's back.
+  const by = shot.ricochet && !world.hostile(gun.owner, target.owner) ? 0 : gun.owner;`,
+  now: `  // (netstorm-3d) cover takes the shot: a building of the gun's enemy is hit instead, anything
+  // else stops it
+  const cover = shot.ricochet ? null : coverFor(world, gun, target);
+
+  if (cover) {
+    const b = cover.building;
+
+    if (b && world.hostile(gun.owner, b.owner) && b.hp > 0) {
+      damage(world, gun.owner, b, amount * hitFactor(world, gun, b), gun);
+    }
+
+    return;
+  }
+
+  // A ricochet pays only for an enemy, and comes from the side, past the Wind Tower's back.
+  const by = shot.ricochet && !world.hostile(gun.owner, target.owner) ? 0 : gun.owner;`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'cover',
+  was: `function aimsAt(world: World, b: Building, target: Entity): boolean {`,
+  now: `function aimsAt(world: World, b: Building, target: Entity): boolean {
+  // (netstorm-3d) no gun aims at a unit in cover
+  if (coverFor(world, b, target)) {
+    return false;
+  }
+`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'cover',
+  was: `    if (hit && r < gunReach(world, b, def.range, hit)) {`,
+  now: `    if (hit && r < gunReach(world, b, def.range, hit) && !coverFor(world, b, hit)) {`,
+}, {
+  file: 'rules/bridges.ts',
+  why: "lifts stand as buildings: a lift's wear goes with its bridge",
+  was: `  world.links[i] = 0;
+  world.wear[i] = 0;
+
+  for (const e of world.entities.values()) {`,
+  now: `  world.links[i] = 0;
+  world.wear[i] = 0;
+
+  // (netstorm-3d) a lift it bore goes with it; one hung there again is whole
+  for (const key of [...world.lifts.keys()]) {
+    if (key.split(':').includes(String(i))) {
+      world.lifts.delete(key);
+    }
+  }
+
+  for (const e of world.entities.values()) {`,
+}, {
+  file: 'index.ts',
+  why: 'walking by hand, cover and lifts',
+  was: `  LIFT_EXPOSURE,
+  gunReach,`,
+  now: `  LIFT_HP,
+  liftKey,
+  coverFor,
+  COVER,
+  gunReach,`,
+});
+
 export function houseRules() {
   return {
     name: 'house-rules',

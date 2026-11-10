@@ -76,7 +76,10 @@ AFRAME.registerComponent('orbit-rig', {
     canvas.style.touchAction = 'none';
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('pointerdown', (e) => {
-      canvas.setPointerCapture(e.pointerId);
+      // with the pointer locked to the view (first person, ns-fp.js) the view is not dragged, and a
+      // locked pointer cannot be captured
+      if (document.pointerLockElement) return;
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* the pointer is gone already */ }
       this.pointers.set(e.pointerId, {
         x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), button: e.button,
         pan: e.button === 2 || e.button === 1 || e.shiftKey, moved: 0,

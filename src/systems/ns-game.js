@@ -269,6 +269,14 @@ AFRAME.registerSystem('ns-game', {
           break;
         }
         case 'bridge fell': fx?.fall(ev.data.x, ev.data.y, 1, 1, true); break;
+        // a lift spent by the hits on its riders bursts as a building does, and its bridge falls
+        case 'lift destroyed': {
+          const { x, y, nx, ny } = ev.data, mx = (x + nx) / 2 + 0.5, my = (y + ny) / 2 + 0.5;
+          const h = (groundAt(x + 0.5, y + 0.5) + groundAt(nx + 0.5, ny + 0.5)) / 2;
+          fx?.explode({ kind: 'building', foot: [3] }, new THREE.Vector3(wx(mx), h, wz(my)));
+          hud.log(mine ? 'Your lift burst under fire, and its bridge fell' : 'An enemy lift burst, and its bridge fell', mine ? 'bad' : 'good');
+          break;
+        }
         case 'islet fell': fx?.fall(ev.data.x, ev.data.y, ev.data.w, ev.data.h, false); break;
         case 'build': {
           const d = defs.get(ev.data.type);

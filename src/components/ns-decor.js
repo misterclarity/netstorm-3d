@@ -1,7 +1,9 @@
 /**
  * The islands' greenery and stones: trees, pines, bushes, rocks, flowers and tufts of grass on
- * island ground, so that the islands do not look bare. They are only to look at: the rules never
- * see them, clicks go through them, and they keep clear of what the battle needs, standing
+ * island ground, so that the islands do not look bare. The trees are the rules' too (world.treeGrows
+ * and treeAt, scripts/house-rules.mjs): a shot at a unit behind one is stopped, and a Priest walked
+ * in first person cannot walk through one; the rest are only to look at. Clicks go through them,
+ * and they keep clear of what the battle needs, standing
  * nowhere near a building, a geyser, an Obelisk, a Temple or a Residence, and none on a bridge.
  * Each kind is one instanced mesh, so the whole lot costs a few draw calls. Each cell's lot is
  * fixed by its place (`hash`), so the islands look the same each time; their colours follow the
@@ -113,7 +115,9 @@ AFRAME.registerComponent('ns-decor', {
         const cx = wx(x + 0.5) + jx, cz = wz(y + 0.5) + jz, turn = hash(x, y, 4) * Math.PI * 2;
         const size = 0.8 + hash(x, y, 5) * 0.55, pick = (s) => hash(x, y, s);
         const trees = 0.03 + Math.min(rim, 3) * 0.035;
-        if (r < trees) {
+        // where a tree grows is the rules' (world.treeGrows: trees are cover, and in the way in first
+        // person); the same odds as here
+        if (G.world?.treeGrows ? G.world.treeGrows(x, y) : r < trees) {
           // pines grow more on Wind's and Thunder's islands; which Fury that is can change, so the
           // choice is by place alone and the colours follow the owner
           if (hash(x, y, 7) < 0.4) {

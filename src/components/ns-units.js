@@ -177,6 +177,12 @@ AFRAME.registerComponent('ns-unit', {
   /** Where the entity stands now, in world cells, a mover part-way to its next cell. */
   cellPos(e) {
     if (e.kind === 'building') return [e.x + e.fx / 2, e.y + e.fy / 2];
+    // a Priest walked by hand (first person) stands anywhere in his cell
+    const hand = e.kind === 'priest' ? G.world.walking?.get(e.id) : null;
+    if (hand && !hand.ride && !e.path?.length && Math.floor(hand.x / NS.WALK_SUB) === e.x && Math.floor(hand.y / NS.WALK_SUB) === e.y) {
+      this.ride = null;
+      return [hand.x / NS.WALK_SUB, hand.y / NS.WALK_SUB];
+    }
     if (e.kind === 'flyer') return [e.px / NS.FLYER_SCALE, e.py / NS.FLYER_SCALE];
     let x = e.x + 0.5, y = e.y + 0.5;
     this.ride = null;
