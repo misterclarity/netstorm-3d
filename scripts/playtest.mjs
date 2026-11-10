@@ -1520,6 +1520,108 @@ SCENARIOS.tabletop = async () => {
 };
 
 let failed = 0;
+SCENARIOS.firstperson = async () => {
+  const { page, errors } = await open({ width: 1100, height: 700 });
+  const shot = async (name) => { if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/${name}.png` }); };
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  await page.click('#modal button.main');
+  await page.waitForTimeout(300);
+  // the battle is played here a tick at a time, with the first person's frame between (the page
+  // draws only now and then in a headless browser)
+  const play = (seconds) => page.evaluate((n) => {
+    const { G, NS, stepWorld, flushPendingAi } = window.NS3D, fp = document.querySelector('a-scene').systems['ns-fp'];
+    G.paused = true;
+    for (let i = 0; i < n * NS.TPS; i++) {
+      window.fpClock = (window.fpClock ?? 0) + 1000 / NS.TPS;
+      fp.tick(window.fpClock, 1000 / NS.TPS);
+      if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+    }
+    G.paused = false;
+  }, seconds);
+  // V: the Priest's eyes, the camera at his eyes, his card and the next step put away for the crosshair
+  await page.keyboard.press('v');
+  await play(0.2);
+  const inside = await page.evaluate(() => {
+    const { G, NS, wx, wz } = window.NS3D, p = G.world.priestOf(NS.ME), cam = document.getElementById('camera');
+    const c = cam.object3D.position;
+    return {
+      active: !!G.fp?.active, fov: cam.getAttribute('camera').fov, rig: cam.components['orbit-rig'].enabled,
+      hud: !document.getElementById('fp').hidden, selected: G.selected === p.id, dx: c.x - wx(p.x + 0.5), dz: c.z - wz(p.y + 0.5), y: c.y,
+      card: getComputedStyle(document.getElementById('sel')).display,
+    };
+  });
+  if (!inside.active || inside.rig || inside.fov !== 70 || !inside.hud || !inside.selected || Math.hypot(inside.dx, inside.dz) > 1.2 || inside.y < 1 || inside.y > 2 || inside.card !== 'none') throw new Error(`not in the Priest's eyes: ${JSON.stringify(inside)}`);
+  // W walks him the way he looks: turned to the side with the most ground ahead, held for 2.5 s;
+  // let go, he stops on the next cell
+  const way = await page.evaluate(() => {
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), fp = document.querySelector('a-scene').systems['ns-fp'];
+    let best = null;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      let n = 0;
+      while (n < 8 && G.view.walkable(NS.ME, p.x + dx * (n + 1), p.y + dy * (n + 1)) && !G.view.takenBy(p.x + dx * (n + 1), p.y + dy * (n + 1))) n++;
+      if (!best || n > best.n) best = { dx, dy, n };
+    }
+    fp.yaw = Math.atan2(-best.dx, -best.dy);
+    fp.pitch = -0.1;
+    return { ...best, x: p.x, y: p.y };
+  });
+  await page.keyboard.down('w');
+  await play(2.5);
+  await page.keyboard.up('w');
+  await play(1);
+  const walked = await page.evaluate(({ x, y, dx, dy }) => {
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME);
+    return { along: (p.x - x) * dx + (p.y - y) * dy, aside: Math.abs((p.x - x) * dy - (p.y - y) * dx), path: p.path.length };
+  }, way);
+  if (way.n >= 4 && !(walked.along >= 3 && walked.aside <= 1)) throw new Error(`W did not walk him ahead: ${JSON.stringify({ way, walked })}`);
+  if (walked.path > 0) throw new Error(`he did not stop when W was let go: ${JSON.stringify(walked)}`);
+  await page.waitForTimeout(1500);
+  await shot('firstperson');
+  // Tab picks a Priest build, laid at the crosshair (its ghost there); Esc puts it away
+  await page.keyboard.press('Tab');
+  await page.evaluate(() => { document.querySelector('a-scene').systems['ns-fp'].pitch = -0.55; });
+  await play(0.1);
+  const build = await page.evaluate(() => ({ tool: window.NS3D.G.tool, hover: window.NS3D.G.hover }));
+  if (build.tool.kind !== 'build' || !build.hover) throw new Error(`Tab chose nothing to build at the crosshair: ${JSON.stringify(build)}`);
+  await page.waitForTimeout(1500);
+  await shot('firstperson-build');
+  await page.keyboard.press('Escape');
+  if ((await page.evaluate(() => window.NS3D.G.tool.kind)) !== 'select') throw new Error('Esc did not put the building away');
+  // Q with no Spell says so; R prays for the Devastation (a skirmish's Spells by prayer)
+  await page.keyboard.press('q');
+  await page.keyboard.press('r');
+  await play(0.5);
+  const prayed = await page.evaluate(() => {
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), fp = document.querySelector('a-scene').systems['ns-fp'];
+    fp.hud();
+    return { praying: p.praying, prayer: p.prayer, toasts: [...document.querySelectorAll('.toast')].map((t) => t.textContent).join(' | '), info: document.getElementById('fpInfo').textContent };
+  });
+  if (!/holds no Spell/.test(prayed.toasts) || !(prayed.praying > 0) || !/Praying for/.test(prayed.info)) throw new Error(`Q and R in first person: ${JSON.stringify(prayed)}`);
+  // a click acts at the crosshair: looking down at the ground ahead, he walks there
+  const aim = await page.evaluate(() => {
+    const fp = document.querySelector('a-scene').systems['ns-fp'], { G, NS } = window.NS3D;
+    fp.pitch = -0.6;
+    fp.tick(window.fpClock, 16);
+    fp.act();
+    const p = G.world.priestOf(NS.ME);
+    return { hover: G.hover, at: [p.x, p.y] };
+  });
+  await play(0.3);
+  const acted = await page.evaluate(() => { const { G, NS } = window.NS3D; const p = G.world.priestOf(NS.ME); return { path: p.path.length, at: [p.x, p.y], praying: p.praying }; });
+  const moved = acted.path > 0 || acted.at[0] !== aim.at[0] || acted.at[1] !== aim.at[1];
+  if (aim.hover && (aim.hover.x !== aim.at[0] || aim.hover.y !== aim.at[1]) && !moved) throw new Error(`a click at the crosshair did nothing: ${JSON.stringify({ aim, acted })}`);
+  // V again: the view from above, as it was
+  await page.keyboard.press('v');
+  const out = await page.evaluate(() => {
+    const cam = document.getElementById('camera');
+    return { fp: window.NS3D.G.fp, rig: cam.components['orbit-rig'].enabled, fov: cam.getAttribute('camera').fov, hud: document.getElementById('fp').hidden };
+  });
+  if (out.fp || !out.rig || out.fov !== 45 || !out.hud) throw new Error(`not back above: ${JSON.stringify(out)}`);
+  console.log(`  in his eyes ${inside.y.toFixed(2)} above the ground; walked ${walked.along} cells ahead with W and stopped; Tab chose ${build.tool.type}; prayed for ${prayed.prayer}; a click walked him to the crosshair; back above`);
+  return errors;
+};
+
 for (const [name, run] of Object.entries(SCENARIOS)) {
   if (only && name !== only) continue;
   const started = Date.now();

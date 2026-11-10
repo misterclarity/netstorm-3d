@@ -239,7 +239,11 @@ AFRAME.registerComponent('ns-unit', {
     let visible = true;
     if (e.kind === 'crystal' && e.carriedBy !== null) visible = false;
     if (e.kind === 'priest') {
-      visible = e.state !== 'carried';
+      // seen through his own eyes (first person, ns-fp.js), his figure is not in the way; the runes
+      // at his feet as he prays are
+      const own = G.fp?.id === e.id;
+      if (rep.body) rep.body.visible = !own;
+      visible = e.state !== 'carried' && !(own && this.art.mode !== 'models');
       rep.body.rotation.x = e.state === 'down' ? -Math.PI / 2 * 0.95 : 0;
       rep.body.position.y = e.state === 'down' ? 0.25 : e.state === 'chained' ? 0.5 + Math.sin(s * 2) * 0.1 : 0;
     }
@@ -442,7 +446,7 @@ AFRAME.registerComponent('ns-unit', {
 
   healthBar(e, t) {
     const seen = this.model.visible || !!this.card?.visible;
-    const show = e.hp !== undefined && e.hpMax > 0 && seen && (e.hp < e.hpMax || G.selected === e.id);
+    const show = e.hp !== undefined && e.hpMax > 0 && seen && (e.hp < e.hpMax || G.selected === e.id) && G.fp?.id !== e.id;
     if (!show) { if (this.bar) this.bar.visible = false; return; }
     const parts = barParts();
     if (!this.bar) {

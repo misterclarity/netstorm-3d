@@ -32,6 +32,7 @@ export class Minimap {
     document.getElementById('camTemple').onclick = () => this.toTemple();
     document.getElementById('camPriest').onclick = () => this.toPriest();
     document.getElementById('camFollow').onclick = () => this.toggleFollow();
+    document.getElementById('camEyes').onclick = () => this.game.fp().toggle();
   }
 
   rig() {

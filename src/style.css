@@ -182,3 +182,15 @@ body.tabletop #bar, body.tabletop #sel, body.tabletop #goal { display: none !imp
 #modal table.spells th { color: var(--muted); font-weight: 600; }
 #modal table.spells td:first-child { width: 22%; font-weight: 600; }
 #modal table.spells td:nth-child(n+3), #modal table.spells th:nth-child(n+3) { white-space: nowrap; }
+
+/* first person: the Priest's eyes (src/systems/ns-fp.js) */
+#fp { position: fixed; inset: 0; z-index: 9; pointer-events: none; }
+#crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; }
+#crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,0.85); box-shadow: 0 0 2px rgba(0,0,0,0.8); }
+#crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+#crosshair::after { left: 0; top: 10px; width: 22px; height: 2px; }
+#fpInfo { position: absolute; left: 50%; transform: translateX(-50%); bottom: 150px; padding: 8px 12px; font-size: 12px; color: var(--muted); text-align: center; max-width: min(720px, 92vw); }
+#fpInfo div { margin: 2px 0; }
+#fpInfo b { color: var(--text, #fff); }
+#fpInfo kbd { background: rgba(255,255,255,0.1); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 11px; }
+body.fp #right, body.fp #sel { display: none !important; }

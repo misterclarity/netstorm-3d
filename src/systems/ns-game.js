@@ -123,7 +123,7 @@ AFRAME.registerSystem('ns-game', {
 
   /** Whether the scene has to move smoothly now. */
   lively() {
-    if (G.started && !G.paused && !G.ended && !this.hud.modalOpen()) return true;
+    if (G.fp?.active || (G.started && !G.paused && !G.ended && !this.hud.modalOpen())) return true;
     return !!document.getElementById('camera')?.components['orbit-rig']?.moving();
   },
 
@@ -220,6 +220,7 @@ AFRAME.registerSystem('ns-game', {
   units() { return this.el.querySelector('[ns-units]')?.components['ns-units']; },
   sound() { return this.el.systems['ns-sound']; },
   xr() { return this.el.systems['ns-xr']; },
+  fp() { return this.el.systems['ns-fp']; },
   placement() { return this.el.querySelector('[ns-placement]')?.components['ns-placement']; },
 
   handleEvents() {
@@ -337,6 +338,7 @@ AFRAME.registerSystem('ns-game', {
     return ray && groundCell(ray);
   },
   onHover(d) {
+    if (G.fp?.active) return; // the crosshair points (ns-fp.js)
     const ray = d && this.rayAt(d.x, d.y);
     // over the tabletop's own panel there is no cell to point at
     if (ray && this.xr().panelHover(ray)) { G.mouse = null; G.hover = null; G.hoverPick = null; return; }
@@ -346,6 +348,7 @@ AFRAME.registerSystem('ns-game', {
     G.hoverPick = this.pickAt(ray);
   },
   onTap(d) {
+    if (G.fp?.active) return; // a click acts at the crosshair (ns-fp.js)
     const ray = this.rayAt(d.x, d.y);
     if (d.button !== 2 && ray && this.xr().panelPress(ray)) return;
     if (!G.started || this.hud.modalOpen()) return;
@@ -808,6 +811,8 @@ AFRAME.registerSystem('ns-game', {
 
   onKey(e) {
     if (keysOff(e)) return;
+    // in the Priest's eyes his keys come first (ns-fp.js)
+    if (G.fp?.active && this.fp().onKey(e)) return;
     const k = e.key.toLowerCase();
     if (k >= '1' && k <= '6') {
       const i = Number(k) - 1;
@@ -827,7 +832,8 @@ AFRAME.registerSystem('ns-game', {
       h: () => this.minimap.toTemple(),
       p: () => this.minimap.toPriest(),
       f: () => this.minimap.toggleFollow(),
-      t: () => this.xr().toggle(),
+      t: () => { this.fp().leave(); this.xr().toggle(); },
+      v: () => this.fp().toggle(),
       i: () => this.nextIdle(),
       // on tiered islands Q and E take the level down and up (else they turn the camera: orbit-rig)
       q: HEIGHTS.on ? () => this.shiftLevel(-1) : null,

@@ -135,7 +135,7 @@ AFRAME.registerComponent('orbit-rig', {
       }
       if (e.pointerType !== 'touch') scene.emit('ns-hover', { x: e.clientX, y: e.clientY }, false);
     });
-    canvas.addEventListener('wheel', (e) => { e.preventDefault(); this.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
+    canvas.addEventListener('wheel', (e) => { e.preventDefault(); if (this.enabled) this.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
   },
 
   /** Whether the view is changing: a drag, a key held, or a glide not yet arrived. */

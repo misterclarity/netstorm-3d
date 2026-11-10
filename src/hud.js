@@ -776,6 +776,7 @@ export class Hud {
       <li><b>Build:</b> click a card, then the map. <kbd>R</kbd> turns cannons. Hold <kbd>Shift</kbd> to build several. Rings in each Fury’s colour show your Energy (the ones that count for the spot light up, and the tip says what is missing); yellow, the gun’s range. The dots on a card are the Energy it needs.</li>
       <li><b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <b>Salvage:</b> <kbd>Delete</kbd></li>
       <li><b>Look:</b> <kbd>H</kbd> your Temple · <kbd>P</kbd> your Priest · <kbd>F</kbd> follow the selected unit · click or drag on the minimap</li>
+      <li><b>Your Priest’s eyes:</b> <kbd>V</kbd> (or <b>Eyes</b> by the minimap) takes him over in first person, and again back to the view from above. <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk him · the mouse looks (click the view to lock the pointer to it, <kbd>Esc</kbd> frees it) · click or <kbd>E</kbd> acts on what the crosshair is on: a geyser to collect, a crystal to fetch, your Altar to perform the Sacrifice, ground to walk to · the wheel or <kbd>Tab</kbd> picks a Workshop or the Altar to lay at the crosshair, right-click puts it away · <kbd>Q</kbd> casts the Spell he holds round him · <kbd>R</kbd> prays (<kbd>Shift</kbd>+<kbd>R</kbd> picks the prayer) · <kbd>B</kbd> banks the crystal he holds at the Temple, <kbd>X</kbd> drops it. Bridge pieces (<kbd>1</kbd>–<kbd>6</kbd>) are laid at the crosshair too.</li>
       <li><b>Danger:</b> <kbd>G</kbd> shows where enemy guns reach (red); they show by themselves while you hold a piece or a building · <kbd>L</kbd> the event log</li>
       <li><b>Touch:</b> tap to select; with a piece or building chosen, tap once to preview and again to place.</li>
       <li><b>Tabletop:</b> <kbd>T</kbd> puts the battle on a table, as a headset shows it. <b>VR</b> and <b>AR</b> appear in the top bar when your headset or phone can do them: the trigger (or a tap) selects, lays and builds · grip cancels · A/X rotates the piece · right stick turns and zooms the map, left stick moves it · B/Y recenters (AR: moves the table)</li></ol>
@@ -797,7 +798,9 @@ export class Hud {
       <h3>Your Priest</h3>
       <p>He is your most precious unit. He builds Workshops and the Altar (the “Priest builds” cards), walks on
         your ground and can carry a Storm Crystal home. Keep him out of reach of enemy guns: press <kbd>G</kbd>
-        to see their range in red.</p>
+        to see their range in red. Press <kbd>V</kbd> to see through his eyes and walk him yourself, in first
+        person: the mouse looks, <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk, a click acts on what the
+        crosshair is on, <kbd>Q</kbd> casts his Spell and <kbd>R</kbd> prays (Controls has every key).</p>
       <h3>Storm Power ⚡</h3>
       <p>Everything costs Storm Power. It comes from geysers as Storm Crystals, and counts once a crystal is
         carried home to your Temple. Build <b>Golems</b> at your Temple, select one and click a geyser: it
