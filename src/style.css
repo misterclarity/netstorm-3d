@@ -194,3 +194,8 @@ body.tabletop #bar, body.tabletop #sel, body.tabletop #goal { display: none !imp
 #fpInfo b { color: var(--text, #fff); }
 #fpInfo kbd { background: rgba(255,255,255,0.1); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 11px; }
 body.fp #right, body.fp #sel { display: none !important; }
+
+/* the moment of dark between the islands and a dungeon (src/components/ns-dungeon.js) */
+#fade { position: fixed; inset: 0; z-index: 8; background: #000; opacity: 0; pointer-events: none; }
+body.below #bar, body.below #mini, body.below #right, body.below #sel { display: none !important; }
+body.below #fpInfo { bottom: 24px; }

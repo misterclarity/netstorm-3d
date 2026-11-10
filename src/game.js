@@ -41,6 +41,8 @@ export function newGame(setup = G.setup) {
   G.world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known, altarLevel: 1 });
   // a random map's islands get the Residences a mission's map has (src/residences.js)
   if (!G.mission) settleResidences(G.world, options.seed);
+  // and a dungeon under the player's starting island (the house rules' digDungeon)
+  if (!G.mission) NS.digDungeon(G.world, ME, options.seed);
   G.view = G.world.view();
   // the player's settings that are rules: day and night (src/settings.js)
   applySettings(G.world);

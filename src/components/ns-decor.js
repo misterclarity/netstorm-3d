@@ -175,6 +175,7 @@ AFRAME.registerComponent('ns-decor', {
       else if (e.kind === 'obelisk') clear(e.x, e.y, 1, 1, 1);
     }
     for (const [x, y] of v.residences) clear(x, y, 4, 4, 0);
+    for (const d of v.dungeons ?? []) clear(d.x, d.y, 2, 2, 1);
     for (const { mesh, items } of Object.values(this.meshes)) {
       let changed = false;
       items.forEach((item, n) => {

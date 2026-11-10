@@ -14,8 +14,10 @@
  * goes in the moment the keys change, with the share of the tick it was given at, and the view
  * draws him a frame at a time where the rules' own step (walkStep) will put him, so he answers the
  * keys at once and stops dead when they are let go. How he is walked and where his eyes are is
- * the `place` below: the islands' now; a dungeon behind a cave mouth will bring its own, and the
- * view, the crosshair and his actions stay as they are.
+ * the `place` below: the islands', or a dungeon's when he has gone down into one (CAVE): there
+ * the same order walks him in its tiles, and the view (src/components/ns-dungeon.js) shows the
+ * dungeon instead of the islands. Beside a dungeon's portal E (or a click on it) takes him down;
+ * below, E or a click opens the chest he stands by, or climbs the stairs he stands by.
  */
 import { NS, THREE, G, ME, defs, TPS, wx, wz } from '../state.js';
 import { submit } from '../game.js';
@@ -57,6 +59,20 @@ const ISLANDS = {
   },
 };
 
+/** A dungeon as a place to walk: the same order walks him in its tiles; where he will be, there. */
+const CAVE = {
+  steer: ISLANDS.steer,
+  /** Where he stands now, in the dungeon's tiles, `alpha` of the coming tick on. */
+  at(p, alpha, order) {
+    const b = G.world.below?.get(p.id), d = b && G.world.dungeons[b.dungeon];
+    if (!d) return null;
+    const lead = order ? order.lead / 100 : 1;
+    let at = NS.caveStep(d, b.x, b.y, b.vx, b.vy, Math.min(alpha, lead));
+    if (order && alpha > lead) at = NS.caveStep(d, at.x, at.y, order.vx, order.vy, alpha - lead);
+    return [at.x / NS.WALK_SUB, at.y / NS.WALK_SUB];
+  },
+};
+
 AFRAME.registerSystem('ns-fp', {
   init() {
     this.active = false;
@@ -93,13 +109,14 @@ AFRAME.registerSystem('ns-fp', {
     canvas.addEventListener('mousedown', (e) => {
       if (!this.active) return;
       if (document.pointerLockElement !== canvas) { this.lock(); return; }
-      if (e.button === 0) this.act();
+      if (e.button === 0) this.use(true);
       if (e.button === 2) this.game().cancel();
     });
     canvas.addEventListener('wheel', (e) => { if (this.active) { e.preventDefault(); this.cycleBuild(e.deltaY > 0 ? 1 : -1); } }, { passive: false });
   },
 
   game() { return this.el.systems['ns-game']; },
+  dungeon() { return document.getElementById('dungeon')?.components['ns-dungeon']; },
   rig() { return document.getElementById('camera')?.components['orbit-rig']; },
   priest() { return G.world?.priestOf(ME) ?? null; },
 
@@ -172,10 +189,10 @@ AFRAME.registerSystem('ns-fp', {
     const act = {
       v: () => this.leave(),
       escape: () => { if (G.tool.kind !== 'select') this.game().cancel(); else this.leave(); },
-      e: () => this.act(),
-      q: () => this.cast(),
+      e: () => this.use(),
+      q: () => (this.below() ? this.game().hud.toast('Down here no Spell can be cast: climb out first', 'bad') : this.cast()),
       // R turns a bridge piece in hand, as from above; else he prays
-      r: () => (G.tool.kind === 'piece' ? this.game().rotate() : e.shiftKey ? this.nextPrayer() : this.pray()),
+      r: () => (G.tool.kind === 'piece' ? this.game().rotate() : this.below() ? this.game().hud.toast('Down here he cannot pray: climb out first', 'bad') : e.shiftKey ? this.nextPrayer() : this.pray()),
       b: () => { if (p) this.game().bankCargo(p); },
       x: () => { if (p?.carrying !== null && p?.carrying !== undefined) submit({ t: 'dropCargo', transport: p.id }); },
       tab: () => this.cycleBuild(e.shiftKey ? -1 : 1),
@@ -205,6 +222,56 @@ AFRAME.registerSystem('ns-fp', {
     if (!cell || G.tool.kind !== 'build') return cell;
     const def = defs.get(G.tool.type), half = Math.max(def.footX, def.footY) / 2;
     return { ...cell, x: Math.round(cell.x - Math.sin(this.yaw) * half), y: Math.round(cell.y - Math.cos(this.yaw) * half) };
+  },
+
+  /** Where he is below, if he is in a dungeon: { b, d, n (its index) }. */
+  below() {
+    const p = this.priest(), b = p && G.world?.below?.get(p.id);
+    return b ? { b, d: G.world.dungeons[b.dungeon], n: b.dungeon } : null;
+  },
+
+  /** The dungeon whose portal he stands beside, on the islands; or null. */
+  portal() {
+    const p = this.priest();
+    if (!p || this.below()) return null;
+    return G.world.dungeons?.find((d) => p.x >= d.x - 1 && p.x <= d.x + 2 && p.y >= d.y - 1 && p.y <= d.y + 2) ?? null;
+  },
+
+  /** Below: what he stands by that he can use: the stairs, or a chest (the nearest, before him first). */
+  within() {
+    const at = this.below(), p = this.priest();
+    if (!at || !p) return null;
+    const { b, d } = at, x = b.x / NS.WALK_SUB, y = b.y / NS.WALK_SUB;
+    const fx = -Math.sin(this.yaw), fy = -Math.cos(this.yaw);
+    const things = [{ kind: 'stairs', x: d.stairs[0], y: d.stairs[1] }, ...d.chests.filter((c) => !c.opened).map((c) => ({ kind: 'chest', x: c.x, y: c.y, chest: c }))];
+    let best = null, score = Infinity;
+    for (const t of things) {
+      const dx = t.x + 0.5 - x, dy = t.y + 0.5 - y, far = Math.hypot(dx, dy);
+      if (far > NS.DUNGEON_REACH) continue;
+      const ahead = (dx * fx + dy * fy) / Math.max(far, 0.01), sc = far - ahead;
+      if (sc < score) { best = t; score = sc; }
+    }
+    return best;
+  },
+
+  /** E, or a click: below, the stairs or the chest he stands by; on the islands, the portal he stands
+   * by (or, for a click, the one the crosshair is on), else what the crosshair is on. */
+  use(click = false) {
+    const game = this.game();
+    if (this.below()) {
+      const t = this.within();
+      if (!t) { game.hud.toast('Nothing to open here: walk up to a chest, or to the stairs to climb out', 'bad'); return; }
+      if (t.kind === 'stairs') submit({ t: 'leaveDungeon' });
+      else submit({ t: 'openChest', chest: t.chest.id });
+      return;
+    }
+    const d = this.portal();
+    const aimed = click && d ? (() => { const c = this.aimCell(this.ray()); return c && c.x >= d.x && c.x < d.x + 2 && c.y >= d.y && c.y < d.y + 2; })() : false;
+    if (d && (!click || aimed) && G.tool.kind === 'select') {
+      submit({ t: 'enterDungeon' });
+      return;
+    }
+    this.act();
   },
 
   /** A click at the crosshair: what a click of the view above does there with him selected. */
@@ -291,9 +358,12 @@ AFRAME.registerSystem('ns-fp', {
     // drawn (a ride on a lift, a walk ordered from above)
     const eye = p.state === 'down' ? EYE_DOWN : EYE, cam = document.getElementById('camera').object3D;
     const pending = this.order && G.commands.includes(this.order) ? this.order : null;
+    const down = this.below();
+    this.place = down ? CAVE : ISLANDS;
     const at = this.place.at(p, G.clock.alpha, pending);
     let target = null;
-    if (at) target = toScene(this.eye.set(wx(at[0]), groundAt(at[0], at[1]) + eye, wz(at[1])));
+    if (at && down) target = this.dungeon()?.toScene(down.n, at[0], at[1], eye) ?? null;
+    else if (at) target = toScene(this.eye.set(wx(at[0]), groundAt(at[0], at[1]) + eye, wz(at[1])));
     else {
       const el = this.game().units()?.byId.get(p.id);
       if (el) target = toScene(this.eye.copy(el.object3D.position).setY(el.object3D.position.y + eye));
@@ -304,8 +374,10 @@ AFRAME.registerSystem('ns-fp', {
       else cam.position.lerp(target, 1 - Math.exp(-dt / 50));
     }
     cam.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
-    // the crosshair is the pointer: the hover, the ghost of what is to be laid, the tip by it
-    const ray = this.ray();
+    // the crosshair is the pointer: the hover, the ghost of what is to be laid, the tip by it (not
+    // below: the islands are out of sight)
+    const ray = down ? null : this.ray();
+    if (down) { G.hover = null; G.hoverPick = null; G.mouse = null; }
     if (ray) {
       G.ray = ray;
       G.hover = this.aimCell(ray);
@@ -325,6 +397,24 @@ AFRAME.registerSystem('ns-fp', {
     if (!this.active) return;
     const p = this.priest(), secs = (n) => Math.ceil(n / TPS);
     const lines = [];
+    const down = this.below();
+    if (p && down) {
+      // below: the deep air's time, what he stands by, the keys
+      const left = Math.max(0, NS.DEEP_SECONDS - (G.world.tick - down.b.since) / TPS), t = this.within();
+      lines.push(`<b>In the dungeon</b> under your island · the deep air: ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')} left`);
+      if (p.spell) lines.push(`Holds the ${spellName(p.spell)}: cast it on the surface`);
+      const opened = down.d.chests.filter((c) => c.opened).length;
+      lines.push(t?.kind === 'chest' ? '<kbd>E</kbd> or click: <b>open the chest</b>' : t?.kind === 'stairs' ? '<kbd>E</kbd> or click: <b>climb the stairs out</b>'
+        : `Chests opened ${opened} of ${down.d.chests.length} · walk up to one, or back to the stairs to climb out`);
+      lines.push(document.pointerLockElement === this.el.canvas
+        ? '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · mouse look · <kbd>E</kbd> use · <kbd>Esc</kbd> free the mouse · <kbd>V</kbd> view the battle from above'
+        : '<b>Click the view to look about with the mouse</b> · <kbd>V</kbd> view the battle from above');
+      const html = lines.map((l) => `<div>${l}</div>`).join('');
+      const info = document.getElementById('fpInfo');
+      if (info && info.dataset.html !== html) { info.innerHTML = html; info.dataset.html = html; }
+      return;
+    }
+    if (p && this.portal() && G.tool.kind === 'select') lines.push('<kbd>E</kbd>: <b>go down into the dungeon</b>');
     if (p) {
       const state = { down: 'Knocked out: he gets up at half his health', carried: 'Carried off by the enemy!', chained: `Chained to an enemy Altar: ${p.runes}/5 runes` }[p.state];
       lines.push(`<b>High Priest</b> ${Math.ceil(p.hp)}/${p.hpMax}${state ? ` · ${state}` : ''}`);

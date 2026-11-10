@@ -416,6 +416,11 @@ export class Hud {
     if (e.kind === 'priest') {
       const doing = { build: 'Building', collect: 'Collecting Storm Power', home: 'Carrying Storm Power home', pickup: 'Fetching a crystal' }[e.goal] ?? 'Standing';
       lines.push({ normal: doing, down: 'Knocked out', carried: 'Being carried off', chained: `Chained to an Altar: ${e.runes}/5 runes` }[e.state] ?? e.state);
+      // below, in a dungeon (the house rules), or by a dungeon's portal
+      if (G.world.below?.has(e.id)) lines.push(e.owner === ME ? 'Exploring the dungeon under his island: <kbd>V</kbd> to see through his eyes' : 'Down in a dungeon, out of reach');
+      else if (e.owner === ME && e.state === 'normal' && G.world.dungeons?.some((u) => e.x >= u.x - 1 && e.x <= u.x + 2 && e.y >= u.y - 1 && e.y <= u.y + 2)) {
+        acts.push('<button data-sel="delve">Go down into the dungeon</button>');
+      }
       const held = e.carrying === null || e.carrying === undefined ? null : G.view.entities.get(e.carrying);
       if (e.owner === ME && e.state === 'normal' && held?.kind === 'crystal' && e.goal !== 'home') {
         lines.push(`He holds a storm crystal (⚡${held.value}): it is banked when he reaches your Temple.`);
@@ -456,6 +461,8 @@ export class Hud {
       if (p?.kind === 'priest') this.game.bankCargo(p);
     }
     if (b.dataset.sel === 'salvage') this.salvage();
+    // down into the dungeon, seen through his eyes (ns-fp.js)
+    if (b.dataset.sel === 'delve') { submit({ t: 'enterDungeon' }); if (!G.fp?.active) this.game.fp().enter(); }
     if (b.dataset.sel === 'ritual') {
       const altar = G.view.entities.get(id);
       if (altar) this.game.priestToAltar(altar);
@@ -776,7 +783,7 @@ export class Hud {
       <li><b>Build:</b> click a card, then the map. <kbd>R</kbd> turns cannons. Hold <kbd>Shift</kbd> to build several. Rings in each Fury’s colour show your Energy (the ones that count for the spot light up, and the tip says what is missing); yellow, the gun’s range. The dots on a card are the Energy it needs.</li>
       <li><b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <b>Salvage:</b> <kbd>Delete</kbd></li>
       <li><b>Look:</b> <kbd>H</kbd> your Temple · <kbd>P</kbd> your Priest · <kbd>F</kbd> follow the selected unit · click or drag on the minimap</li>
-      <li><b>Your Priest’s eyes:</b> <kbd>V</kbd> (or <b>Eyes</b> by the minimap) takes him over in first person, and again back to the view from above. <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk him any way at once, together with the mouse, and he stops where he is when you let go; trees and houses are in his way, and cover from guns · the mouse looks (click the view to lock the pointer to it, <kbd>Esc</kbd> frees it) · click or <kbd>E</kbd> acts on what the crosshair is on: a geyser to collect, a crystal to fetch, your Altar to perform the Sacrifice, ground to walk to · the wheel or <kbd>Tab</kbd> picks a Workshop or the Altar to lay at the crosshair, right-click puts it away · <kbd>Q</kbd> casts the Spell he holds round him · <kbd>R</kbd> prays (<kbd>Shift</kbd>+<kbd>R</kbd> picks the prayer) · <kbd>B</kbd> banks the crystal he holds at the Temple, <kbd>X</kbd> drops it. Bridge pieces (<kbd>1</kbd>–<kbd>6</kbd>) are laid at the crosshair too.</li>
+      <li><b>Your Priest’s eyes:</b> <kbd>V</kbd> (or <b>Eyes</b> by the minimap) takes him over in first person, and again back to the view from above. <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk him any way at once, together with the mouse, and he stops where he is when you let go; trees and houses are in his way, and cover from guns · the mouse looks (click the view to lock the pointer to it, <kbd>Esc</kbd> frees it) · click or <kbd>E</kbd> acts on what the crosshair is on: a geyser to collect, a crystal to fetch, your Altar to perform the Sacrifice, ground to walk to · the wheel or <kbd>Tab</kbd> picks a Workshop or the Altar to lay at the crosshair, right-click puts it away · <kbd>Q</kbd> casts the Spell he holds round him · <kbd>R</kbd> prays (<kbd>Shift</kbd>+<kbd>R</kbd> picks the prayer) · <kbd>B</kbd> banks the crystal he holds at the Temple, <kbd>X</kbd> drops it. Bridge pieces (<kbd>1</kbd>–<kbd>6</kbd>) are laid at the crosshair too. Beside the dungeon’s portal, <kbd>E</kbd> takes him down; below, <kbd>E</kbd> or a click opens the chest he stands by, or climbs the stairs out.</li>
       <li><b>Danger:</b> <kbd>G</kbd> shows where enemy guns reach (red); they show by themselves while you hold a piece or a building · <kbd>L</kbd> the event log</li>
       <li><b>Touch:</b> tap to select; with a piece or building chosen, tap once to preview and again to place.</li>
       <li><b>Tabletop:</b> <kbd>T</kbd> puts the battle on a table, as a headset shows it. <b>VR</b> and <b>AR</b> appear in the top bar when your headset or phone can do them: the trigger (or a tap) selects, lays and builds · grip cancels · A/X rotates the piece · right stick turns and zooms the map, left stick moves it · B/Y recenters (AR: moves the table)</li></ol>
@@ -860,6 +867,17 @@ export class Hud {
         day a Priest heals half as fast again; at night he prays a quarter slower, but Thunder’s Spells come
         a third faster.</li>
         <li><b>Crystals</b> brought home at night are worth a quarter more.</li></ul>
+      <h3>The dungeon</h3>
+      <p>In a skirmish your starting island has a dungeon under it: a stone portal on the island, a brazier at
+        either side. Walk your Priest up to it, press <kbd>V</kbd> to see through his eyes and <kbd>E</kbd> to go down
+        (or press “Go down into the dungeon” on his card). Below, rooms of rock lie along dark passages: a crystal
+        cave, a hall of pillars and torches, a still pool, a grotto of glowing mushrooms, a shrine under a beam of
+        light, a cave cracked with fire. His own light goes with him. Walk up to a chest and press <kbd>E</kbd> to
+        open it: one holds a Spell, which he then holds to cast on the surface; the others are empty for now.
+        Below, nothing reaches him, but nor can he cast or pray, and the deep air is heavy: after
+        ${NS.DEEP_SECONDS / 60} minutes he climbs out by himself, and he may go down again only after ${NS.REENTER_SECONDS} s.
+        Back at the stairs, under the doorway of daylight, <kbd>E</kbd> takes him up. At night, on the islands too,
+        a light is about him.</p>
       <h3>Capturing the enemy Priest</h3>
       <ol><li>Build guns within reach of the enemy Priest and knock him out: he falls when he is below half
         his health.</li>

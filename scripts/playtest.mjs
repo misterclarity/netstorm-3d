@@ -1639,6 +1639,141 @@ SCENARIOS.firstperson = async () => {
   return errors;
 };
 
+SCENARIOS.dungeon = async () => {
+  const { page, errors } = await open({ width: 1100, height: 700 });
+  const shot = async (name) => { if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/${name}.png` }); };
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  await page.click('#modal button.main');
+  await page.waitForTimeout(300);
+  const play = (seconds) => page.evaluate((n) => {
+    const { G, NS, stepWorld, flushPendingAi } = window.NS3D, fp = document.querySelector('a-scene').systems['ns-fp'];
+    G.paused = true;
+    for (let i = 0; i < Math.max(1, n * NS.TPS); i++) {
+      window.fpClock = (window.fpClock ?? 0) + 1000 / NS.TPS;
+      fp.tick(window.fpClock, 1000 / NS.TPS);
+      if (!stepWorld()) { flushPendingAi(); stepWorld(); }
+    }
+  }, seconds);
+  // the portal on the starting island, the Priest beside it
+  const portal = await page.evaluate(() => {
+    const { G, NS } = window.NS3D, d = G.world.dungeons[0], p = G.world.priestOf(NS.ME);
+    if (!d) return null;
+    const spot = [[d.x - 1, d.y], [d.x - 1, d.y + 1], [d.x + 2, d.y], [d.x, d.y + 2], [d.x, d.y - 1]].find(([x, y]) => G.view.walkable(NS.ME, x, y) && !G.view.takenBy(x, y));
+    Object.assign(p, { x: spot[0], y: spot[1], path: [], goal: 'idle' });
+    document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(d.x + 1), window.NS3D.wz(d.y + 1), 22);
+    return { x: d.x, y: d.y, rooms: d.rooms.map((r) => r.kind), chests: d.chests.length, drawn: !!document.getElementById('world').object3D.children.find((o) => o.children.some((c) => c.userData.dungeon)) };
+  });
+  if (!portal || !portal.drawn) throw new Error(`no dungeon portal on the starting island: ${JSON.stringify(portal)}`);
+  await page.waitForTimeout(2500);
+  await shot('dungeon-portal');
+  // V, E: down into the dungeon; the islands, the sky and the clouds put away, the dungeon shown
+  await page.keyboard.press('v');
+  await play(0.2);
+  await page.keyboard.press('e');
+  await play(0.3);
+  await page.waitForFunction(() => document.getElementById('dungeon').components['ns-dungeon'].inside, null, { timeout: 30000 }).catch(() => {});
+  const down = await page.evaluate(() => {
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), dungeon = document.getElementById('dungeon').components['ns-dungeon'];
+    return { below: G.world.below.has(p.id), inside: dungeon.inside, table: document.getElementById('table').object3D.visible, root: dungeon.root.visible, info: document.getElementById('fpInfo').textContent };
+  });
+  if (!down.below || !down.inside || down.table || !down.root) throw new Error(`not down in the dungeon: ${JSON.stringify(down)}`);
+  if (process.env.DEBUG_DUNGEON) {
+    await page.waitForTimeout(3000);
+    console.log(JSON.stringify(await page.evaluate(() => {
+      const scene = document.querySelector('a-scene'), dun = document.getElementById('dungeon').components['ns-dungeon'], cam = scene.camera;
+      const wp = cam.getWorldPosition(new AFRAME.THREE.Vector3());
+      const b = dun.built?.[0];
+      let meshes = 0, lights = 0;
+      b?.group.traverse((o) => { if (o.isMesh) meshes++; if (o.isLight) lights++; });
+      const target = b && dun.toScene(0, 10, 10, 1.4);
+      return { cam: wp.toArray().map((v) => +v.toFixed(1)), groupPos: b?.group.position.toArray(), meshes, lights, target: target?.toArray().map((v) => +v.toFixed(1)), rootVisible: dun.root.visible, groupVisible: b?.group.visible, lamp: dun.lamp.position.toArray().map((v) => +v.toFixed(1)), near: cam.near, far: cam.far, info: scene.renderer.info.render };
+    })));
+  }
+  // a look round each room, from its middle, and at the stairs from the entry
+  const look = async (name, set, arg) => {
+    await page.evaluate(set, arg);
+    await play(0.1);
+    await page.waitForTimeout(2500);
+    await shot(name);
+  };
+  await look('dungeon-entry', () => {
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), b = G.world.below.get(p.id), d = G.world.dungeons[0], fp = document.querySelector('a-scene').systems['ns-fp'];
+    const [sx, sy] = d.stairs, [ax, ay] = d.arrive;
+    b.x = (ax + 0.5 - (sx - ax) * 2.5) * NS.WALK_SUB;
+    b.y = (ay + 0.5 - (sy - ay) * 2.5) * NS.WALK_SUB;
+    fp.yaw = Math.atan2(-(sx - ax), -(sy - ay));
+    fp.pitch = 0.18;
+  });
+  for (const kind of ['crystal', 'hall', 'pool', 'grotto', 'shrine', 'ember']) {
+    await look(`dungeon-${kind}`, (k) => {
+      const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), b = G.world.below.get(p.id), d = G.world.dungeons[0], fp = document.querySelector('a-scene').systems['ns-fp'];
+      const r = d.rooms.find((x) => x.kind === k);
+      if (!r) return;
+      // from a corner of the room, looking across it
+      let at = null;
+      for (const [x, y] of [[r.x + 1, r.y + r.h - 2], [r.x + r.w - 2, r.y + r.h - 2], [r.x + 1, r.y + 1], [r.x + r.w - 2, r.y + 1]]) if (!at && d.tiles[y * d.w + x] === NS.TILE.floor) at = [x, y];
+      at ??= [r.x + (r.w >> 1), r.y + (r.h >> 1)];
+      b.x = (at[0] + 0.5) * NS.WALK_SUB;
+      b.y = (at[1] + 0.5) * NS.WALK_SUB;
+      const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+      fp.yaw = Math.atan2(-(cx - at[0] - 0.5), -(cy - at[1] - 0.5));
+      fp.pitch = k === 'shrine' ? 0.12 : -0.05;
+    }, kind);
+  }
+  // the chest with a Spell: walked up to, opened with E; the Spell his
+  await look('dungeon-chest', () => {
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), b = G.world.below.get(p.id), d = G.world.dungeons[0], fp = document.querySelector('a-scene').systems['ns-fp'];
+    const c = d.chests.find((k) => k.holds.length);
+    const [x, y] = NS.DIRS.map(([dx, dy]) => [c.x + dx, c.y + dy]).find(([tx, ty]) => d.tiles[ty * d.w + tx] === NS.TILE.floor);
+    b.x = (x + 0.5) * NS.WALK_SUB;
+    b.y = (y + 0.5) * NS.WALK_SUB;
+    fp.yaw = Math.atan2(-(c.x - x), -(c.y - y));
+    fp.pitch = -0.45;
+  });
+  await page.keyboard.press('e');
+  await play(0.3);
+  await page.waitForFunction(() => [...document.querySelectorAll('#logList li')].some((li) => /found the/.test(li.textContent)), null, { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(1200);
+  await shot('dungeon-chest-open');
+  const opened = await page.evaluate(() => {
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), c = G.world.dungeons[0].chests.find((k) => k.holds.length);
+    return { opened: c.opened, holds: c.holds, spell: p.spell, log: [...document.querySelectorAll('#logList li')].map((li) => li.textContent).join(' | ') };
+  });
+  if (!opened.opened || opened.spell !== opened.holds[0] || !/found the/.test(opened.log)) throw new Error(`the chest with a Spell: ${JSON.stringify(opened)}`);
+  // back to the stairs, E: out, on the island again
+  await page.evaluate(() => {
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), b = G.world.below.get(p.id), d = G.world.dungeons[0];
+    b.x = (d.arrive[0] + 0.5) * NS.WALK_SUB;
+    b.y = (d.arrive[1] + 0.5) * NS.WALK_SUB;
+  });
+  await play(0.1);
+  await page.keyboard.press('e');
+  await play(0.3);
+  await page.waitForFunction(() => !document.getElementById('dungeon').components['ns-dungeon'].inside, null, { timeout: 30000 }).catch(() => {});
+  const up = await page.evaluate(() => {
+    const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), dungeon = document.getElementById('dungeon').components['ns-dungeon'];
+    return { below: G.world.below.has(p.id), inside: dungeon.inside, table: document.getElementById('table').object3D.visible, sky: document.querySelector('a-sky').object3D.visible };
+  });
+  if (up.below || up.inside || !up.table || !up.sky) throw new Error(`not out of the dungeon: ${JSON.stringify(up)}`);
+  // at night his own light is about him
+  await page.keyboard.press('v');
+  const halo = await page.evaluate(async () => {
+    const { G, NS, stepWorld, flushPendingAi } = window.NS3D, p = G.world.priestOf(NS.ME);
+    G.paused = true;
+    while (G.world.tick < (NS.DAY_SECONDS + 40) * NS.TPS) { for (let i = 0; i < 200; i++) if (!stepWorld()) { flushPendingAi(); stepWorld(); } await new Promise((r) => setTimeout(r, 0)); }
+    document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(p.x + 0.5), window.NS3D.wz(p.y + 0.5), 18);
+    await new Promise((r) => setTimeout(r, 1500));
+    const el = window.NS3D.game.units().byId.get(p.id);
+    return { night: G.world.isNight(), light: el.components['ns-unit'].halo?.intensity ?? 0 };
+  });
+  if (!halo.night || !(halo.light > 3)) throw new Error(`no light about the Priest at night: ${JSON.stringify(halo)}`);
+  await page.waitForTimeout(1500);
+  await shot('dungeon-night-priest');
+  console.log(`  a portal on the starting island, rooms ${portal.rooms.join(' ')}, ${portal.chests} chests; down, the chest's ${opened.spell} his, out by the stairs; his light at night ${halo.light.toFixed(1)}`);
+  return errors;
+};
+
 for (const [name, run] of Object.entries(SCENARIOS)) {
   if (only && name !== only) continue;
   const started = Date.now();

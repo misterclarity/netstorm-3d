@@ -47,6 +47,8 @@ AFRAME.registerComponent('ns-sun', {
   },
 
   tick() {
+    // below, in a dungeon, the deep has its light and fog (ns-dungeon.js)
+    if (G.below) return;
     const w = G.world, dark = w?.nights ? nightness(w.tick / TPS) : 0, phase = w?.nights ? w.moonPhase() : 2;
     if (Math.abs(dark - this.dark) < 0.003 && phase === this.phase) return;
     this.dark = dark;

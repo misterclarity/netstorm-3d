@@ -2725,6 +2725,713 @@ export function coverFor(
   gunReach,`,
 });
 
+// Dungeons (netstorm-3d). A skirmish's starting island has a dungeon under it (`digDungeon`, laid
+// out from the map's seed): stairs on the island's surface, a 2×2 stone portal nothing is built
+// on, lead down to rooms of rock joined by passages, each room of its own kind (an entry hall, a
+// crystal cave, a pillared hall, a pool, a grotto, a shrine, an ember cave) for the view to dress,
+// with chests in some: one holds a Spell, the rest are empty for now. Islands of their own with
+// harder dungeons, entered from the side or the layer below, will come; `side` says from where.
+//
+// A Priest beside the portal goes down (`enterDungeon`) and is walked by hand below as on the
+// surface (steerPriest), in the dungeon's tiles: he slides along its walls, its pillars, its pools
+// and its chests. Beside a chest he opens it (`openChest`) and takes what it holds (a Spell
+// displaces the one he held, as an Obelisk's does); beside the stairs he climbs out
+// (`leaveDungeon`) onto the cell he went down from. Below, no gun, flyer or Spell reaches him,
+// nor can he cast or pray; and so that the deep is no place to hide from the war, its air is
+// heavy: after DEEP_SECONDS he climbs out by himself, and he may go down again only after
+// REENTER_SECONDS.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'dungeons',
+  was: `  /** (netstorm-3d) The hit points left to the lifts that have been hit, by the key of the cells they join. */`,
+  now: `  /** (netstorm-3d) The dungeons under the islands (digDungeon). */
+  dungeons: Dungeon[] = [];
+  /** (netstorm-3d) Priests below, by id: the dungeon (its index), where they stand in 1/WALK_SUB of
+   * a tile, the way they are steered, an order of this tick, the tick they went down. */
+  below = new Map<number, { dungeon: number; x: number; y: number; vx: number; vy: number; next: { vx: number; vy: number; lead: number; } | null; since: number; }>();
+  /** (netstorm-3d) The tick each Priest last climbed out of a dungeon. */
+  surfaced = new Map<number, number>();
+  /** (netstorm-3d) The hit points left to the lifts that have been hit, by the key of the cells they join. */`,
+}, {
+  file: 'world.ts',
+  why: 'dungeons',
+  was: `  /** Whether (x, y) lies under a Residence, where nothing can be built. */
+  residenceAt(x: number, y: number): boolean {
+    return this.residences.some(([rx, ry]) =>`,
+  now: `  /** (netstorm-3d) The dungeon whose portal stands on (x, y), or within \`margin\` cells of it. */
+  dungeonAt(x: number, y: number, margin = 0): Dungeon | undefined {
+    return this.dungeons.find((d) =>
+      x >= d.x - margin && x < d.x + PORTAL_FOOT + margin && y >= d.y - margin && y < d.y + PORTAL_FOOT + margin
+    );
+  }
+
+  /** Whether (x, y) lies under a Residence, where nothing can be built. */
+  residenceAt(x: number, y: number): boolean {
+    // (netstorm-3d) nor on a dungeon's portal
+    if (this.dungeonAt(x, y)) {
+      return true;
+    }
+
+    return this.residences.some(([rx, ry]) =>`,
+}, {
+  file: 'world.ts',
+  why: 'dungeons: no tree by a portal',
+  was: `    if (!this.treeGrows(x, y) || this.residenceAt(x, y)) {`,
+  now: `    if (!this.treeGrows(x, y) || this.residenceAt(x, y) || this.dungeonAt(x, y, 1)) {`,
+}, {
+  file: 'world.ts',
+  why: 'dungeons',
+  was: `/** (netstorm-3d) The trees' odds on a cell of island ground, and how much more for each cell of`,
+  now: `/** (netstorm-3d) A dungeon under an island: see scripts/house-rules.mjs. \`tiles\` row by row (TILE). */
+export interface Dungeon {
+  id: number;
+  owner: number;
+  /** Its portal's top-left cell on the surface, PORTAL_FOOT square; \`side\`: where it is entered from. */
+  x: number;
+  y: number;
+  side: 'top' | 'side' | 'below';
+  w: number;
+  h: number;
+  tiles: number[];
+  rooms: { x: number; y: number; w: number; h: number; kind: string; }[];
+  /** The stairs' tile, and the tile below them one arrives on. */
+  stairs: [number, number];
+  arrive: [number, number];
+  chests: { id: number; x: number; y: number; holds: string[]; opened: boolean; }[];
+  seed: number;
+}
+
+/** (netstorm-3d) A dungeon portal's size on the surface, in cells. */
+export const PORTAL_FOOT = 2;
+
+/** (netstorm-3d) The trees' odds on a cell of island ground, and how much more for each cell of`,
+}, {
+  file: 'world.ts',
+  why: 'dungeons',
+  was: `      case 'steerPriest':
+        return steerPriest(this, c);`,
+  now: `      case 'steerPriest':
+        return steerPriest(this, c);
+      case 'enterDungeon':
+        return enterDungeon(this, c);
+      case 'leaveDungeon':
+        return leaveDungeon(this, c);
+      case 'openChest':
+        return openChest(this, c);`,
+}, {
+  file: 'world.ts',
+  why: 'dungeons',
+  was: `import { tickPriest, movePriest, steerPriest, WALK_SUB } from './rules/priest.js';`,
+  now: `import {
+  tickPriest,
+  movePriest,
+  steerPriest,
+  WALK_SUB,
+  enterDungeon,
+  leaveDungeon,
+  openChest,
+} from './rules/priest.js';`,
+}, {
+  file: 'world.ts',
+  why: 'dungeons: in the computer\'s copy, so that it builds nothing on a portal',
+  was: `        nights: this.nights,
+        nightShare: this.nightShare,
+      },`,
+  now: `        nights: this.nights,
+        nightShare: this.nightShare,
+        dungeons: this.dungeons,
+      },`,
+}, {
+  file: 'world.ts',
+  why: 'dungeons: in the computer\'s copy, so that it builds nothing on a portal',
+  was: `      world.nightShare = Math.min(1, Math.max(0, Number(rules.nightShare) || 0));`,
+  now: `      world.nightShare = Math.min(1, Math.max(0, Number(rules.nightShare) || 0));
+      world.dungeons = Array.isArray((rules as { dungeons?: unknown; }).dungeons) ? (rules as { dungeons: Dungeon[]; }).dungeons : [];`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'dungeons',
+  was: `import { tickPrayer, breakPrayer } from './spells.js';`,
+  now: `import { tickPrayer, breakPrayer, loseSpell } from './spells.js';
+import { PORTAL_FOOT, type Dungeon } from '../world.js';`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'dungeons',
+  was: `  // (netstorm-3d) walked by hand, in first person
+  if (walkByHand(world, p)) {
+    return;
+  }`,
+  now: `  // (netstorm-3d) below, in a dungeon
+  if (delve(world, p)) {
+    return;
+  }
+
+  // (netstorm-3d) walked by hand, in first person
+  if (walkByHand(world, p)) {
+    return;
+  }`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'dungeons',
+  was: `  let s = world.walking.get(p.id);
+
+  if (!s) {
+    if (!vx && !vy) {
+      return null;
+    }`,
+  now: `  // (netstorm-3d) below, the order walks him in the dungeon
+  const b = world.below.get(p.id);
+
+  if (b) {
+    b.next = { vx, vy, lead: b.next ? b.next.lead : Math.round(Math.max(0, Math.min(100, Number(c.lead) || 0))) };
+    return null;
+  }
+
+  let s = world.walking.get(p.id);
+
+  if (!s) {
+    if (!vx && !vy) {
+      return null;
+    }`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'dungeons',
+  was: `export function movePriest(`,
+  now: `/* oxlint-disable no-magic-numbers -- netstorm-3d's dungeons */
+/** (netstorm-3d) What a dungeon's tile is. */
+export const TILE = { rock: 0, floor: 1, stairs: 2, pillar: 3, water: 4, chest: 5 } as const;
+/** (netstorm-3d) A dungeon's size in tiles; how long a Priest may stay below, and how long he must
+ * wait to go down again; how near he must be to a chest or the stairs, in tiles. */
+export const DUNGEON_SIZE = 48;
+export const DEEP_SECONDS = 180;
+export const REENTER_SECONDS = 20;
+export const DUNGEON_REACH = 1.7;
+/** (netstorm-3d) The kinds of a dungeon's rooms past its entry, and the Spells a chest may hold. */
+const ROOM_KINDS = ['crystal', 'hall', 'pool', 'grotto', 'shrine', 'ember'];
+const CHEST_SPELLS = ['bomblightingzap', 'bombparalyze', 'bombheal', 'bombexplodemedium', 'bombmeteor'];
+/* oxlint-enable no-magic-numbers */
+
+/** (netstorm-3d) A small seeded random number generator (mulberry32), apart from the world's. */
+function digRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * (netstorm-3d) Dig a dungeon under the home island of \`owner\`, laid out from \`seed\`: a portal on a
+ * free 2×2 of island ground 6 to 13 cells from the Temple, clear of the rim, and below it rooms
+ * joined by passages, chests in three of them, the farthest from the stairs holding a Spell.
+ * Returns it (also in world.dungeons), or null when the island has no room for a portal.
+ */
+export function digDungeon(world: World, owner: number, seed: number): Dungeon | null {
+  const temple = world.templeOf(owner);
+
+  if (!temple) {
+    return null;
+  }
+
+  const rand = digRandom(seed * 7919 + 101);
+  const tx = temple.x + temple.fx / 2, ty = temple.y + temple.fy / 2;
+  const sites: [number, number][] = [];
+  const clear = (x: number, y: number) => world.inside(x, y) && world.terrain[world.at(x, y)] === Terrain.Island
+    && world.owner[world.at(x, y)] === owner && !world.occupant[world.at(x, y)] && !world.residenceAt(x, y)
+    && !world.takenBy(x, y);
+
+  for (let y = Math.floor(ty) - 14; y <= ty + 14; y++) {
+    for (let x = Math.floor(tx) - 14; x <= tx + 14; x++) {
+      const far = Math.hypot(x + 1 - tx, y + 1 - ty);
+      let ok = far >= 6 && far <= 13;
+
+      for (let dy = -1; ok && dy <= PORTAL_FOOT; dy++) {
+        for (let dx = -1; ok && dx <= PORTAL_FOOT; dx++) {
+          ok = clear(x + dx, y + dy);
+        }
+      }
+
+      if (ok) {
+        sites.push([x, y]);
+      }
+    }
+  }
+
+  if (!sites.length) {
+    return null;
+  }
+
+  const [px, py] = sites[Math.floor(rand() * sites.length)]!;
+  const N = DUNGEON_SIZE;
+  const tiles: number[] = new Array(N * N).fill(TILE.rock);
+  const rooms: Dungeon['rooms'] = [];
+
+  // rooms, apart from each other; the first is the entry, the stairs in its north wall
+  for (let tries = 0; tries < 1500 && rooms.length < 9; tries++) {
+    const w = 5 + Math.floor(rand() * 6), h = 5 + Math.floor(rand() * 6);
+    const x = 2 + Math.floor(rand() * (N - w - 4)), y = 3 + Math.floor(rand() * (N - h - 5));
+
+    if (rooms.some((r) => x < r.x + r.w + 2 && r.x < x + w + 2 && y < r.y + r.h + 2 && r.y < y + h + 2)) {
+      continue;
+    }
+
+    rooms.push({ x, y, w, h, kind: '' });
+  }
+
+  const kinds = [...ROOM_KINDS];
+
+  for (let i = kinds.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [kinds[i], kinds[j]] = [kinds[j]!, kinds[i]!];
+  }
+
+  rooms.forEach((r, i) => { r.kind = i === 0 ? 'entry' : kinds[(i - 1) % kinds.length]!; });
+
+  for (const r of rooms) {
+    for (let y = r.y; y < r.y + r.h; y++) {
+      for (let x = r.x; x < r.x + r.w; x++) {
+        tiles[y * N + x] = TILE.floor;
+      }
+    }
+
+    const cx = r.x + (r.w >> 1), cy = r.y + (r.h >> 1);
+
+    // a hall's two rows of pillars, a shrine's four, a pool in the middle of a pool room
+    if (r.kind === 'hall') {
+      for (let x = r.x + 1; x < r.x + r.w - 1; x += 2) {
+        for (const y of [r.y + 1, r.y + r.h - 2]) {
+          if (x !== cx) {
+            tiles[y * N + x] = TILE.pillar;
+          }
+        }
+      }
+    } else if (r.kind === 'shrine') {
+      for (const [x, y] of [[r.x + 1, r.y + 1], [r.x + r.w - 2, r.y + 1], [r.x + 1, r.y + r.h - 2], [r.x + r.w - 2, r.y + r.h - 2]]) {
+        tiles[y! * N + x!] = TILE.pillar;
+      }
+    } else if (r.kind === 'pool') {
+      for (let y = r.y + 2; y < r.y + r.h - 2; y++) {
+        for (let x = r.x + 2; x < r.x + r.w - 2; x++) {
+          tiles[y * N + x] = TILE.water;
+        }
+      }
+    }
+  }
+
+  // passages: each room to the nearest of those joined already, and two more for loops; a
+  // passage cuts through pillars and pools, a causeway across the water
+  const centre = (r: Dungeon['rooms'][number]) => [r.x + (r.w >> 1), r.y + (r.h >> 1)] as const;
+  const dig = (a: Dungeon['rooms'][number], b: Dungeon['rooms'][number]) => {
+    const [ax, ay] = centre(a), [bx, by] = centre(b);
+    const across = rand() < 0.5;
+    const cut = (x: number, y: number) => { tiles[y * N + x] = TILE.floor; };
+
+    if (across) {
+      for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); x++) cut(x, ay);
+      for (let y = Math.min(ay, by); y <= Math.max(ay, by); y++) cut(bx, y);
+    } else {
+      for (let y = Math.min(ay, by); y <= Math.max(ay, by); y++) cut(ax, y);
+      for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); x++) cut(x, by);
+    }
+  };
+  const apart = (a: Dungeon['rooms'][number], b: Dungeon['rooms'][number]) =>
+    Math.hypot(centre(a)[0] - centre(b)[0], centre(a)[1] - centre(b)[1]);
+  const joined = [rooms[0]!];
+
+  for (const r of rooms.slice(1).sort((a, b) => apart(a, rooms[0]!) - apart(b, rooms[0]!))) {
+    let near = joined[0]!;
+
+    for (const j of joined) {
+      if (apart(j, r) < apart(near, r)) {
+        near = j;
+      }
+    }
+
+    dig(near, r);
+    joined.push(r);
+  }
+
+  for (let k = 0; k < 2 && rooms.length > 3; k++) {
+    dig(rooms[1 + Math.floor(rand() * (rooms.length - 1))]!, rooms[1 + Math.floor(rand() * (rooms.length - 1))]!);
+  }
+
+  // the stairs up, in a wall of the entry no passage goes through, nearest the middle of its north
+  // wall; one arrives on the tile before them
+  const entry = rooms[0]!;
+  const walls: [number, number, number, number][] = [];
+
+  for (let x = entry.x + 1; x < entry.x + entry.w - 1; x++) {
+    walls.push([x, entry.y - 1, x, entry.y], [x, entry.y + entry.h, x, entry.y + entry.h - 1]);
+  }
+
+  for (let y = entry.y + 1; y < entry.y + entry.h - 1; y++) {
+    walls.push([entry.x - 1, y, entry.x, y], [entry.x + entry.w, y, entry.x + entry.w - 1, y]);
+  }
+
+  const mid = [entry.x + (entry.w >> 1), entry.y - 1];
+  const free = walls.filter(([x, y]) => [[0, 0], ...DIRS].every(([dx, dy]) => {
+    const [nx, ny] = [x + dx!, y + dy!];
+    return tiles[ny * N + nx] === TILE.rock || (nx >= entry.x && nx < entry.x + entry.w && ny >= entry.y && ny < entry.y + entry.h);
+  }));
+  const [sx, sy, ax, ay] = free.sort((a, b) => Math.hypot(a[0] - mid[0]!, a[1] - mid[1]!) - Math.hypot(b[0] - mid[0]!, b[1] - mid[1]!))[0]
+    ?? [mid[0]!, mid[1]!, mid[0]!, mid[1]! + 1];
+  const stairs: [number, number] = [sx, sy];
+  tiles[sy * N + sx] = TILE.stairs;
+  const arrive: [number, number] = [ax, ay];
+
+  // how far each floor tile is from the stairs, by the ways one walks
+  const far = new Array(N * N).fill(-1);
+  const walk = [arrive[1] * N + arrive[0]];
+  far[walk[0]!] = 0;
+
+  for (let head = 0; head < walk.length; head++) {
+    const i = walk[head]!, x = i % N, y = (i / N) | 0;
+
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx!, ny = y + dy!, j = ny * N + nx;
+
+      if (nx >= 0 && ny >= 0 && nx < N && ny < N && far[j] < 0 && tiles[j] === TILE.floor) {
+        far[j] = far[i] + 1;
+        walk.push(j);
+      }
+    }
+  }
+
+  // chests: against a wall of three rooms past the entry (no passage beside them), the farthest
+  // from the stairs holding a Spell, the rest empty for now
+  const chests: Dungeon['chests'] = [];
+  const spells = CHEST_SPELLS.filter((id) => world.defs.has(id));
+
+  for (const r of rooms.slice(1)) {
+    if (chests.length >= 3) {
+      break;
+    }
+
+    const spots: [number, number, number][] = [];
+
+    for (let y = r.y; y < r.y + r.h; y++) {
+      for (let x = r.x; x < r.x + r.w; x++) {
+        const edge = x === r.x || y === r.y || x === r.x + r.w - 1 || y === r.y + r.h - 1;
+        const corner = (x === r.x || x === r.x + r.w - 1) && (y === r.y || y === r.y + r.h - 1);
+
+        if (!edge || corner || tiles[y * N + x] !== TILE.floor || far[y * N + x] < 0) {
+          continue;
+        }
+
+        // against the wall: rock on its outer side (no passage), floor on the rest
+        let rock = 0, other = 0;
+
+        for (const [dx, dy] of DIRS) {
+          const t = tiles[(y + dy!) * N + x + dx!];
+          rock += t === TILE.rock ? 1 : 0;
+          other += t !== TILE.rock && t !== TILE.floor ? 1 : 0;
+        }
+
+        if (rock === 1 && other === 0) {
+          spots.push([x, y, far[y * N + x]]);
+        }
+      }
+    }
+
+    if (!spots.length) {
+      continue;
+    }
+
+    const [x, y] = spots[Math.floor(rand() * spots.length)]!;
+    tiles[y * N + x] = TILE.chest;
+    chests.push({ id: chests.length + 1, x, y, holds: [], opened: false });
+  }
+
+  // the chests must leave every room reachable: one that cuts a way off is taken out again
+  const reach = () => {
+    const seen = new Uint8Array(N * N), q = [arrive[1] * N + arrive[0]];
+    seen[q[0]!] = 1;
+
+    for (let head = 0; head < q.length; head++) {
+      const i = q[head]!, x = i % N, y = (i / N) | 0;
+
+      for (const [dx, dy] of DIRS) {
+        const j = (y + dy!) * N + x + dx!;
+
+        if (!seen[j] && tiles[j] === TILE.floor) {
+          seen[j] = 1;
+          q.push(j);
+        }
+      }
+    }
+
+    return q.length;
+  };
+  for (const c of [...chests]) {
+    tiles[c.y * N + c.x] = TILE.floor;
+    const without = reach();
+    tiles[c.y * N + c.x] = TILE.chest;
+
+    if (reach() < without - 1) {
+      tiles[c.y * N + c.x] = TILE.floor;
+      chests.splice(chests.indexOf(c), 1);
+    }
+  }
+
+  const farthest = chests.reduce<Dungeon['chests'][number] | null>(
+    (best, c) => (!best || far[c.y * N + c.x] > far[best.y * N + best.x] ? c : best),
+    null,
+  );
+
+  if (farthest && spells.length) {
+    farthest.holds = [spells[Math.floor(rand() * spells.length)]!];
+  }
+
+  const dungeon: Dungeon = {
+    id: world.dungeons.length + 1, owner, x: px, y: py, side: 'top', w: N, h: N, tiles, rooms, stairs, arrive, chests, seed,
+  };
+  world.dungeons.push(dungeon);
+  return dungeon;
+}
+
+/** (netstorm-3d) Whether a Priest below may step onto tile (x, y) of a dungeon. */
+function caveOpen(d: Dungeon, x: number, y: number): boolean {
+  return x >= 0 && y >= 0 && x < d.w && y < d.h && d.tiles[y * d.w + x] === TILE.floor;
+}
+
+/** (netstorm-3d) Where a Priest below at (x, y) (in 1/WALK_SUB of a tile) is after \`share\` of a tick
+ * walking the way (vx, vy): as walkStep on the surface, in the dungeon's tiles. For the view's
+ * foresight too (src/systems/ns-fp.js). */
+export function caveStep(
+  d: Dungeon,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  share = 1,
+): { x: number; y: number; } {
+  for (const axis of [0, 1]) {
+    const dd = ((axis ? vy : vx) / 100) * WALK_STEP * share;
+
+    if (!dd) {
+      continue;
+    }
+
+    const cx = Math.floor(x / WALK_SUB), cy = Math.floor(y / WALK_SUB), c = axis ? cy : cx;
+    const open = axis ? caveOpen(d, cx, cy + Math.sign(dd)) : caveOpen(d, cx + Math.sign(dd), cy);
+    let v = (axis ? y : x) + dd;
+
+    if (!open) {
+      v = dd > 0 ? Math.min(v, Math.max((axis ? y : x), (c + 1) * WALK_SUB - WALK_RADIUS)) : Math.max(v, Math.min((axis ? y : x), c * WALK_SUB + WALK_RADIUS));
+    }
+
+    if (axis) {
+      y = v;
+    } else {
+      x = v;
+    }
+  }
+
+  return { x, y };
+}
+
+/** (netstorm-3d) The dungeon whose portal a Priest stands beside (on it or a cell from it). */
+function portalBy(world: World, p: Priest): number {
+  return world.dungeons.findIndex((d) =>
+    p.x >= d.x - 1 && p.x <= d.x + PORTAL_FOOT && p.y >= d.y - 1 && p.y <= d.y + PORTAL_FOOT
+  );
+}
+
+/** (netstorm-3d) How far a Priest below stands from the middle of tile (x, y), in tiles. */
+function belowFrom(b: { x: number; y: number; }, x: number, y: number): number {
+  return Math.hypot(b.x / WALK_SUB - x - 0.5, b.y / WALK_SUB - y - 0.5);
+}
+
+/** (netstorm-3d) The player's Priest goes down into the dungeon whose portal he stands beside. */
+export function enterDungeon(world: World, c: { player: number; }): CommandError | null {
+  const p = world.priestOf(c.player);
+
+  if (!p || p.state !== 'normal' || p.casting > 0 || world.below.has(p.id)) {
+    return 'priest unavailable';
+  }
+
+  const at = portalBy(world, p);
+
+  if (at < 0) {
+    return 'bad target';
+  }
+
+  if (world.tick - (world.surfaced.get(p.id) ?? -Infinity) < REENTER_SECONDS * TPS) {
+    return 'not ready';
+  }
+
+  const d = world.dungeons[at]!;
+  breakPrayer(p);
+  p.path = [];
+  p.move = 0;
+  p.goal = 'idle';
+  p.target = null;
+  world.walking.delete(p.id);
+  world.below.set(p.id, {
+    dungeon: at, x: d.arrive[0] * WALK_SUB + WALK_SUB / 2, y: d.arrive[1] * WALK_SUB + WALK_SUB / 2, vx: 0, vy: 0, next: null, since: world.tick,
+  });
+  world.emit({ what: 'dungeon', who: p.owner, data: { priest: p.id, down: true } });
+  return null;
+}
+
+/** (netstorm-3d) A Priest below climbs out, onto the cell he went down from. */
+function climbOut(world: World, p: Priest, why: string): void {
+  world.below.delete(p.id);
+  world.surfaced.set(p.id, world.tick);
+  world.emit({ what: 'dungeon', who: p.owner, data: { priest: p.id, down: false, why } });
+}
+
+/** (netstorm-3d) The player's Priest climbs out of the dungeon by its stairs. */
+export function leaveDungeon(world: World, c: { player: number; }): CommandError | null {
+  const p = world.priestOf(c.player), b = p ? world.below.get(p.id) : undefined;
+
+  if (!p || !b) {
+    return 'priest unavailable';
+  }
+
+  const d = world.dungeons[b.dungeon]!;
+
+  if (belowFrom(b, d.stairs[0], d.stairs[1]) > DUNGEON_REACH) {
+    return 'bad target';
+  }
+
+  climbOut(world, p, 'stairs');
+  return null;
+}
+
+/** (netstorm-3d) The player's Priest below opens a chest beside him and takes what it holds. */
+export function openChest(world: World, c: { player: number; chest: number; }): CommandError | null {
+  const p = world.priestOf(c.player), b = p ? world.below.get(p.id) : undefined;
+
+  if (!p || !b) {
+    return 'priest unavailable';
+  }
+
+  const chest = world.dungeons[b.dungeon]!.chests.find((k) => k.id === c.chest);
+
+  if (!chest || chest.opened || belowFrom(b, chest.x, chest.y) > DUNGEON_REACH) {
+    return 'bad target';
+  }
+
+  chest.opened = true;
+  const spell = chest.holds.find((id) => world.defs.has(id)) ?? null;
+
+  if (spell) {
+    if (p.spell && p.spell !== spell) {
+      loseSpell(world, p.spell);
+    }
+
+    p.spell = spell;
+    world.emit({ what: 'spell', who: p.owner, data: { transport: p.id, spell } });
+  }
+
+  world.emit({ what: 'chest', who: p.owner, data: { priest: p.id, chest: chest.id, holds: [...chest.holds] } });
+  return null;
+}
+
+/** (netstorm-3d) A tick of a Priest below; true while he is below. */
+function delve(world: World, p: Priest): boolean {
+  const b = world.below.get(p.id);
+
+  if (!b) {
+    return false;
+  }
+
+  // the deep air is heavy: after DEEP_SECONDS he climbs out by himself
+  if (world.tick - b.since >= DEEP_SECONDS * TPS) {
+    climbOut(world, p, 'air');
+    return true;
+  }
+
+  const d = world.dungeons[b.dungeon]!;
+  const next = b.next;
+  b.next = null;
+  const lead = next ? next.lead / 100 : 1;
+  let at = caveStep(d, b.x, b.y, b.vx, b.vy, lead);
+
+  if (next) {
+    b.vx = next.vx;
+    b.vy = next.vy;
+
+    if (lead < 1) {
+      at = caveStep(d, at.x, at.y, b.vx, b.vy, 1 - lead);
+    }
+  }
+
+  b.x = Math.round(at.x);
+  b.y = Math.round(at.y);
+  return true;
+}
+
+export function movePriest(`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'dungeons: nothing reaches a Priest below',
+  was: `    case 'priest':
+      return world.hostile(b.owner, target.owner) && target.invisible === 0
+        && (target.state === 'normal' || target.state === 'down');`,
+  now: `    case 'priest':
+      // (netstorm-3d) nor one below, in a dungeon
+      return world.hostile(b.owner, target.owner) && target.invisible === 0
+        && (target.state === 'normal' || target.state === 'down') && !world.below.has(target.id);`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'dungeons: nothing reaches a Priest below',
+  was: `  if (!('hp' in entity) || shielded(entity, from)) {`,
+  now: `  // (netstorm-3d) a Priest below, in a dungeon, is out of reach of everything above
+  if (entity.kind === 'priest' && world.below.has(entity.id)) {
+    return;
+  }
+
+  if (!('hp' in entity) || shielded(entity, from)) {`,
+}, {
+  file: 'rules/spells.ts',
+  why: 'dungeons: no Spell is cast or prayed for below',
+  was: `  const t = ownTransport(world, c.player, c.transport) ?? priest;
+
+  if (!t?.spell) {
+    return 'bad target';`,
+  now: `  const t = ownTransport(world, c.player, c.transport) ?? priest;
+
+  // (netstorm-3d) below, in a dungeon, a Priest neither casts nor prays
+  if (t?.kind === 'priest' && world.below.has(t.id)) {
+    return 'not ready';
+  }
+
+  if (!t?.spell) {
+    return 'bad target';`,
+}, {
+  file: 'rules/spells.ts',
+  why: 'dungeons: no Spell is cast or prayed for below',
+  was: `  if (!prayable(world).includes(c.spell)) {
+    return 'unknown unit';
+  }`,
+  now: `  if (!prayable(world).includes(c.spell)) {
+    return 'unknown unit';
+  }
+
+  if (p && world.below.has(p.id)) {
+    return 'not ready';
+  }`,
+}, {
+  file: 'index.ts',
+  why: 'dungeons',
+  was: `export { walkStep, WALK_SUB } from './rules/priest.js';`,
+  now: `export {
+  walkStep,
+  WALK_SUB,
+  digDungeon,
+  caveStep,
+  TILE,
+  DUNGEON_SIZE,
+  DEEP_SECONDS,
+  REENTER_SECONDS,
+  DUNGEON_REACH,
+} from './rules/priest.js';`,
+});
+
 export function houseRules() {
   return {
     name: 'house-rules',

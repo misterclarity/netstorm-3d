@@ -6,6 +6,7 @@
  */
 import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, origin, playerTheme, defs, hash } from '../state.js';
 import { HEIGHTS, groundAt, flyAt, rideOf } from '../heights.js';
+import { nightness } from './ns-sun.js';
 import { MODELS, heightOf, modelKind, spriteKey, cargoModel, part, ico, glow, bake } from '../models.js';
 
 /** The Disc Thrower's arm (models.js): its hook lies this far round from the arm's line, and its
@@ -247,9 +248,17 @@ AFRAME.registerComponent('ns-unit', {
     if (e.kind === 'priest') {
       // seen through his own eyes (first person, ns-fp.js), his figure is not in the way; the runes
       // at his feet as he prays are
-      const own = G.fp?.id === e.id;
+      const own = G.fp?.id === e.id, below = G.world.below?.has(e.id);
       if (rep.body) rep.body.visible = !own;
-      visible = e.state !== 'carried' && !(own && this.art.mode !== 'models');
+      visible = e.state !== 'carried' && !below && !(own && this.art.mode !== 'models');
+      // a light of his own about him at night (and below, in a dungeon: ns-dungeon.js has it there)
+      if (!this.halo) {
+        this.halo = new THREE.PointLight('#ffd9a8', 0, 9, 1.4);
+        this.halo.position.set(0, 2.3, 0);
+        this.el.object3D.add(this.halo);
+      }
+      const night = G.world.nights ? nightness(G.world.tick / TPS) : 0;
+      this.halo.intensity = !below && e.state !== 'carried' ? night * 30 : 0;
       rep.body.rotation.x = e.state === 'down' ? -Math.PI / 2 * 0.95 : 0;
       rep.body.position.y = e.state === 'down' ? 0.25 : e.state === 'chained' ? 0.5 + Math.sin(s * 2) * 0.1 : 0;
     }

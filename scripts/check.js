@@ -653,4 +653,82 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   console.log(`walking by hand: ${walked.toFixed(2)} cells in a second, stopped on the hair, ${diag.toFixed(2)} of his pace diagonally, short of the rim and of a tree; cover: a Golem in the open lost ${bare.hurt}, behind a Generator nothing (the Generator ${behindGenerator.coverHurt}), behind a tree nothing, from a level up ${fromAbove.hurt}`);
 }
 
+// Dungeons (scripts/house-rules.mjs): one is dug under a skirmish's starting island, the same from
+// the same seed: rooms of their kinds, chests reachable from the stairs, one holding a Spell; no
+// building on its portal. A Priest beside the portal goes down, is out of every gun's reach below,
+// walks the dungeon by hand (not through its walls), opens the chest beside him and holds its
+// Spell, cannot cast it below, climbs out beside the stairs and not elsewhere, may not go down
+// again at once, and the deep air brings him up after DEEP_SECONDS.
+{
+  const skirmish = (seed) => {
+    const opts = { ...NS.DEFAULT_OPTIONS, lang: 'en', mode: 'skirmish', opponent: 'ai', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, seed, spells: 'none' };
+    return NS.createMatchWorld(defs, DATA.maps, DATA.missions, opts, { known: [], altarLevel: 1 });
+  };
+  const map = (d) => {
+    const ch = { 0: '#', 1: '.', 2: 'S', 3: 'o', 4: '~', 5: 'C' };
+    const rows = [];
+    for (let y = 0; y < d.h; y++) rows.push(d.tiles.slice(y * d.w, (y + 1) * d.w).map((t) => ch[t]).join(''));
+    return rows.join('\n');
+  };
+  const kinds = new Set();
+  let seeds = 0;
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const w = skirmish(seed), d = NS.digDungeon(w, NS.ME, seed);
+    if (!d) fail(`no dungeon dug on seed ${seed}`);
+    const again = NS.digDungeon(skirmish(seed), NS.ME, seed);
+    if (JSON.stringify(again.tiles) !== JSON.stringify(d.tiles) || again.x !== d.x || again.y !== d.y) fail(`seed ${seed} dug two dungeons`);
+    if (process.env.DUNGEON_MAP === String(seed)) console.log(map(d), JSON.stringify(d.rooms), d.arrive);
+    if (d.rooms.length < 6 || d.chests.length < 2 || d.chests.filter((c) => c.holds.length).length !== 1) fail(`seed ${seed}: ${d.rooms.length} rooms, chests ${JSON.stringify(d.chests)}`);
+    for (const r of d.rooms) kinds.add(r.kind);
+    // every chest has a floor tile beside it the stairs reach
+    const N = d.w, seen = new Uint8Array(N * N), q = [d.arrive[1] * N + d.arrive[0]];
+    seen[q[0]] = 1;
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h], x = i % N, y = (i / N) | 0;
+      for (const [dx, dy] of NS.DIRS) { const j = (y + dy) * N + x + dx; if (!seen[j] && d.tiles[j] === NS.TILE.floor) { seen[j] = 1; q.push(j); } }
+    }
+    for (const c of d.chests) if (!NS.DIRS.some(([dx, dy]) => seen[(c.y + dy) * N + c.x + dx])) fail(`seed ${seed}: chest ${c.id} out of reach`);
+    for (const r of d.rooms) if (!seen[(r.y + (r.h >> 1)) * N + r.x + (r.w >> 1)] && d.tiles[(r.y + (r.h >> 1)) * N + r.x + (r.w >> 1)] === NS.TILE.floor) fail(`seed ${seed}: a ${r.kind} room out of reach`);
+    if (!w.view().canBuild({ player: NS.ME, type: 'windbattery', x: d.x, y: d.y }) === null) fail('a Generator could be built on the portal');
+    if (w.view().canBuild({ player: NS.ME, type: 'windbattery', ...NS.anchorFor(w.def('windbattery'), d.x, d.y) }) === null) fail(`seed ${seed}: a Generator could be built on the portal`);
+    seeds++;
+  }
+  if (kinds.size < 6) fail(`the dungeons' rooms are of only ${[...kinds]}`);
+
+  const w = skirmish(3), d = NS.digDungeon(w, NS.ME, 3), p = w.priestOf(NS.ME);
+  const go = (cmd) => { w.step([{ player: NS.ME, ...cmd }]); return w.drainEvents().filter((e) => e.what === 'rejected').map((e) => e.data.err); };
+  Object.assign(p, { x: d.x - 6, y: d.y, path: [], goal: 'idle' });
+  if (!go({ t: 'enterDungeon' }).length || w.below.has(p.id)) fail('a Priest went down far from the portal');
+  Object.assign(p, { x: d.x - 1, y: d.y });
+  if (go({ t: 'enterDungeon' }).length || !w.below.has(p.id)) fail('a Priest beside the portal did not go down');
+  const b = w.below.get(p.id);
+  // out of reach of everything above
+  const hp = p.hp;
+  NS.damage(w, 2, p, 40, w.templeOf(2));
+  if (p.hp !== hp) fail('a Priest below was hurt');
+  // walking: east from where he arrives until a wall stops him, short of it
+  go({ t: 'steerPriest', vx: 100, vy: 0, lead: 0 });
+  for (let i = 0; i < 200; i++) w.step([]);
+  const tx = Math.floor(b.x / NS.WALK_SUB), ty = Math.floor(b.y / NS.WALK_SUB);
+  if (d.tiles[ty * d.w + tx] !== NS.TILE.floor || d.tiles[ty * d.w + tx + 1] === NS.TILE.floor || b.x === d.arrive[0] * NS.WALK_SUB + NS.WALK_SUB / 2) fail(`a Priest below walked ${JSON.stringify({ tx, ty, b })}`);
+  go({ t: 'steerPriest', vx: 0, vy: 0, lead: 0 });
+  // the chest with a Spell: too far to open, then beside it
+  const chest = d.chests.find((c) => c.holds.length);
+  if (!go({ t: 'openChest', chest: chest.id }).length) fail('a chest far off was opened');
+  const beside = NS.DIRS.map(([dx, dy]) => [chest.x + dx, chest.y + dy]).find(([x, y]) => d.tiles[y * d.w + x] === NS.TILE.floor);
+  Object.assign(b, { x: beside[0] * NS.WALK_SUB + NS.WALK_SUB / 2, y: beside[1] * NS.WALK_SUB + NS.WALK_SUB / 2 });
+  if (go({ t: 'openChest', chest: chest.id }).length || p.spell !== chest.holds[0] || !chest.opened) fail(`the chest beside him: ${JSON.stringify({ chest, spell: p.spell })}`);
+  if (!go({ t: 'castSpell', transport: p.id }).length) fail('a Spell was cast below');
+  // out: not from where he stands, then beside the stairs; not down again at once
+  if (!go({ t: 'leaveDungeon' }).length) fail('a Priest climbed out far from the stairs');
+  Object.assign(b, { x: d.arrive[0] * NS.WALK_SUB + NS.WALK_SUB / 2, y: d.arrive[1] * NS.WALK_SUB + NS.WALK_SUB / 2 });
+  if (go({ t: 'leaveDungeon' }).length || w.below.has(p.id) || p.x !== d.x - 1) fail('a Priest beside the stairs did not climb out');
+  if (!go({ t: 'enterDungeon' }).includes('not ready')) fail('a Priest went down again at once');
+  for (let i = 0; i < NS.REENTER_SECONDS * NS.TPS; i++) w.step([]);
+  if (go({ t: 'enterDungeon' }).length) fail('a Priest could not go down again after a while');
+  for (let i = 0; i < NS.DEEP_SECONDS * NS.TPS; i++) w.step([]);
+  if (w.below.has(p.id)) fail('the deep air did not bring the Priest up');
+  console.log(`dungeons: ${seeds} dug, rooms of ${kinds.size} kinds, every chest in reach and one holding a Spell; down, out of reach, walked, the chest opened (${p.spell}), no cast below, out by the stairs, up again after ${NS.DEEP_SECONDS} s`);
+}
+
 console.log(`check passed: ${played}`);

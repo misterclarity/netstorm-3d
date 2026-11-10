@@ -70,6 +70,7 @@
 </div>
 <div id="toasts"></div>
 <div id="tip"></div>
+<div id="fade"></div>
 <div id="fp" hidden><div id="crosshair"></div><div id="fpInfo" class="panel"></div></div>
 <div id="modal"><div class="box panel" id="modalBox"></div></div>
 
@@ -109,6 +110,10 @@
       <a-entity id="placement" ns-placement></a-entity>
     </a-entity>
   </a-entity>
+
+  <!-- the dungeons, far below the sea of clouds: shown while the player looks through the eyes of a
+       Priest down in one (ns-dungeon; the portals stand on the islands) -->
+  <a-entity id="dungeon" ns-dungeon></a-entity>
 
   <!-- the hands in VR and AR: controller models; ns-xr draws their rays -->
   <a-entity ns-hand="left"></a-entity>

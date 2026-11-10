@@ -269,6 +269,18 @@ AFRAME.registerSystem('ns-game', {
           break;
         }
         case 'bridge fell': fx?.fall(ev.data.x, ev.data.y, 1, 1, true); break;
+        // a Priest going down into a dungeon or climbing out, a chest opened below
+        case 'dungeon':
+          if (!mine) break;
+          if (ev.data.down) hud.log('Your Priest went down into the dungeon', 'good');
+          else if (ev.data.why === 'air') { hud.toast('The deep air drove your Priest back up: he may go down again in a while', 'bad'); hud.log('Your Priest climbed out of the dungeon, short of air'); }
+          else hud.log('Your Priest climbed out of the dungeon');
+          break;
+        case 'chest':
+          if (!mine) break;
+          if (ev.data.holds.length) { hud.toast(`In the chest: the ${spellName(ev.data.holds[0])}! Your Priest holds it now`, 'good'); hud.log(`Your Priest found the ${spellName(ev.data.holds[0])} in a chest`, 'good'); }
+          else hud.toast('The chest is empty, for now');
+          break;
         // a lift spent by the hits on its riders bursts as a building does, and its bridge falls
         case 'lift destroyed': {
           const { x, y, nx, ny } = ev.data, mx = (x + nx) / 2 + 0.5, my = (y + ny) / 2 + 0.5;
