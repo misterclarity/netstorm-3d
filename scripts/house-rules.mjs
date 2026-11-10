@@ -1679,6 +1679,452 @@ function reachNow(world: World, range: number): number {
   // The Sacrifice commences whenever the owner's priest is at the altar; away from it, it pauses.`,
 });
 
+// The moon, the Furies and the weight of a hit (netstorm-3d). With days and nights (a setting) the
+// nights have a moon: the first night a new moon, then a first quarter, a full moon, a third
+// quarter, and a new moon again. At night a gun loses `nightShare` of its reach under a new moon,
+// three quarters of that under a quarter moon and half under the full moon; the Sun's guns lose
+// 0.6 `nightShare` more; Thunder's guns lose nothing, seeing by their own lightning, and nor does a
+// gun in the Energy ring of its side's Temple or Generator, which lights it up; a Vander Tower's
+// beam lights up an air unit for every gun of its side. A Sun Generator is dark at night and gives
+// no Energy then. Rain is the moon's Fury (Cancer, the moon's own sign, is a water sign): its guns
+// and flyers hit 1.1 times as hard under a quarter moon, 1.25 under the full moon and 0.9 under
+// the new; the Sun's hit 1.15 times as hard by day. Whirligigs do not take off at night; a Priest
+// heals half as fast again by day and prays a quarter slower at night, when Thunder's Spells come
+// a third faster; a crystal brought home at night is worth a quarter more.
+// And every hit weighs its target, days and nights or not: the Sun and Thunder Cannons are siege
+// guns, 1.5 times as hard on buildings and half as hard on units; the Crossbow, the Disc Thrower
+// and the Ice Cannon are light guns, 0.75 times as hard on buildings; a walker riding a lift counts
+// as a building. On tiered islands a gun hits 0.2 harder for each level its target stands below it
+// and 0.2 softer for each above (not at air units, nor the Disc Thrower's discs), and reaches 0.1
+// farther for each level below. A Priest has a ward: no single hit of a gun or flyer takes more
+// than PRIEST_WARD off him, so no shot knocks him out at once.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'the moon and the Furies',
+  was: `export const NIGHT_SECONDS = 120;
+`,
+  now: `export const NIGHT_SECONDS = 120;
+/** (netstorm-3d) The moon's phases, a night each from the first night on, then over again. */
+export const MOON_PHASES = ['new moon', 'first quarter', 'full moon', 'third quarter'];
+/** (netstorm-3d) How hard Rain's guns and flyers hit at night, by the moon's phase: Rain is the
+ * moon's Fury, strongest under the full moon and a little weak under the new. */
+export const RAIN_MOON = [0.9, 1.1, 1.25, 1.1];
+/** (netstorm-3d) How hard the Sun's guns and flyers hit by day, when nights follow days. */
+export const SUN_DAY = 1.15;
+`,
+}, {
+  file: 'world.ts',
+  why: 'the moon and the Furies',
+  was: `  isNight(): boolean {
+    return this.nights && (this.tick / TPS) % (DAY_SECONDS + NIGHT_SECONDS) >= DAY_SECONDS;
+  }
+`,
+  now: `  isNight(): boolean {
+    return this.nights && (this.tick / TPS) % (DAY_SECONDS + NIGHT_SECONDS) >= DAY_SECONDS;
+  }
+
+  /** (netstorm-3d) Tonight's moon, or by day the coming night's, as an index into MOON_PHASES. */
+  moonPhase(): number {
+    return Math.floor(this.tick / TPS / (DAY_SECONDS + NIGHT_SECONDS)) % MOON_PHASES.length;
+  }
+
+  /** (netstorm-3d) How hard the guns and flyers of a Fury hit now: Rain by the moon at night, the
+   * Sun by day; 1 for the rest, and for all with nights off. */
+  furyStrength(theme: string | null | undefined): number {
+    if (!this.nights) {
+      return 1;
+    }
+
+    if (theme === 'sun') {
+      return this.isNight() ? 1 : SUN_DAY;
+    }
+
+    return theme === 'rain' && this.isNight() ? RAIN_MOON[this.moonPhase()]! : 1;
+  }
+
+  /** (netstorm-3d) How many levels \`a\` stands above \`b\`, negative below; 0 on a level map. */
+  levelsAbove(a: Entity, b: Entity): number {
+    return (this.heightOf(a) - this.heightOf(b)) / LEVEL_CELLS;
+  }
+`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the moon and the Furies: reach by the moon, by light and by height',
+  was: `/** (netstorm-3d) A gun's reach now: at night \`nightShare\` less, rounded, never under a cell. */
+function reachNow(world: World, range: number): number {
+  return world.isNight() ? Math.max(1, Math.round(range * (1 - world.nightShare))) : range;
+}
+`,
+  now: `/* oxlint-disable no-magic-numbers -- netstorm-3d's house rules */
+/** (netstorm-3d) How much of \`nightShare\` a gun loses at night by the moon, in the order of
+ * MOON_PHASES: all of it under a new moon, three quarters under a quarter, half under the full. */
+export const MOON_DARK = [1, 0.75, 0.5, 0.75];
+/** (netstorm-3d) The Sun's guns are blinder at night: they lose this much more of \`nightShare\`. */
+export const SUN_BLIND = 0.6;
+/** (netstorm-3d) No gun loses more of its reach at night than this. */
+const DARKEST = 0.9;
+/** (netstorm-3d) How much farther a gun reaches for each level its target stands below it. */
+export const HIGH_REACH = 0.1;
+/** (netstorm-3d) How much harder a gun hits for each level its target stands below it, and how
+ * much softer for each level above. */
+export const HIGH_HIT = 0.2;
+/** (netstorm-3d) The least share of a hit from far below. */
+const LOW_HIT = 0.2;
+/** (netstorm-3d) Siege guns: hard on buildings, soft on units. */
+export const SIEGE_GUNS: ReadonlySet<string> = new Set([SUN_CANNON, THUNDER_CANNON_TYPE]);
+export const SIEGE_VS_BUILDINGS = 1.5;
+export const SIEGE_VS_UNITS = 0.5;
+/** (netstorm-3d) Light guns: soft on buildings. */
+export const LIGHT_GUNS: ReadonlySet<string> = new Set([CROSSBOW, DISC_THROWER, ICE_CANNON]);
+export const LIGHT_VS_BUILDINGS = 0.75;
+/** (netstorm-3d) A Priest's ward: the most a single hit of a gun or flyer takes off him. */
+export const PRIEST_WARD = 35;
+/* oxlint-enable no-magic-numbers */
+
+/** (netstorm-3d) A gun to the rules of reach and hits: a building, or one about to be laid. */
+type Gun = { kind: 'building'; type: string; owner: number; x: number; y: number; fx: number; fy: number; };
+
+/** (netstorm-3d) Lights at night, worked out once a tick: the Energy ring of a Temple or Generator
+ * (not a Sun Generator's), and the beam of a Vander Tower, as far as it reaches air units. */
+type Light = { owner: number; x: number; y: number; r: number; };
+const LIGHTS = new WeakMap<World, { tick: number; rings: Light[]; beams: Light[]; }>();
+
+function lightsOf(world: World): { rings: Light[]; beams: Light[]; } {
+  const known = LIGHTS.get(world);
+
+  if (known?.tick === world.tick) {
+    return known;
+  }
+
+  const lights = { tick: world.tick, rings: [] as Light[], beams: [] as Light[] };
+
+  for (const e of world.entities.values()) {
+    if (e.kind !== 'building' || !e.owner || e.rising > 0) {
+      continue;
+    }
+
+    const def = world.def(e.type);
+
+    if (def.cls === 'Energy' || (def.group === 'battery' && def.theme !== 'sun')) {
+      lights.rings.push({ owner: e.owner, x: e.x + e.fx / 2, y: e.y + e.fy / 2, r: world.energyRange });
+    }
+
+    if (e.type === VANDER_TOWER) {
+      lights.beams.push({
+        owner: e.owner,
+        x: e.x + (e.fx >> 1),
+        y: e.y + (e.fy >> 1),
+        r: def.airRange || def.range,
+      });
+    }
+  }
+
+  LIGHTS.set(world, lights);
+  return lights;
+}
+
+/** (netstorm-3d) Whether a gun stands in a lit Energy ring of its side, as hasEnergy measures it. */
+function lit(world: World, b: Gun): boolean {
+  const x = b.x + b.fx / 2;
+  const y = b.y + b.fy / 2;
+  const foot = (b.fx * b.fx) / 2;
+  return lightsOf(world).rings.some((l) =>
+    !world.hostile(b.owner, l.owner) && (l.x - x) ** 2 + (l.y - y) ** 2 < l.r * l.r + foot
+  );
+}
+
+/** (netstorm-3d) Whether an air unit is in the beam of a Vander Tower of a side. */
+function spotted(world: World, owner: number, target: Entity): boolean {
+  return lightsOf(world).beams.some((l) =>
+    !world.hostile(owner, l.owner)
+    && Math.max(Math.abs(target.x - l.x), Math.abs(target.y - l.y)) <= l.r
+  );
+}
+
+/** (netstorm-3d) The share of its reach a gun loses now, at a target or (with none) at anything:
+ * none by day; at night \`nightShare\` by the moon (MOON_DARK), and more for the Sun's guns; none
+ * for Thunder's, nor in a lit Energy ring, nor at an air unit a Vander Tower of its side lights. */
+export function nightCut(world: World, b: Gun, target?: Entity): number {
+  if (!world.isNight()) {
+    return 0;
+  }
+
+  const theme = world.def(b.type).theme;
+
+  if (
+    theme === 'thunder' || lit(world, b)
+    || (target !== undefined && airborne(world, target) && spotted(world, b.owner, target))
+  ) {
+    return 0;
+  }
+
+  const blind = theme === 'sun' ? SUN_BLIND : 0;
+  return Math.min(DARKEST, world.nightShare * (MOON_DARK[world.moonPhase()]! + blind));
+}
+
+/** (netstorm-3d) How far a gun of reach \`range\` reaches a target now, or (with none) anything on
+ * its own level: less at night (nightCut), and on tiered islands HIGH_REACH farther for each
+ * level a ground target stands below it. Rounded, never under a cell. */
+export function gunReach(world: World, b: Gun, range: number, target?: Entity): number {
+  let reach = range * (1 - nightCut(world, b, target));
+
+  if (target !== undefined && world.tiered && !airborne(world, target)) {
+    reach *= 1 + HIGH_REACH * Math.max(0, world.levelsAbove(b as Entity, target));
+  }
+
+  return reach === range ? range : Math.max(1, Math.round(reach));
+}
+
+/** (netstorm-3d) The farthest a gun of reach \`range\` might reach anything: how far it looks. */
+function farthest(world: World, range: number): number {
+  return world.tiered ? Math.round(range * (1 + HIGH_REACH * 2)) : range;
+}
+
+/** (netstorm-3d) What a gun's hit on a target is multiplied by, part by part: \`against\` the kind
+ * of target (siege and light guns on buildings or units; a walker riding a lift counts as a
+ * building), \`height\` the levels between them, \`fury\` the strength of the gun's Fury now. */
+export function hitParts(
+  world: World,
+  gun: Gun,
+  target: Entity,
+): { against: number; height: number; fury: number; } {
+  const block = target.kind === 'building'
+    || ((target.kind === 'transport' || target.kind === 'priest') && world.liftLevels(target) > 0);
+  let against = 1;
+
+  if (SIEGE_GUNS.has(gun.type)) {
+    against = block ? SIEGE_VS_BUILDINGS : SIEGE_VS_UNITS;
+  } else if (LIGHT_GUNS.has(gun.type) && block) {
+    against = LIGHT_VS_BUILDINGS;
+  }
+
+  const levels = world.tiered && gun.type !== DISC_THROWER && !airborne(world, target);
+  const height = levels ? Math.max(LOW_HIT, 1 + HIGH_HIT * world.levelsAbove(gun as Entity, target)) : 1;
+  return { against, height, fury: world.furyStrength(world.def(gun.type).theme) };
+}
+
+/** (netstorm-3d) What a gun's hit on a target is multiplied by: the product of hitParts. */
+export function hitFactor(world: World, gun: Gun, target: Entity): number {
+  const { against, height, fury } = hitParts(world, gun, target);
+  return against * height * fury;
+}
+`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the moon and the Furies: a hit weighs its target',
+  was: `  damage(world, by, target, amount, shot.ricochet ? undefined : gun);`,
+  now: `  damage(world, by, target, amount * hitFactor(world, gun, target), shot.ricochet ? undefined : gun);`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the moon and the Furies: a Priest has a ward',
+  was: `    amount *= LIFT_EXPOSURE;
+  }
+
+  const before = entity.hp;`,
+  now: `    amount *= LIFT_EXPOSURE;
+  }
+
+  // (netstorm-3d) a Priest's ward: no single hit of a gun or flyer takes more than PRIEST_WARD
+  if (entity.kind === 'priest' && (from !== undefined || air)) {
+    amount = Math.min(amount, PRIEST_WARD);
+  }
+
+  const before = entity.hp;`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the moon and the Furies: reach by the moon, by light and by height',
+  was: `      if (across * across + up * up > reachNow(world, world.def(b.type).range) ** 2) {`,
+  now: `      if (across * across + up * up > gunReach(world, b, world.def(b.type).range, target) ** 2) {`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the moon and the Furies: reach by the moon, by light and by height',
+  was: `  const range = reachNow(world, airborne(world, target) ? def.airRange || def.range : def.range);`,
+  now: `  const range = gunReach(world, b, airborne(world, target) ? def.airRange || def.range : def.range, target);`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the moon and the Furies: reach by the moon, by light and by height',
+  was: `  for (let r = 0; r < reachNow(world, def.range) && world.inside(x, y); r++, x += dx, y += dy) {
+    const hit = enemyAt(b.owner, x, y);
+
+    if (hit) {`,
+  now: `  for (let r = 0; r < farthest(world, def.range) && world.inside(x, y); r++, x += dx, y += dy) {
+    const hit = enemyAt(b.owner, x, y);
+
+    // (netstorm-3d) each enemy within the gun's reach of it: farther below, less far at night
+    if (hit && r < gunReach(world, b, def.range, hit)) {`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the moon and the Furies: reach by the moon, by light and by height',
+  was: `  const seen: EnemyAt = (owner, x, y) => {
+    const hit = enemyAt(owner, x, y);
+    return hit && aimsAt(world, b, hit) ? hit : null;
+  };
+
+  for (let r = 1; r <= reachNow(world, def.range); r++) {`,
+  now: `  // (netstorm-3d) each enemy within the gun's reach of it: farther below, less far at night
+  let ring = 0;
+  const seen: EnemyAt = (owner, x, y) => {
+    const hit = enemyAt(owner, x, y);
+    return hit && aimsAt(world, b, hit) && ring <= gunReach(world, b, def.range, hit) ? hit : null;
+  };
+
+  for (let r = 1; r <= farthest(world, def.range); r++) {
+    ring = r;`,
+}, {
+  file: 'rules/flyers.ts',
+  why: 'the moon and the Furies: flyers hit by their Fury',
+  was: `  damage(world, f.owner, target, def.dps * seconds, undefined, true);`,
+  now: `  damage(world, f.owner, target, def.dps * seconds * world.furyStrength(def.theme), undefined, true);`,
+}, {
+  file: 'rules/flyers.ts',
+  why: 'the moon and the Furies: Whirligigs do not take off at night',
+  was: `  if (b.cooldown >= Math.round(LAUNCH_SECONDS[b.type]! * TPS)) {`,
+  now: `  // (netstorm-3d) Whirligigs do not take off at night: they go at dawn
+  if (b.cooldown >= Math.round(LAUNCH_SECONDS[b.type]! * TPS) && !(b.type === 'sunaviary' && world.isNight())) {`,
+}, {
+  file: 'rules/building.ts',
+  why: 'the moon and the Furies: a Sun Generator is dark at night',
+  was: `    if (count && source.theme && dx * dx + dy * dy < reach) {`,
+  now: `    // (netstorm-3d) a Sun Generator gives no Energy at night
+    const dark = source.group === 'battery' && source.theme === 'sun' && world.isNight?.();
+
+    if (count && source.theme && !dark && dx * dx + dy * dy < reach) {`,
+}, {
+  file: 'rules/building.ts',
+  why: 'the moon and the Furies: a Sun Generator is dark at night',
+  was: `    } else if (d.group === 'battery') {`,
+  now: `    } else if (d.group === 'battery' && !(d.theme === 'sun' && world.isNight?.())) {`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'the moon and the Furies: a Priest heals faster by day',
+  was: `const FULL_HEAL_SECONDS = 50;
+`,
+  now: `const FULL_HEAL_SECONDS = 50;
+/** (netstorm-3d) How much faster a Priest heals by day, when nights follow days. */
+const DAY_HEAL = 1.5;
+`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'the moon and the Furies: a Priest heals faster by day',
+  was: `  const interval = Math.round(((part * FULL_HEAL_SECONDS) / p.hpMax) * TPS);`,
+  now: `  const sun = world.nights && !world.isNight() ? DAY_HEAL : 1;
+  const interval = Math.round(((part * FULL_HEAL_SECONDS) / p.hpMax / sun) * TPS);`,
+}, {
+  file: 'rules/spells.ts',
+  why: 'the moon and the Furies: prayers at night',
+  was: `  p.praying--;
+
+  if (p.praying === 0) {`,
+  now: `  // (netstorm-3d) a Priest prays a quarter slower at night: he loses every fourth tick
+  if (!world.isNight() || world.tick % NIGHT_PRAYER !== 0) {
+    p.praying--;
+  }
+
+  if (p.praying === 0) {`,
+}, {
+  file: 'rules/spells.ts',
+  why: 'the moon and the Furies: Thunder\'s Spells at night',
+  was: `export function cast(world: World, t: Caster): void {
+  t.casting--;`,
+  now: `/** (netstorm-3d) At night a Priest loses every NIGHT_PRAYER-th tick of his prayer, and a Thunder
+ * Spell gains a tick on every THUNDER_NIGHT-th. */
+const NIGHT_PRAYER = 4;
+const THUNDER_NIGHT = 3;
+const THUNDER_SPELLS: ReadonlySet<string> = new Set(['bomblightingwave', 'bomblightingzap']);
+
+export function cast(world: World, t: Caster): void {
+  // (netstorm-3d) Thunder's Spells come a third faster at night
+  const storm = world.isNight() && t.casting > 1 && world.tick % THUNDER_NIGHT === 0
+    && THUNDER_SPELLS.has(t.spell ?? '');
+  t.casting -= storm ? 2 : 1;`,
+}, {
+  file: 'rules/movement.ts',
+  why: 'the moon and the Furies: crystals at night',
+  was: `  world.players.get(t.owner)!.storm += crystal.value;`,
+  now: `  // (netstorm-3d) a crystal brought home at night is worth a quarter more
+  world.players.get(t.owner)!.storm += world.isNight() ? Math.round(crystal.value * 1.25) : crystal.value;`,
+}, {
+  file: 'index.ts',
+  why: 'the moon and the Furies: reach and hits for the client',
+  was: `export { blastDamage, facesWhenLaid, shotInterval, damage, LIFT_EXPOSURE } from './rules/combat.js';`,
+  now: `export {
+  blastDamage,
+  facesWhenLaid,
+  shotInterval,
+  damage,
+  LIFT_EXPOSURE,
+  gunReach,
+  nightCut,
+  hitParts,
+  hitFactor,
+  PRIEST_WARD,
+  MOON_DARK,
+  SUN_BLIND,
+  HIGH_REACH,
+  HIGH_HIT,
+  SIEGE_GUNS,
+  SIEGE_VS_BUILDINGS,
+  SIEGE_VS_UNITS,
+  LIGHT_GUNS,
+  LIGHT_VS_BUILDINGS,
+} from './rules/combat.js';`,
+});
+
+// The house rules' state in the computer's copy of the world (netstorm-3d). The computer works out
+// its moves on a copy made from the world's hand-off (in its worker, and in the arena), which
+// netstorm-web's snapshot makes without the levels of tiered islands and without days and nights:
+// the copy took every cell to be on level 0 and every hour for day, so at night it would try to lay
+// what only a dark Sun Generator could give Energy for, and be refused. Now the hand-off carries
+// them, and the copy takes them.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'the house rules in the computer\'s copy of the world',
+  was: `      residences: this.residences,
+      players: [...this.players.values()].map((player) => ({ ...player, tech: [...player.tech] })),
+    };
+  }
+
+  private header() {`,
+  now: `      residences: this.residences,
+      players: [...this.players.values()].map((player) => ({ ...player, tech: [...player.tech] })),
+      // (netstorm-3d) the house rules' state
+      houseRules: {
+        tiered: this.tiered,
+        level: this.level.slice(),
+        nights: this.nights,
+        nightShare: this.nightShare,
+      },
+    };
+  }
+
+  private header() {`,
+}, {
+  file: 'world.ts',
+  why: 'the house rules in the computer\'s copy of the world',
+  was: `    world.occupant.set(snapshot.occupant);`,
+  now: `    world.occupant.set(snapshot.occupant);
+    // (netstorm-3d) the house rules' state, as a hand-off carries it
+    const rules = (raw as { houseRules?: { tiered?: unknown; level?: ArrayLike<number>; nights?: unknown; nightShare?: unknown; }; }).houseRules;
+
+    if (rules) {
+      world.tiered = rules.tiered === true;
+      world.nights = rules.nights === true;
+      world.nightShare = Math.min(1, Math.max(0, Number(rules.nightShare) || 0));
+
+      if (rules.level?.length === W * H) {
+        world.level.set(Array.from(rules.level, (n) => Math.max(-1, Math.min(1, Math.trunc(n)))));
+      }
+    }`,
+}, {
+  file: 'snapshot.ts',
+  why: 'the house rules in the computer\'s copy of the world',
+  was: `    'players',
+  ], 'snapshot');`,
+  now: `    'players',
+    'houseRules',
+  ], 'snapshot');`,
+});
+
 export function houseRules() {
   return {
     name: 'house-rules',

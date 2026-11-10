@@ -1229,23 +1229,71 @@ SCENARIOS.night = async () => {
     }
     G.paused = false;
   });
-  await page.waitForFunction(() => document.getElementById('daytime').textContent.includes('☾') && document.querySelector('a-sky').getObject3D('mesh').material.uniforms.night.value > 0.99, null, { timeout: 20000 }).catch(() => {});
+  await page.waitForFunction(() => document.getElementById('daytime').textContent.includes('🌑') && document.querySelector('a-sky').getObject3D('mesh').material.uniforms.night.value > 0.99, null, { timeout: 20000 }).catch(() => {});
   const night = await page.evaluate(() => {
     const sun = document.getElementById('sun').getObject3D('light'), sky = document.querySelector('a-sky').getObject3D('mesh').material;
     return {
       night: window.NS3D.G.world.isNight(), clock: document.getElementById('daytime').textContent,
       log: [...document.querySelectorAll('#logList li')].map((li) => li.textContent).join(' | '),
-      sun: sun.intensity, sky: sky.uniforms.night.value,
+      sun: sun.intensity, sky: sky.uniforms.night.value, moon: sky.uniforms.moon.value,
     };
   });
-  if (!night.night || !night.clock.includes('☾') || !/Night falls: guns reach 40% less/.test(night.log) || night.sun > 1 || night.sky < 0.99) throw new Error(`no night: ${JSON.stringify(night)}`);
+  // the first night has a new moon: the clock shows it, the sky draws it, the log names it
+  if (!night.night || !night.clock.includes('🌑') || !/Night falls under a new moon: guns reach 40% less/.test(night.log) || night.sun > 1 || night.sky < 0.99 || night.moon !== 0) throw new Error(`no night under a new moon: ${JSON.stringify(night)}`);
+  // a Rain player's Ice Cannon reaches 40% less out in the dark, as far as by day in the Temple's
+  // Energy ring, which lights it; the tip gives a gun's multipliers on the enemy Priest
+  const guns = await page.evaluate(() => {
+    const { G, NS, reachOf, hitText } = window.NS3D;
+    const t = G.world.templeOf(NS.ME), def = G.world.def('raincannon');
+    const line = (x, y) => { const p = reachOf(def, x, y, 1).find((s) => s.kind === 'fire').poly; return p[1][0] - p[0][0]; };
+    const priest = G.world.priestOf(2), at = { kind: 'building', owner: NS.ME, x: priest.x - 6, y: priest.y, fx: 2, fy: 2 };
+    return {
+      dark: line(t.x + 40, t.y), lit: line(t.x + t.fx + 1, t.y), range: def.range,
+      siege: hitText(G.world, { ...at, type: 'suncannon' }, priest), rain: hitText(G.world, { ...at, type: 'raincannon' }, priest),
+    };
+  });
+  if (guns.dark !== Math.round(guns.range * 0.6) || guns.lit !== guns.range) throw new Error(`a gun's ring at night: ${JSON.stringify(guns)}`);
+  if (guns.siege !== '×0.5 vs units · at most 35 a hit' || guns.rain !== '×0.9 Rain under a new moon · at most 35 a hit') throw new Error(`a gun's multipliers: ${JSON.stringify(guns)}`);
   if (process.env.SHOT) {
     await page.evaluate(() => document.querySelector('a-scene').systems['ns-art'].setMode('models'));
     await page.keyboard.press('g');
     await page.waitForTimeout(1500);
     await shot('night');
+    // an Ice Cannon about to be laid at night: as far as by day in the Temple's Energy ring, less
+    // out of it
+    for (const [name, dx] of [['lit', 1], ['dark', 22]]) {
+      await page.evaluate((far) => {
+        const { G, NS, game, wx, wz } = window.NS3D;
+        const t = G.world.templeOf(NS.ME);
+        game.setTool({ kind: 'build', type: 'raincannon' });
+        G.facing = 1;
+        G.hover = { x: t.x + t.fx + far, y: t.y };
+        document.getElementById('camera').components['orbit-rig'].focus(wx(t.x + 22), wz(t.y), 75);
+      }, dx);
+      await page.waitForTimeout(2000);
+      await shot(`night-reach-${name}`);
+    }
+    await page.evaluate(() => window.NS3D.game.setTool({ kind: 'select' }));
+    // the moon in each phase, close up: the sky's moon uniform set by hand, the camera turned to it
+    // (the sky is drawn mirrored, x to -x: the moon is opposite the sun's direction in its uniform)
+    await page.evaluate(() => {
+      document.getElementById('sun').components['ns-sun'].pause();
+      for (const el of document.body.children) if (el.tagName !== 'A-SCENE') el.style.display = 'none';
+      const cam = document.getElementById('camera');
+      cam.components['orbit-rig'].enabled = false;
+      cam.setAttribute('camera', 'fov', 6);
+      const o = cam.object3D, d = new window.AFRAME.THREE.Vector3(-0.53, 0.71, -0.41).normalize();
+      o.position.set(0, 20, 0);
+      o.lookAt(d.multiplyScalar(100).add(o.position));
+      o.rotateY(Math.PI);
+    });
+    for (const [phase, name] of ['new', 'first-quarter', 'full', 'third-quarter'].entries()) {
+      await page.evaluate((p) => { document.querySelector('a-sky').getObject3D('mesh').material.uniforms.moon.value = p; }, phase);
+      await page.waitForTimeout(400);
+      await shot(`moon-${phase}-${name}`);
+    }
   }
-  console.log(`  night: ${night.clock.trim()} to dawn, the sun at ${night.sun.toFixed(2)}, the reach a ${40}% shorter`);
+  console.log(`  night: ${night.clock.trim()} to dawn under a new moon, the sun at ${night.sun.toFixed(2)}; an Ice Cannon reaches ${guns.dark} in the dark, ${guns.lit} in the Temple's ring; ${guns.siege}`);
   return errors;
 };
 

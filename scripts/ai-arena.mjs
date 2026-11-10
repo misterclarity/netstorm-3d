@@ -12,6 +12,7 @@
  *   … TRACE=1 DIAG=16                                      # why no gun of side 1 stands by the Temple
  *   … TRACE=1 ECON=1                                       # each side's income every five minutes
  *   SPELLS=obelisks npm run ai:arena                       # the skirmish's Spells setting (none, obelisks, prayer)
+ *   NIGHTS=off npm run ai:arena                            # no nights (on, at -25%, as the Settings' defaults)
  *
  * A side is a level (easy, normal, hard, and any added to the table) or idle. Side 1 plays Wind,
  * side 2 Rain, on four islands with 2000 Storm Power, as the menu's defaults. Each move is worked
@@ -41,6 +42,9 @@ export async function match(seed, side1, side2, minutes, trace = false, tune = n
     difficulty: side2 === 'idle' ? 'normal' : side2, storm: 2000, seed, spells: process.env.SPELLS ?? 'none' };
   const known = [...NS.AI_ALIGNMENTS.find((a) => a.name === 'Wind').tech];
   const world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known, altarLevel: 1 });
+  // days and nights as the Settings' defaults have them (src/settings.js); NIGHTS=off for none
+  world.nights = process.env.NIGHTS !== 'off';
+  world.nightShare = 0.25;
   settleResidences(world, seed);
   const memory = { 1: NS.createAiMemory(seed + 1), 2: NS.createAiMemory(seed + 2) };
   const every = (p) => Math.round(NS.DIFFICULTY[levels[p]].moveSeconds * NS.TPS);

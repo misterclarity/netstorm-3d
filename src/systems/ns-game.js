@@ -13,6 +13,8 @@ import { HEIGHTS, TIER, LEVEL_NAMES, groundAt, updateHeights, shiftLevel } from 
 import { snapPiece, openEnds } from '../snap.js';
 import { energyAt, missingAdvice } from '../energy.js';
 import { spellName } from '../spells.js';
+import { MOON_ICON, moonName, reachText, furyText, hitText } from '../moon.js';
+import { reachOf } from '../reach.js';
 import * as models from '../models.js';
 
 const AIR_BOX = new THREE.Box3(), AIR_HIT = new THREE.Vector3();
@@ -22,7 +24,7 @@ AFRAME.registerSystem('ns-game', {
     this.destroyed = new Set();
     this.raycaster = new THREE.Raycaster();
     // handles for tests and the console
-    window.NS3D = { G, NS, origin, wx, wz, game: this, stepWorld, flushPendingAi, submit, models, HEIGHTS, groundAt, groundCell, snapPiece, openEnds };
+    window.NS3D = { G, NS, origin, wx, wz, game: this, stepWorld, flushPendingAi, submit, models, HEIGHTS, groundAt, groundCell, snapPiece, openEnds, reachOf, hitText };
     this.el.addEventListener('loaded', () => {
       this.hud = new Hud(this);
       this.minimap = new Minimap(this);
@@ -167,9 +169,10 @@ AFRAME.registerSystem('ns-game', {
     if (night === this.wasNight) return;
     this.wasNight = night;
     const chained = [...G.view.entities.values()].some((e) => e.kind === 'priest' && e.state === 'chained');
+    const fury = furyText(w);
     this.hud.toast(night
-      ? `Night falls: guns reach ${Math.round(w.nightShare * 100)}% less${chained ? '; the Sacrifice waits for the dawn' : ''}`
-      : `Dawn: guns reach as far as ever${chained ? ', and the Sacrifice goes on' : ''}`);
+      ? `${MOON_ICON[w.moonPhase()]} Night falls under ${moonName(w)}: ${reachText(w).replace(/ \(.*\)/, '')}${fury ? `, ${fury}` : ''}${chained ? '; the Sacrifice waits for the dawn' : ''}`
+      : `☀ Dawn: guns reach as far as ever${fury ? `, ${fury}` : ''}${chained ? ', and the Sacrifice goes on' : ''}`);
   },
 
   tick(t, dt) {

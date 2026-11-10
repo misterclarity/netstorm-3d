@@ -11,6 +11,7 @@ import { toScene } from './space.js';
 import { SPELL_MODES, SPELL_IDS, spellText, spellName } from './spells.js';
 import { HEIGHTS, LEVEL_NAMES } from './heights.js';
 import { loadSettings, saveSettings, NIGHT_REACH } from './settings.js';
+import { MOON_ICON, moonName, reachText, furyText, hitText, classText, cutFor } from './moon.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -124,11 +125,12 @@ export class Hud {
       if (w?.nights) {
         const cycle = NS.DAY_SECONDS + NS.NIGHT_SECONDS, into = (w.tick / TPS) % cycle, night = into >= NS.DAY_SECONDS;
         const left = Math.ceil((night ? cycle : NS.DAY_SECONDS) - into), clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-        day.innerHTML = `${night ? '☾' : '☀'} <b>${clock}</b>`;
+        const fury = furyText(w);
+        day.innerHTML = `${night ? MOON_ICON[w.moonPhase()] : '☀'} <b>${clock}</b>`;
         day.classList.toggle('night', night);
         day.title = night
-          ? `Night, ${clock} to dawn: guns reach ${Math.round(w.nightShare * 100)}% less, and a Sacrifice waits for the sun`
-          : `Day, ${clock} to nightfall`;
+          ? `Night under ${moonName(w)}, ${clock} to dawn: ${reachText(w)}${fury ? `; ${fury}` : ''}. Whirligigs stay home, Sun Generators are dark, a Sacrifice waits for the sun, and a crystal brought home is worth a quarter more.`
+          : `Day, ${clock} to nightfall${fury ? `: ${fury}` : ''}. Tonight: ${moonName(w)} ${MOON_ICON[w.moonPhase()]}.`;
       }
     }
     $('pause').textContent = G.paused ? '▶ Resume' : 'Pause';
@@ -333,6 +335,11 @@ export class Hud {
       if (e.kind === 'geyser') hint = ' · click: collect';
       else if (e.kind === 'priest' && e.owner !== ME && sel.kind === 'transport') hint = e.state === 'down' ? ' · click: capture' : ' · not down yet';
     }
+    // a gun of yours selected: what its hits on this enemy are multiplied by (the house rules)
+    if (sel?.owner === ME && sel.kind === 'building' && defs.get(sel.type)?.dps && e.owner && e.owner !== ME && e.hp !== undefined) {
+      const k = hitText(G.world, sel, e);
+      if (k) hint += ` · your ${defs.get(sel.type).name}: ${k}`;
+    }
     return `${name}${owner ? ` (${owner})` : ''}${hint}`;
   }
 
@@ -373,8 +380,17 @@ export class Hud {
           if (up !== 'bad target' && up !== 'fully upgraded') acts.push(`<button data-sel="upgrade" ${up ? `disabled title="${errorText(up)}"` : ''}>Upgrade (⚡${d.cost})</button>`);
         }
       }
-      if (d.range) lines.push(`Range ${d.range}${d.dps ? ` · damage ${d.dps}/s` : ''}${NS.hasFacing(d) ? ` · ${facingText(d, e.facing)}` : ''}`);
+      // reach now (less at night, by the moon and the light) and the weight of its hits (the house rules)
+      const reach = d.dps && d.range ? NS.gunReach(G.world, e, d.range) : d.range;
+      if (d.range) lines.push(`Range ${d.range}${reach !== d.range ? ` (${reach} tonight)` : ''}${d.dps ? ` · damage ${d.dps}/s` : ''}${NS.hasFacing(d) ? ` · ${facingText(d, e.facing)}` : ''}`);
       else if (NS.hasFacing(d)) lines.push(`${facingText(d, e.facing)[0].toUpperCase()}${facingText(d, e.facing).slice(1)}: guns on that side, but the Arc Spire, do it no harm`);
+      if (d.dps && d.range) {
+        const kind = classText(d.id), fury = G.world.furyStrength(d.theme);
+        const now = fury !== 1 ? `hits ×${fury} ${d.theme === 'rain' ? `under ${moonName(G.world)}` : 'by day'}` : '';
+        const dark = G.world.isNight() && cutFor(G.world, d.theme) && !NS.nightCut(G.world, e) ? 'lit by an Energy ring: full reach tonight' : '';
+        const words = [kind, now, dark].filter(Boolean).join(' · ');
+        if (words) lines.push(words[0].toUpperCase() + words.slice(1));
+      }
       if (d.cls === 'Altar') {
         const captive = [...G.view.entities.values()].find((c) => c.kind === 'priest' && c.chainedAt === e.id);
         lines.push(captive ? `A captive is chained here: ${captive.runes}/5 runes. Your Priest must stand beside the Altar.` : 'Captured Priests are sacrificed here');
@@ -407,6 +423,7 @@ export class Hud {
       }
       if (e.owner === ME && e.state === 'normal') lines.push('Click ground to walk, a geyser to collect, or your Altar to perform a sacrifice. “Priest builds” below has Workshops and the Altar.');
       if (e.owner !== ME && e.state !== 'down') lines.push('Knock him out (below half health) with cannons, then send a Golem.');
+      lines.push(`His ward: no single hit of a gun or flyer takes more than ${NS.PRIEST_WARD} off him${G.world.nights ? '; he heals half as fast again by day, and prays slower at night' : ''}.`);
       if (e.state === 'normal') this.spellCard(e, lines, acts);
     }
     const hp = e.hp !== undefined && e.hpMax ? `<div class="hp"><i style="width:${Math.max(0, 100 * e.hp / e.hpMax)}%"></i></div>` : '';
@@ -664,8 +681,9 @@ export class Hud {
         <label>Guns' reach at night <select id="stNightReach">${NIGHT_REACH.map((n) => `<option value="${n}" ${n === s.nightReach ? 'selected' : ''}>${share(n)}</option>`).join('')}</select></label>
       </div>
       <p class="level">A day lasts ${NS.DAY_SECONDS / 60} minutes and a night ${NS.NIGHT_SECONDS / 60}, from a morning at the start of the battle. At night
-        every gun reaches less far (its ring shows how far), and a Sacrifice waits for the sun: the Priest calls out to it, so his
-        runes stop at nightfall and go on at dawn, the captive still chained. Off, it is always day, as in the original.</p>`,
+        guns reach less far: the setting is how much under a new moon; a quarter moon takes three quarters of that, the full
+        moon half, the Sun's guns lose more and Thunder's none (rings show how far). The moon also strengthens Rain, the
+        day the Sun, and a Sacrifice waits for the sun; How to play has the rest. Off, it is always day, as in the original.</p>`,
     [{ label: 'Back', act: () => back() }, {
       label: 'Save', main: true,
       act: () => {
@@ -807,13 +825,34 @@ export class Hud {
         and the Crossbow fire the way they face. Turn them with <kbd>R</kbd> while placing them. The Wind
         Tower is shielded on the side it faces. Towers and barricades hold a line, air bases send flyers at
         the enemy, and the Vander Tower shoots flyers down.</p>
+      <p>A hit weighs its target. The Sun and Thunder Cannons are <b>siege guns</b>: ×${NS.SIEGE_VS_BUILDINGS} on
+        buildings, ×${NS.SIEGE_VS_UNITS} on units. The Crossbow, Disc Thrower and Ice Cannon are <b>light guns</b>:
+        ×${NS.LIGHT_VS_BUILDINGS} on buildings. A unit riding a lift counts as a building, and takes
+        ×${NS.LIFT_EXPOSURE} besides. On tiered islands a gun hits ${NS.HIGH_HIT * 100}% harder for each level its
+        target stands below it (${NS.HIGH_HIT * 100}% softer for each above) and reaches ${NS.HIGH_REACH * 100}% farther
+        for each level down; not at flyers, nor the Disc Thrower. A Priest has a ward: no single hit takes more
+        than ${NS.PRIEST_WARD} off him, so no one shot knocks him out. Select a gun of yours and point at an enemy:
+        the tip says what its hits are multiplied by.</p>
       <h3>Day and night</h3>
       <p>Unless it is turned off in Settings, a day of ${NS.DAY_SECONDS / 60} minutes follows the start of the battle,
-        then a night of ${NS.NIGHT_SECONDS / 60}, and so on; the clock by the Storm Power says which, and how long
-        until it turns. At night every gun reaches less far (a quarter less unless Settings say otherwise; the
-        rings show it), so a night is the time to move carriers and lay bridges past the enemy’s guns. And a
-        Priest calls out to the sun: a Sacrifice stops at nightfall and goes on at dawn, the captive still
-        chained, which leaves the night to his side to break the Altar and free him.</p>
+        then a night of ${NS.NIGHT_SECONDS / 60}, and so on; the clock by the Storm Power says which, how long until
+        it turns, and tonight’s moon. The moon goes round a night at a time: 🌑 new, 🌓 first quarter, 🌕 full,
+        🌗 third quarter, then new again; the first night has a new moon.</p>
+      <ul><li><b>Reach.</b> At night guns reach less far: a quarter less under a new moon (unless Settings
+        say otherwise), three quarters of that under a quarter moon, half under the full moon. The Sun’s
+        guns are blinder, Thunder’s see by their own lightning and lose nothing, and a gun inside the Energy
+        ring of your Temple or a Generator is lit and keeps its full reach. A Vander Tower’s beam lights up
+        flyers for all your guns around. The rings show how far each gun reaches now. A night is the time
+        to move carriers and lay bridges past the enemy’s guns.</li>
+        <li><b>The Furies.</b> Rain is the moon’s Fury: at night its guns and flyers hit ×${NS.RAIN_MOON[1]} under a
+        quarter moon and ×${NS.RAIN_MOON[2]} under the full moon, but ×${NS.RAIN_MOON[0]} under the new. By day the Sun’s hit
+        ×${NS.SUN_DAY}. At night a Sun Generator is dark: it gives no Energy, and Whirligigs stay in their base
+        until dawn.</li>
+        <li><b>Priests.</b> A Priest calls out to the sun: a Sacrifice stops at nightfall and goes on at dawn,
+        the captive still chained, which leaves the night to his side to break the Altar and free him. By
+        day a Priest heals half as fast again; at night he prays a quarter slower, but Thunder’s Spells come
+        a third faster.</li>
+        <li><b>Crystals</b> brought home at night are worth a quarter more.</li></ul>
       <h3>Capturing the enemy Priest</h3>
       <ol><li>Build guns within reach of the enemy Priest and knock him out: he falls when he is below half
         his health.</li>

@@ -299,7 +299,7 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   console.log('reach: a Disc Thrower throws level, not down; a Whirligig hunts in a sphere');
 }
 
-// Day and night (scripts/house-rules.mjs): at night a Disc Thrower reaches a quarter less, so a
+// Day and night (scripts/house-rules.mjs): at night a Disc Thrower reaches 40% less (the Sun under a new moon), so a
 // Golem 7 cells off is safe from it; by day it is hit. A Sacrifice waits for the dawn.
 {
   const fresh = () => {
@@ -338,7 +338,177 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   const dayRunes = ritual(0), nightRunes = ritual(night + NS.TPS);
   if (!(dayRunes.runes > 0)) fail(`by day a Sacrifice did not go on: ${JSON.stringify(dayRunes)}`);
   if (nightRunes.runes !== 0) fail(`at night a Sacrifice went on: ${JSON.stringify(nightRunes)}`);
-  console.log(`day and night: at night a Disc Thrower reaches a quarter less; a Sacrifice waits for the dawn (${dayRunes.runes} runes by day, none by night)`);
+  console.log(`day and night: at night a Disc Thrower, a Sun gun under a new moon, reaches 40% less; a Sacrifice waits for the dawn (${dayRunes.runes} runes by day, none by night)`);
+}
+
+// The moon, the Furies and the weight of a hit (scripts/house-rules.mjs): the moon's phases night
+// by night, Rain by the moon and the Sun by day, reach by the moon, by light and by height, siege
+// and light guns, the Priest's ward, Whirligigs grounded at night, a Sun Generator dark at night,
+// a Priest's healing and praying, Thunder's Spells and crystals at night.
+{
+  const fresh = (nights = true) => {
+    const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+    w.nights = nights;
+    w.nightShare = 0.25;
+    for (let y = 4; y < 60; y++) for (let x = 4; x < 60; x++) { w.terrain[y * NS.W + x] = 1; w.owner[y * NS.W + x] = 0; }
+    w.invalidateTerrain();
+    return w;
+  };
+  const night = (n) => Math.round((n * (NS.DAY_SECONDS + NS.NIGHT_SECONDS) + NS.DAY_SECONDS + 1) * NS.TPS);
+  const raise = (w, type, x, y, owner = NS.ME, facing = 0) => { const b = w.spawnBuilding(type, owner, x, y, facing); b.rising = 0; return b; };
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+
+  const w = fresh();
+  const phases = [0, 1, 2, 3, 4].map((n) => { w.tick = night(n); return NS.MOON_PHASES[w.moonPhase()]; });
+  if (phases.join() !== 'new moon,first quarter,full moon,third quarter,new moon') fail(`the moon's phases: ${phases}`);
+  const rain = [0, 1, 2, 3].map((n) => { w.tick = night(n); return w.furyStrength('rain'); });
+  if (rain.join() !== '0.9,1.1,1.25,1.1') fail(`Rain by the moon: ${rain}`);
+  w.tick = 0;
+  if (w.furyStrength('sun') !== 1.15 || w.furyStrength('rain') !== 1 || w.furyStrength('wind') !== 1) fail('the Sun by day');
+  w.tick = night(2);
+  if (w.furyStrength('sun') !== 1) fail('the Sun at night');
+  const off = fresh(false);
+  off.tick = night(2);
+  if (off.furyStrength('rain') !== 1 || off.furyStrength('sun') !== 1) fail('the Furies with nights off');
+
+  // reach by the moon and by light
+  const cut = (n, type, extra) => {
+    const ww = fresh();
+    ww.tick = night(n);
+    const b = raise(ww, type, 10, 10);
+    if (extra) raise(ww, extra, 14, 10);
+    return NS.nightCut(ww, b);
+  };
+  const cuts = {
+    crossbowNew: cut(0, 'windarcher'), crossbowQuarter: cut(1, 'windarcher'), crossbowFull: cut(2, 'windarcher'),
+    discNew: cut(0, 'sunarcher'), thunder: cut(0, 'thundercannon'), lit: cut(0, 'windarcher', 'windbattery'),
+    sunLit: cut(0, 'windarcher', 'sunbattery'),
+  };
+  if (!near(cuts.crossbowNew, 0.25) || !near(cuts.crossbowQuarter, 0.1875) || !near(cuts.crossbowFull, 0.125)) fail(`reach by the moon: ${JSON.stringify(cuts)}`);
+  if (!near(cuts.discNew, 0.4) || cuts.thunder !== 0) fail(`reach by Fury: ${JSON.stringify(cuts)}`);
+  if (cuts.lit !== 0 || !near(cuts.sunLit, 0.25)) fail(`reach by an Energy ring's light: ${JSON.stringify(cuts)}`);
+  {
+    const ww = fresh();
+    ww.tick = night(0);
+    const crossbow = raise(ww, 'windarcher', 10, 10), base = raise(ww, 'rainaviary', 50, 50, 2);
+    raise(ww, 'thunderarcher', 30, 10);
+    const lighted = ww.spawnFlyer('rainflyer', 2, base), dark = ww.spawnFlyer('rainflyer', 2, base);
+    Object.assign(lighted, { x: 33, y: 12 });
+    Object.assign(dark, { x: 12, y: 40 });
+    const seen = NS.nightCut(ww, crossbow, lighted), unseen = NS.nightCut(ww, crossbow, dark);
+    if (seen !== 0 || !near(unseen, 0.25)) fail(`a Vander Tower's beam: ${seen} ${unseen}`);
+  }
+
+  // siege and light guns, and the Priest's ward
+  {
+    const ww = fresh(false);
+    const cannon = raise(ww, 'suncannon', 10, 10), walker = ww.spawnTransport('sunwalker', 2, 30, 11);
+    const wall = raise(ww, 'windbattery', 30, 30, 2), crossbow = raise(ww, 'windarcher', 20, 20);
+    const parts = (gun, target) => NS.hitParts(ww, gun, target).against;
+    const against = [parts(cannon, walker), parts(cannon, wall), parts(crossbow, walker), parts(crossbow, wall)];
+    if (against.join() !== '0.5,1.5,1,0.75') fail(`siege and light guns: ${against}`);
+    const priest = ww.priestOf(2), hp = priest.hp;
+    NS.damage(ww, NS.ME, priest, 145, cannon);
+    if (hp - priest.hp !== NS.PRIEST_WARD) fail(`a Priest's ward: ${hp} to ${priest.hp}`);
+  }
+  // a Sun Cannon's first shot at a Golem in its line: 80 at full weight, 40 on a unit
+  const shot = (() => {
+    const ww = fresh(false);
+    const cannon = raise(ww, 'suncannon', 10, 10, NS.ME, 1);
+    const walker = ww.spawnTransport('sunwalker', 2, cannon.x + cannon.fx + 4, cannon.y + (cannon.fy >> 1));
+    const hp = walker.hp;
+    for (let i = 0; i < 12 * NS.TPS && walker.hp === hp; i++) ww.step([]);
+    return hp - walker.hp;
+  })();
+  if (!(shot > 0 && shot <= 45)) fail(`a Sun Cannon's shot at a Golem took ${shot}`);
+
+  // by height on tiered islands
+  {
+    const ww = fresh(false);
+    ww.tiered = true;
+    const ice = raise(ww, 'raincannon', 10, 10), disc = raise(ww, 'sunarcher', 10, 20);
+    for (const b of [ice, disc]) for (let y = b.y; y < b.y + b.fy; y++) for (let x = b.x; x < b.x + b.fx; x++) ww.level[y * NS.W + x] = 1;
+    const low = ww.spawnTransport('sunwalker', 2, 30, 11), high = ww.spawnTransport('sunwalker', 2, 30, 14);
+    ww.level[11 * NS.W + 30] = -1;
+    ww.level[14 * NS.W + 30] = 1;
+    const heights = [NS.hitParts(ww, ice, low).height, NS.hitParts(ww, ice, high).height, NS.hitParts(ww, disc, low).height];
+    if (!near(heights[0], 1.4) || heights[1] !== 1 || heights[2] !== 1) fail(`hits by height: ${heights}`);
+    ww.level[14 * NS.W + 30] = 2;
+    if (!near(NS.hitParts(ww, ice, high).height, 0.8)) fail(`a hit upward: ${NS.hitParts(ww, ice, high).height}`);
+    const reach = NS.gunReach(ww, ice, 32, low);
+    if (reach !== 38) fail(`reach two levels down: ${reach}`);
+  }
+
+  // Whirligigs at night, a Sun Generator at night
+  const launched = (at) => {
+    const ww = fresh();
+    ww.tick = at;
+    const base = raise(ww, 'sunaviary', 20, 20);
+    for (let i = 0; i < 8 * NS.TPS; i++) ww.step([]);
+    return [...ww.entities.values()].some((e) => e.kind === 'flyer' && e.home === base.id);
+  };
+  if (!launched(0) || launched(night(0))) fail('Whirligigs take off by day only');
+  {
+    const ww = fresh();
+    raise(ww, 'sunbattery', 20, 20);
+    const day = ww.energy(NS.ME).own;
+    ww.tick = night(0);
+    const dark = ww.energy(NS.ME).own;
+    if (day - dark !== 1) fail(`a Sun Generator at night: ${day} by day, ${dark} at night`);
+  }
+
+  // a Priest's healing and prayer, Thunder's Spells
+  const priestly = (at, set, ticks) => {
+    const ww = fresh();
+    ww.tick = at;
+    const p = ww.priestOf(NS.ME);
+    Object.assign(p, { path: [], goal: null }, set);
+    const hp = p.hp;
+    let cast = -1;
+    for (let i = 0; i < ticks; i++) {
+      ww.step([]);
+      if (cast < 0 && set.casting && p.casting === 0) cast = i + 1;
+    }
+    return { healed: p.hp - hp, praying: p.praying, cast };
+  };
+  const healDay = priestly(0, { hp: 2 }, 30 * NS.TPS).healed, healNight = priestly(night(0), { hp: 2 }, 30 * NS.TPS).healed;
+  if (!(healDay > healNight * 1.3)) fail(`a Priest heals faster by day: ${healDay} by day, ${healNight} at night`);
+  const prayDay = priestly(0, { prayer: 'bombexplodesmall', praying: 80 }, 80).praying;
+  const prayNight = priestly(night(0), { prayer: 'bombexplodesmall', praying: 80 }, 80).praying;
+  if (prayDay !== 0 || !(prayNight >= 15 && prayNight <= 25)) fail(`prayers at night: ${prayDay} left by day, ${prayNight} at night`);
+  const castDay = priestly(0, { casting: 60, spell: 'bomblightingzap' }, 80).cast;
+  const castNight = priestly(night(0), { casting: 60, spell: 'bomblightingzap' }, 80).cast;
+  if (castDay !== 60 || !(castNight >= 43 && castNight <= 47)) fail(`Thunder's Spells at night: ${castDay} ticks by day, ${castNight} at night`);
+
+  // a crystal brought home at night
+  const banked = (at) => {
+    const ww = fresh();
+    ww.tick = at;
+    const t = ww.templeOf(NS.ME);
+    const walker = ww.spawnTransport('sunwalker', NS.ME, t.x - 1, t.y);
+    const crystal = ww.spawnCrystal(walker, 20);
+    Object.assign(walker, { goal: 'home', path: [], carrying: crystal.id });
+    const storm = ww.players.get(NS.ME).storm;
+    for (let i = 0; i < 2 * NS.TPS && walker.carrying !== null; i++) ww.step([]);
+    return ww.players.get(NS.ME).storm - storm;
+  };
+  const crystalDay = banked(0), crystalNight = banked(night(0));
+  if (crystalDay !== 20 || crystalNight !== 25) fail(`a crystal brought home: ${crystalDay} by day, ${crystalNight} at night`);
+
+  // the computer's copy of the world (made from the hand-off, as in its worker) keeps the levels and the night
+  {
+    const ww = fresh();
+    ww.tiered = true;
+    ww.level[5 * NS.W + 5] = 1;
+    ww.tick = night(2);
+    const raw = structuredClone(ww.handoff());
+    for (const g of ['terrain', 'owner', 'links', 'wear', 'occupant']) raw[g] = Array.from(raw[g]);
+    const copy = NS.World.fromSnapshot(raw);
+    const kept = { nights: copy.nights, share: copy.nightShare, tiered: copy.tiered, level: copy.level[5 * NS.W + 5], night: copy.isNight(), moon: copy.moonPhase() };
+    if (!kept.nights || kept.share !== 0.25 || !kept.tiered || kept.level !== 1 || !kept.night || kept.moon !== 2) fail(`the computer's copy of the world: ${JSON.stringify(kept)}`);
+  }
+
+  console.log(`the moon and the Furies: ${phases.slice(0, 4).join(', ')}; Rain ${rain.join('/')}; a Sun Cannon's shot at a Golem ${shot}; a Priest heals ${healDay} by day, ${healNight} at night; a crystal ${crystalDay} by day, ${crystalNight} at night`);
 }
 
 console.log(`check passed: ${played}`);
