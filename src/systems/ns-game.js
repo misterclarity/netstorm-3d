@@ -276,6 +276,12 @@ AFRAME.registerSystem('ns-game', {
           else if (ev.data.why === 'air') { hud.toast('The deep air drove your Priest back up: he may go down again in a while', 'bad'); hud.log('Your Priest climbed out of the dungeon, short of air'); }
           else hud.log('Your Priest climbed out of the dungeon');
           break;
+        case 'hover':
+          if (!mine) break;
+          if (ev.data.ready) hud.toast(`The Hover is your Priest's: ${NS.HOVER_SECONDS} s of it. In his eyes hold Shift; from above, his card`, 'good');
+          else if (ev.data.spent) hud.toast('The Hover is spent: pray for it again', 'bad');
+          else if (ev.data.broken) hud.toast('The prayer for the Hover was broken off');
+          break;
         case 'chest':
           if (!mine) break;
           if (ev.data.holds.length) { hud.toast(`In the chest: the ${spellName(ev.data.holds[0])}! Your Priest holds it now`, 'good'); hud.log(`Your Priest found the ${spellName(ev.data.holds[0])} in a chest`, 'good'); }

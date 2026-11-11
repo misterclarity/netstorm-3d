@@ -1,19 +1,23 @@
 /**
  * Dungeons as the view shows them. The rules (scripts/house-rules.mjs, digDungeon) lay a dungeon
- * out in tiles: rock, floor, stairs, pillars, water, chests, and rooms of their kinds. This dresses
- * it: walls of brick or raw rock, flagstone and rock floors, vaults with stalactites; an entry hall
- * whose stairs climb into a shaft of daylight (moonlight at night) that falls down them; a crystal
- * cave glowing blue and violet; a hall of pillars between flickering torches and hanging banners;
- * a still pool whose ripples throw back every light; a grotto of glowing mushrooms and fireflies;
- * a shrine where a beam from a crack in the vault falls on an altar between four pillars; an ember
- * cave cracked with fire. Dust drifts in the light, the Priest's own light goes with him and casts
- * the pillars' shadows, and the chests open as he opens them. Only a few real lights shine (the
- * renderer pays for each on every surface); the rest is glow.
+ * out in tiles: rock, floor, stairs, pillars, water, chests, and ragged rooms of their kinds. This
+ * dresses it as caves nobody built: raw rock walls that lean and bulge, uneven vaults hung with
+ * stalactites, rubble, rough columns where floor and vault have grown together; an entry whose
+ * rough steps climb to a doorway of daylight (moonlight at night); crystals glowing blue and
+ * violet; threads of glow-worms among the columns; a still pool; glowing mushrooms, roots and
+ * fireflies; a slab under a beam from a crack in the vault, standing stones about it; a floor
+ * cracked with fire. And what the dark keeps: eyes that watch from the walls and are gone when he
+ * comes near, glyphs that hang in the air and wake as he passes, old bones, wisps that drift.
  *
- * On the island stands each dungeon's portal: a stone gate over stairs going down, a brazier at
- * either side. The dungeon is drawn far below the sea of clouds, and shown (the islands, the sky
- * and the clouds hidden, the light and the fog of the deep put up) while the player looks through
- * the eyes of a Priest who is down in it (src/systems/ns-fp.js).
+ * It is drawn cheaply. Two lights are real: the Priest's own, which goes with him and casts the
+ * shadows, and the daylight at the stairs; everything else that shines is glow (it lights
+ * nothing). The stone is matte and plain. The dungeon is cut into chunks of CHUNK tiles, each a
+ * handful of instanced meshes, and only the chunks his light reaches are drawn at all: past
+ * REVEAL the dark (the fog) has everything, and what is not lit is not there.
+ *
+ * On the island stands each dungeon's portal. The dungeon is drawn far below the sea of clouds,
+ * and shown (the islands, the sky and the clouds hidden) while the player looks through the eyes
+ * of a Priest who is down in it (src/systems/ns-fp.js).
  */
 import { THREE, G, NS, ME, wx, wz } from '../state.js';
 import { groundAt } from '../heights.js';
@@ -24,17 +28,21 @@ const LUX = 4.5;
 /** Scene units a tile; where the dungeons lie; the rock's top, over every vault. */
 export const TILE_SIZE = 1.6;
 const DEPTH = -420;
-const TOP = 9;
-/** Each kind of room's vault, in scene units; passages and the stairwell. */
-const HEIGHT = { entry: 5.2, crystal: 5.6, hall: 6.4, pool: 4.6, grotto: 4.2, shrine: 7.4, ember: 5, passage: 2.9, stairs: 4.6 };
-const BRICK = new Set(['entry', 'hall', 'shrine', 'passage', 'stairs']);
-/** Each kind's tint of its walls, floor and vault. */
+const TOP = 5;
+/** How far the Priest's light shows anything, in scene units; tiles a chunk. */
+const REVEAL = 16;
+const CHUNK = 6;
+/** Each kind of room's vault, in scene units (it wanders about this); passages, the stairwell. */
+const HEIGHT = { entry: 3, crystal: 3.3, hall: 3.2, pool: 2.9, grotto: 2.7, shrine: 3.7, ember: 3, passage: 2.4, stairs: 4.2 };
+/** Each kind's tint of its walls, floor and vault: all rock. */
 const TINT = {
-  entry: ['#a39a8e', '#8d867c', '#4a4540'], hall: ['#b49a78', '#9a8466', '#4d4134'], shrine: ['#c9c3b6', '#b3ad9f', '#5a564e'],
-  passage: ['#8f877d', '#7a736a', '#3e3a36'], stairs: ['#a39a8e', '#8d867c', '#4a4540'],
+  entry: ['#7d766c', '#6c665e', '#4a4540'], hall: ['#84786a', '#70675b', '#4d453c'], shrine: ['#8a867c', '#77736a', '#524f48'],
+  passage: ['#6f6a63', '#605b55', '#3e3a36'], stairs: ['#7d766c', '#6c665e', '#4a4540'],
   crystal: ['#5d6474', '#4d5464', '#2c3240'], pool: ['#5b6a62', '#4f5c55', '#2d3532'], grotto: ['#61674f', '#555a45', '#30332a'],
   ember: ['#6a4c40', '#5a3e33', '#2f211b'],
 };
+/** The tone his light takes in each kind of room. */
+const TONE = { entry: '#ffe2b8', hall: '#ffe2b8', passage: '#ffd7a3', stairs: '#ffe9c8', crystal: '#c4e6ff', pool: '#c8fff0', grotto: '#dcffc4', shrine: '#fff2cc', ember: '#ffbf98' };
 
 /* ------------------------------------------------ textures ----------------------------------------------- */
 
@@ -71,68 +79,14 @@ function grain(g, size, rand, n, alpha) {
   }
 }
 
-/** Brick courses: the colour map, and the relief (mortar low, the bricks' faces worn). */
-function bricks(relief) {
-  return canvasTexture(256, (g, s) => {
-    const rand = seeded(relief ? 7 : 7);
-    g.fillStyle = relief ? '#202020' : '#6b645c';
-    g.fillRect(0, 0, s, s);
-    const rows = 8, bh = s / rows;
-    for (let r = 0; r < rows; r++) {
-      const bw = s / 4, shift = (r % 2) * bw / 2;
-      for (let k = -1; k < 5; k++) {
-        const x = k * bw + shift, v = relief ? 150 + rand() * 90 : 150 + rand() * 70;
-        g.fillStyle = relief ? `rgb(${v},${v},${v})` : `rgb(${v},${v * 0.95},${v * 0.88})`;
-        g.fillRect(x + 3, r * bh + 3, bw - 6, bh - 6);
-        if (!relief && rand() < 0.3) { g.fillStyle = 'rgba(40,36,30,0.25)'; g.fillRect(x + 3 + rand() * bw * 0.5, r * bh + 3, bw * 0.3, bh - 6); }
-      }
-    }
-    grain(g, s, rand, 2500, relief ? 0.35 : 0.18);
-  }, !relief);
-}
-
-/** Flagstones: irregular slabs with dark joints. */
-function flags(relief) {
-  return canvasTexture(256, (g, s) => {
-    const rand = seeded(11);
-    g.fillStyle = relief ? '#181818' : '#4a4640';
-    g.fillRect(0, 0, s, s);
-    const n = 3, step = s / n;
-    for (let y = 0; y < n; y++) {
-      for (let x = 0; x < n; x++) {
-        const v = relief ? 140 + rand() * 100 : 120 + rand() * 70, j = () => (rand() - 0.5) * 10;
-        g.fillStyle = relief ? `rgb(${v},${v},${v})` : `rgb(${v},${v * 0.97},${v * 0.92})`;
-        g.beginPath();
-        g.moveTo(x * step + 4 + j(), y * step + 4 + j());
-        g.lineTo((x + 1) * step - 4 + j(), y * step + 4 + j());
-        g.lineTo((x + 1) * step - 4 + j(), (y + 1) * step - 4 + j());
-        g.lineTo(x * step + 4 + j(), (y + 1) * step - 4 + j());
-        g.closePath();
-        g.fill();
-      }
-    }
-    // a crack or two
-    g.strokeStyle = relief ? '#303030' : 'rgba(20,18,16,0.6)';
-    g.lineWidth = 1.5;
-    for (let k = 0; k < 4; k++) {
-      let x = rand() * s, y = rand() * s;
-      g.beginPath();
-      g.moveTo(x, y);
-      for (let i = 0; i < 5; i++) { x += (rand() - 0.5) * 40; y += (rand() - 0.5) * 40; g.lineTo(x, y); }
-      g.stroke();
-    }
-    grain(g, s, rand, 2000, relief ? 0.4 : 0.2);
-  }, !relief);
-}
-
 /** Raw rock: blotches over blotches. */
 function rock(relief) {
   return canvasTexture(256, (g, s) => {
     const rand = seeded(23);
-    g.fillStyle = relief ? '#7a7a7a' : '#5e5a55';
+    g.fillStyle = relief ? '#7a7a7a' : '#b4aea6';
     g.fillRect(0, 0, s, s);
     for (let i = 0; i < 260; i++) {
-      const v = relief ? 60 + rand() * 160 : 60 + rand() * 80, r = 6 + rand() * 30;
+      const v = relief ? 60 + rand() * 160 : 120 + rand() * 120, r = 6 + rand() * 30;
       const x = rand() * s, y = rand() * s;
       const grad = g.createRadialGradient(x, y, 0, x, y, r);
       grad.addColorStop(0, relief ? `rgba(${v},${v},${v},0.5)` : `rgba(${v},${v * 0.96},${v * 0.9},0.45)`);
@@ -193,24 +147,6 @@ function ripples() {
   }, false);
 }
 
-/** A banner's cloth: a field, a border and a sun. */
-function bannerTexture(field, trim) {
-  return canvasTexture(128, (g, s) => {
-    g.fillStyle = field;
-    g.fillRect(0, 0, s, s);
-    g.fillStyle = trim;
-    g.fillRect(6, 0, 6, s);
-    g.fillRect(s - 12, 0, 6, s);
-    g.beginPath();
-    g.arc(s / 2, s * 0.42, s * 0.16, 0, Math.PI * 2);
-    g.fill();
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2;
-      g.fillRect(s / 2 + Math.cos(a) * s * 0.24 - 3, s * 0.42 + Math.sin(a) * s * 0.24 - 3, 6, 6);
-    }
-  });
-}
-
 /* ---------------------------------------------- shaders ---------------------------------------------- */
 
 /** A shaft of light: a cone of glowing air, brightest where the light comes in, soft at its edges,
@@ -243,6 +179,28 @@ function shaftMaterial(color) {
 
 /* --------------------------------------------- the component --------------------------------------------- */
 
+/** A glyph nobody can read, drawn in light. */
+function glyph(seed) {
+  return canvasTexture(64, (g, s) => {
+    const rand = seeded(seed);
+    g.strokeStyle = '#fff';
+    g.lineWidth = 4;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.arc(s / 2, s / 2, s * 0.36, rand() * 3, 3 + rand() * 3);
+    g.stroke();
+    for (let k = 0; k < 4; k++) {
+      g.beginPath();
+      g.moveTo(s * (0.25 + rand() * 0.5), s * (0.2 + rand() * 0.6));
+      g.lineTo(s * (0.25 + rand() * 0.5), s * (0.2 + rand() * 0.6));
+      g.stroke();
+    }
+    g.beginPath();
+    g.arc(s * (0.35 + rand() * 0.3), s * (0.35 + rand() * 0.3), 3, 0, 7);
+    g.fill();
+  });
+}
+
 AFRAME.registerComponent('ns-dungeon', {
   init() {
     this.root = new THREE.Group();
@@ -252,19 +210,18 @@ AFRAME.registerComponent('ns-dungeon', {
     this.inside = false;
     this.built = null;
     this.mats = null;
-    // the Priest's own light: it goes with him, held at his staff, and casts shadows
-    this.lamp = new THREE.PointLight('#ffd7a3', 4.5 * LUX, 18, 1.2);
+    this.boost = 0;
+    this.tone = new THREE.Color('#ffd7a3');
+    // the Priest's own light: it goes with him, held at his staff, and casts the shadows
+    this.lamp = new THREE.PointLight('#ffd7a3', 9 * LUX, REVEAL, 1.0);
     this.lamp.castShadow = true;
     this.lamp.shadow.mapSize.set(512, 512);
     this.lamp.shadow.bias = -0.004;
     this.lamp.shadow.camera.near = 0.1;
+    this.lamp.shadow.camera.far = REVEAL;
     this.root.add(this.lamp);
-    // a flash where a chest is opened
-    this.flash = new THREE.PointLight('#ffd27a', 0, 7, 1.5);
-    this.root.add(this.flash);
     this.fade = document.getElementById('fade');
-    const scene = this.el.sceneEl;
-    scene.addEventListener('ns-new-game', () => this.build());
+    this.el.sceneEl.addEventListener('ns-new-game', () => this.build());
   },
 
   /** The dungeons of the battle anew: their insides below, their portals on the islands. */
@@ -276,7 +233,7 @@ AFRAME.registerComponent('ns-dungeon', {
     document.getElementById('world')?.object3D.add(this.portals);
     this.built = world.dungeons.map((d, n) => {
       const group = new THREE.Group();
-      group.position.set(n * (d.w * TILE_SIZE + 40), DEPTH, 0);
+      group.position.set(n * (d.w * TILE_SIZE + 60), DEPTH, 0);
       this.root.add(group);
       const inside = this.dress(d, group);
       this.portal(d);
@@ -287,344 +244,365 @@ AFRAME.registerComponent('ns-dungeon', {
   clear() {
     for (const b of this.built ?? []) {
       b.group.removeFromParent();
-      b.group.traverse((o) => { if (o.isMesh || o.isPoints || o.isSprite) { o.geometry?.dispose(); if (o.material?.userData?.own) o.material.dispose(); } });
+      b.group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.material?.userData?.own) o.material.dispose(); });
     }
     this.built = null;
-    for (const c of [...this.portals.children]) { c.removeFromParent(); c.traverse((o) => o.geometry?.dispose()); }
+    for (const c of [...this.portals.children]) c.removeFromParent();
   },
 
+  /** Plain, matte and few: one stone for everything of rock, and a handful for what glows. */
   materials() {
-    const brickMap = bricks(false), brickBump = bricks(true), flagMap = flags(false), flagBump = flags(true);
-    const rockMap = rock(false), rockBump = rock(true);
-    const std = (o) => new THREE.MeshStandardMaterial(o);
+    const lam = (o) => new THREE.MeshLambertMaterial(o), basic = (o) => new THREE.MeshBasicMaterial(o);
+    const T = TILE_SIZE, wall = new THREE.BoxGeometry(T, 1, T), uv = wall.attributes.uv;
+    // a wall's rock repeats up its height
+    for (let f = 0; f < 6; f++) if (f !== 2 && f !== 3) for (let v = 0; v < 4; v++) uv.setY(f * 4 + v, uv.getY(f * 4 + v) * (TOP / T));
+    this.geo = {
+      wall, flat: new THREE.BoxGeometry(T, 1, T), lump: new THREE.DodecahedronGeometry(0.5, 0), spike: new THREE.ConeGeometry(0.5, 1, 5),
+      shard: new THREE.OctahedronGeometry(0.22, 0), stem: new THREE.CylinderGeometry(0.035, 0.05, 1, 5), cap: new THREE.SphereGeometry(0.5, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2),
+      dot: new THREE.SphereGeometry(0.035, 6, 4), strand: new THREE.CylinderGeometry(0.012, 0.012, 1, 3), skull: new THREE.SphereGeometry(0.13, 7, 5),
+      bone: new THREE.CylinderGeometry(0.025, 0.025, 0.5, 4), crack: new THREE.BoxGeometry(1, 0.04, 0.06), tile: new THREE.PlaneGeometry(T, T), pane: new THREE.PlaneGeometry(0.7, 0.7),
+    };
     return {
-      brick: std({ map: brickMap, bumpMap: brickBump, bumpScale: 2.4, roughness: 0.92 }),
-      rock: std({ map: rockMap, bumpMap: rockBump, bumpScale: 3.2, roughness: 0.96 }),
-      flags: std({ map: flagMap, bumpMap: flagBump, bumpScale: 1.8, roughness: 0.85 }),
-      floorRock: std({ map: rockMap, bumpMap: rockBump, bumpScale: 2.2, roughness: 0.9 }),
-      vault: std({ map: rockMap, bumpMap: rockBump, bumpScale: 2.6, roughness: 1 }),
-      pillar: std({ map: brickMap, bumpMap: brickBump, bumpScale: 1.2, roughness: 0.8, color: '#d8d0c2' }),
-      marble: std({ color: '#e7e1d4', roughness: 0.35, metalness: 0.05 }),
-      wood: std({ map: planks(), roughness: 0.75 }),
-      iron: std({ color: '#3b3a3e', roughness: 0.45, metalness: 0.7 }),
-      gold: std({ color: '#e0b04a', roughness: 0.3, metalness: 0.9, emissive: '#3a2400', emissiveIntensity: 0.6 }),
-      water: std({ color: '#0e3c46', roughness: 0.05, metalness: 0.3, normalMap: ripples(), normalScale: new THREE.Vector2(0.6, 0.6), transparent: true, opacity: 0.9, emissive: '#04191f' }),
-      crystalBlue: std({ color: '#7fe6ff', emissive: '#2fb8ff', emissiveIntensity: 2.2, roughness: 0.15, metalness: 0.1, flatShading: true }),
-      crystalViolet: std({ color: '#d7a6ff', emissive: '#9b4dff', emissiveIntensity: 2, roughness: 0.15, flatShading: true }),
-      capGreen: std({ color: '#b6ff9a', emissive: '#56e36a', emissiveIntensity: 1.8, roughness: 0.6 }),
-      capViolet: std({ color: '#f0b6ff', emissive: '#c45cff', emissiveIntensity: 1.6, roughness: 0.6 }),
-      stem: std({ color: '#d9d2bc', roughness: 0.8 }),
-      root: std({ color: '#4a3a28', roughness: 1 }),
-      ember: new THREE.MeshBasicMaterial({ color: '#ff7a1e' }),
+      stone: lam({ map: rock(false) }),
+      wood: lam({ map: planks() }),
+      iron: lam({ color: '#3b3a3e' }),
+      gold: lam({ color: '#c79a3c', emissive: '#3a2400' }),
+      bone: lam({ color: '#cfc8b4' }),
+      root: lam({ color: '#4a3a28' }),
+      stem: lam({ color: '#d9d2bc' }),
+      water: new THREE.MeshStandardMaterial({ color: '#0e3c46', roughness: 0.12, metalness: 0.2, normalMap: ripples(), normalScale: new THREE.Vector2(0.6, 0.6), transparent: true, opacity: 0.9, emissive: '#04191f' }),
+      crystalBlue: lam({ color: '#7fe6ff', emissive: '#2fb8ff', emissiveIntensity: 1.6, flatShading: true }),
+      crystalViolet: lam({ color: '#d7a6ff', emissive: '#9b4dff', emissiveIntensity: 1.5, flatShading: true }),
+      capGreen: lam({ color: '#b6ff9a', emissive: '#56e36a', emissiveIntensity: 1.3 }),
+      capViolet: lam({ color: '#f0b6ff', emissive: '#c45cff', emissiveIntensity: 1.2 }),
+      ember: basic({ color: '#ff7a1e' }),
+      eye: basic({ color: '#ffe27a' }),
+      worm: basic({ color: '#8fe8ff' }),
+      orb: basic({ color: '#fff0c8' }),
       flame: new THREE.SpriteMaterial({ map: glowTexture(), color: '#ffb35a', blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }),
-      bannerRed: std({ map: bannerTexture('#7a1f24', '#d9a63a'), roughness: 0.9, side: THREE.DoubleSide }),
-      bannerBlue: std({ map: bannerTexture('#1f3a7a', '#d9d2c0'), roughness: 0.9, side: THREE.DoubleSide }),
-      opening: new THREE.MeshBasicMaterial({ color: '#fff4dc' }),
-      dark: new THREE.MeshBasicMaterial({ color: '#050505' }),
+      opening: basic({ color: '#fff4dc' }),
+      dark: basic({ color: '#050505' }),
+      glyphs: [1, 2, 3, 4].map((k) => glyph(k * 17)),
     };
   },
 
-  /** A dungeon's inside, dressed: its stone, its rooms' things, its lights. */
+  /** A dungeon's inside, dressed: its rock in chunks, its rooms' things, what the dark keeps. */
   dress(d, group) {
-    const M = this.mats, N = d.w, T = TILE_SIZE, TILE = NS.TILE;
+    const M = this.mats, GEO = this.geo, N = d.w, T = TILE_SIZE, TILE = NS.TILE;
     const at = (x, y) => (x < 0 || y < 0 || x >= N || y >= d.h ? TILE.rock : d.tiles[y * N + x]);
     const kind = new Array(N * d.h).fill('passage');
-    for (const r of d.rooms) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) kind[y * N + x] = r.kind;
+    // (a room's rock bulges a tile past its bounds)
+    for (const r of d.rooms) {
+      for (let y = r.y - 1; y <= r.y + r.h; y++) {
+        for (let x = r.x - 1; x <= r.x + r.w; x++) {
+          const inside = x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+          if (x >= 0 && y >= 0 && x < N && y < d.h && (inside || kind[y * N + x] === 'passage')) kind[y * N + x] = r.kind;
+        }
+      }
+    }
     kind[d.stairs[1] * N + d.stairs[0]] = 'stairs';
+    const kindAt = (x, y) => (x < 0 || y < 0 || x >= N || y >= d.h ? 'passage' : kind[y * N + x]);
     const local = (x, y, h = 0) => new THREE.Vector3((x - N / 2) * T, h, (y - d.h / 2) * T);
     const rand = seeded(d.seed * 131 + 7);
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), c = new THREE.Color(), e = new THREE.Euler();
-    // instanced stone: walls (brick, rock), floors (flags, rock), vaults
-    const lots = { brick: [], rock: [], flags: [], floorRock: [], vault: [] };
-    for (let y = -1; y <= d.h; y++) {
-      for (let x = -1; x <= N; x++) {
-        const t = at(x, y);
-        if (t === TILE.rock) {
-          // a wall where rock meets an open tile: of the kind of the room beside it
-          // (a room's kind before a passage's)
-          let near = null;
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              if (at(x + dx, y + dy) === TILE.rock) continue;
-              const k = kind[(y + dy) * N + x + dx];
-              if (!near || (near === 'passage' && k !== 'passage')) near = k;
-            }
-          }
-          if (!near) continue;
-          const cave = !BRICK.has(near), j = cave ? 0.12 : 0;
-          lots[cave ? 'rock' : 'brick'].push({ x, y, h: TOP / 2, sy: TOP, tint: TINT[near][0], jx: (rand() - 0.5) * j * 2, jz: (rand() - 0.5) * j * 2, turn: cave ? (rand() - 0.5) * 0.5 : 0, grow: cave ? 1 + rand() * 0.25 : 1 });
-          continue;
-        }
-        const k = kind[y * N + x], hgt = HEIGHT[k];
-        lots[BRICK.has(k) && k !== 'passage' ? 'flags' : 'floorRock'].push({ x, y, h: -0.1, sy: 0.2, tint: TINT[k][1], jx: 0, jz: 0, turn: 0, grow: 1 });
-        lots.vault.push({ x, y, h: (hgt + TOP) / 2, sy: TOP - hgt, tint: TINT[k][2], jx: 0, jz: 0, turn: 0, grow: 1 });
+    const vault = new Float32Array(N * d.h);
+    for (let i = 0; i < N * d.h; i++) vault[i] = HEIGHT[kind[i]] + (kind[i] === 'stairs' ? 0 : (rand() - 0.5) * 0.7);
+    const high = (x, y) => vault[y * N + x] ?? 2.4;
+
+    // chunks: each a group with its rock (four instanced meshes) and its things
+    const chunks = new Map();
+    const chunkAt = (tx, ty) => {
+      const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), key = `${cx},${cy}`;
+      let c = chunks.get(key);
+      if (!c) {
+        c = { g: new THREE.Group(), mid: local((cx + 0.5) * CHUNK, (cy + 0.5) * CHUNK), lots: { wall: [], flat: [], lump: [], spike: [] } };
+        group.add(c.g);
+        chunks.set(key, c);
       }
-    }
-    const box = (sx, sz) => {
-      const g = new THREE.BoxGeometry(sx, 1, sz);
-      // the sides' texture repeats along the height, a brick course to every 0.4
-      const uv = g.attributes.uv;
-      for (let f = 0; f < 6; f++) {
-        if (f === 2 || f === 3) continue;
-        for (let v = 0; v < 4; v++) uv.setY(f * 4 + v, uv.getY(f * 4 + v) * (TOP / T));
-      }
-      return g;
+      return c;
     };
-    const geos = { brick: box(T, T), rock: box(T, T), flags: new THREE.BoxGeometry(T, 1, T), floorRock: new THREE.BoxGeometry(T, 1, T), vault: new THREE.BoxGeometry(T, 1, T) };
-    for (const [name, items] of Object.entries(lots)) {
-      if (!items.length) continue;
-      const im = new THREE.InstancedMesh(geos[name], M[name], items.length);
-      items.forEach((it, n) => {
-        const v = local(it.x + 0.5 + it.jx, it.y + 0.5 + it.jz, it.h);
-        im.setMatrixAt(n, m4.compose(p.copy(v), q.setFromEuler(e.set(0, it.turn, 0)), s.set(it.grow, it.sy, it.grow)));
-        im.setColorAt(n, c.set(it.tint).multiplyScalar(0.85 + rand() * 0.3));
-      });
-      im.castShadow = name !== 'flags' && name !== 'floorRock';
-      im.receiveShadow = true;
-      group.add(im);
-    }
-    const lights = [], anim = [], glows = [];
+    const home = (v) => chunkAt(v.x / T + N / 2, v.z / T + d.h / 2);
+    const put = (lot, v, s, r, color) => home(v).lots[lot].push({ v, s, r, color });
+    const shade = (hex) => new THREE.Color(hex).multiplyScalar(0.8 + rand() * 0.4);
+    const mesh = (geo, mat, v, parent) => { const o = new THREE.Mesh(geo, mat); o.position.copy(v); (parent ?? home(v).g).add(o); return o; };
+    const anim = [], glows = [];
     const glowAt = (v, color, size, pulse = 0) => {
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));
       sp.material.userData.own = true;
       sp.position.copy(v);
       sp.scale.setScalar(size);
-      group.add(sp);
-      glows.push({ sp, size, pulse, phase: rand() * 6 });
+      const c = home(v);
+      c.g.add(sp);
+      glows.push({ sp, g: c.g, pulse, phase: rand() * 6 });
       return sp;
     };
-    const light = (v, color, intensity, distance, flicker = 0, shadow = false) => {
-      const l = new THREE.PointLight(color, intensity * LUX, distance, 1.6);
-      l.position.copy(v);
-      if (shadow) { l.castShadow = true; l.shadow.mapSize.set(512, 512); l.shadow.bias = -0.004; l.shadow.camera.near = 0.1; }
-      group.add(l);
-      lights.push({ l, base: intensity * LUX, flicker, phase: rand() * 10 });
-      return l;
-    };
-    const mesh = (geo, mat, v, parent = group) => { const o = new THREE.Mesh(geo, mat); o.position.copy(v); o.castShadow = true; o.receiveShadow = true; parent.add(o); return o; };
-    const wallSide = (x, y) => NS.DIRS.map(([dx, dy]) => [dx, dy]).find(([dx, dy]) => at(x + dx, y + dy) === TILE.rock);
+    const wallSide = (x, y) => NS.DIRS.map(([dx, dy]) => [dx, dy]).filter(([dx, dy]) => at(x + dx, y + dy) === TILE.rock)[0];
+    const open = [], byWall = [];
 
-    // pillars, as tall as their room
+    // the rock: walls that lean and bulge, floors, vaults of uneven height
+    for (let y = -1; y <= d.h; y++) {
+      for (let x = -1; x <= N; x++) {
+        const t = at(x, y);
+        if (t === TILE.rock) {
+          let near = null;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (at(x + dx, y + dy) === TILE.rock) continue;
+              const k = kindAt(x + dx, y + dy);
+              if (!near || (near === 'passage' && k !== 'passage')) near = k;
+            }
+          }
+          if (!near) continue;
+          const grow = 1.05 + rand() * 0.3;
+          put('wall', local(x + 0.5 + (rand() - 0.5) * 0.3, y + 0.5 + (rand() - 0.5) * 0.3, TOP / 2), [grow, TOP, grow], [0, (rand() - 0.5) * 0.7, 0], shade(TINT[near][0]));
+          continue;
+        }
+        const k = kindAt(x, y), h = high(x, y);
+        put('flat', local(x + 0.5, y + 0.5, -0.1), [1, 0.2, 1], [0, 0, 0], shade(TINT[k][1]));
+        put('flat', local(x + 0.5, y + 0.5, (h + TOP) / 2), [1, TOP - h, 1], [0, 0, 0], shade(TINT[k][2]));
+        if (t !== TILE.floor) continue;
+        open.push([x, y]);
+        const side = wallSide(x, y);
+        if (!side) continue;
+        byWall.push([x, y, side]);
+        // (not by the stairs: the way out stays clear)
+        if (Math.abs(x - d.stairs[0]) + Math.abs(y - d.stairs[1]) <= 2) continue;
+        // the wall bulges into the cave: lumps at its foot and up its face
+        for (let n = 0; n < 2; n++) {
+          const sz = 0.5 + rand() * 0.7, v = local(x + 0.5 + side[0] * (0.48 + rand() * 0.1) + (side[1] ? rand() - 0.5 : 0), y + 0.5 + side[1] * (0.48 + rand() * 0.1) + (side[0] ? rand() - 0.5 : 0), n ? rand() * h : 0.1);
+          put('lump', v, [sz, sz * (0.7 + rand() * 0.9), sz], [rand() * 3, rand() * 3, rand() * 3], shade(TINT[k][0]));
+        }
+      }
+    }
+    // stalactites from the vaults, stalagmites and rubble by the walls
+    for (const [x, y] of open) {
+      const k = kindAt(x, y), h = high(x, y);
+      if (k === 'stairs') continue;
+      for (let n = 0; n < 2; n++) {
+        if (rand() > 0.34) continue;
+        const len = Math.min(h - 1.95, 0.25 + rand() * 0.9), w = 0.12 + rand() * 0.22;
+        if (len > 0.15) put('spike', local(x + rand(), y + rand(), h - len / 2 + 0.03), [w, len, w], [Math.PI, rand() * 3, 0], shade(TINT[k][2]));
+      }
+    }
+    for (const [x, y, side] of byWall) {
+      const k = kindAt(x, y), v = () => local(x + 0.5 + side[0] * 0.3 + (rand() - 0.5) * 0.5, y + 0.5 + side[1] * 0.3 + (rand() - 0.5) * 0.5, 0);
+      if (rand() < 0.16) { const len = 0.3 + rand() * 0.9, w = 0.18 + rand() * 0.25; put('spike', v().setY(len / 2), [w, len, w], [0, rand() * 3, 0], shade(TINT[k][1])); }
+      if (rand() < 0.22) for (let n = 0; n < 3; n++) { const sz = 0.1 + rand() * 0.25; put('lump', v().setY(sz * 0.3), [sz, sz * 0.7, sz], [rand() * 3, rand() * 3, 0], shade(TINT[k][1])); }
+    }
+    // columns, where floor and vault have grown together: a stack of rough stone, thick at both
+    // ends; a shrine's are standing stones, leaning
     for (let y = 0; y < d.h; y++) {
       for (let x = 0; x < N; x++) {
         if (at(x, y) !== TILE.pillar) continue;
-        const k = kind[y * N + x], hgt = HEIGHT[k], v = local(x + 0.5, y + 0.5);
-        const mat = k === 'shrine' ? M.marble : M.pillar;
-        mesh(new THREE.CylinderGeometry(0.42, 0.48, hgt, 14), mat, v.clone().setY(hgt / 2));
-        mesh(new THREE.BoxGeometry(1.25, 0.35, 1.25), mat, v.clone().setY(0.17));
-        mesh(new THREE.BoxGeometry(1.2, 0.3, 1.2), mat, v.clone().setY(hgt - 0.15));
+        const k = kindAt(x, y), h = high(x, y), base = local(x + 0.5 + (rand() - 0.5) * 0.25, y + 0.5 + (rand() - 0.5) * 0.25);
+        if (k === 'shrine') {
+          const tall = 1.6 + rand() * 0.9;
+          put('lump', base.clone().setY(tall / 2 - 0.1), [0.75 + rand() * 0.2, tall * 1.15, 0.5 + rand() * 0.2], [(rand() - 0.5) * 0.25, rand() * 3, (rand() - 0.5) * 0.25], shade('#8f8a80'));
+          continue;
+        }
+        const parts = 5;
+        for (let n = 0; n < parts; n++) {
+          const f = n / (parts - 1), wide = 0.62 + Math.abs(f - 0.5) * 0.9 + rand() * 0.2;
+          put('lump', base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.14, f * h, (rand() - 0.5) * 0.14)), [wide, h / parts * 1.7, wide], [0, rand() * 3, 0], shade(TINT[k][0]));
+        }
       }
     }
 
-    // the rooms, each of its kind
-    let shadows = 1; // the lamp's; a hall's torch and a shrine's beam cast them too, one of each
-    const shafts = [];
+    // the rooms, each of its kind; none has a light of its own, only glow
+    const shafts = [], wisps = [];
+    const pick = (list) => list[Math.floor(rand() * list.length)];
     for (const r of d.rooms) {
-      const hgt = HEIGHT[r.kind], mid = local(r.x + r.w / 2, r.y + r.h / 2);
-      const floorTiles = [];
-      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (at(x, y) === TILE.floor) floorTiles.push([x, y]);
-      const byWall = floorTiles.filter(([x, y]) => wallSide(x, y));
-      const pick = (list) => list[Math.floor(rand() * list.length)];
+      const mid = local(r.x + r.w / 2, r.y + r.h / 2), hgt = HEIGHT[r.kind];
+      const inRoom = ([x, y]) => x >= r.x - 1 && x <= r.x + r.w && y >= r.y - 1 && y <= r.y + r.h;
+      const floor = open.filter(inRoom), walls = byWall.filter(inRoom);
+      if (!floor.length) continue;
       if (r.kind === 'crystal') {
-        // clusters of crystals by the walls and hanging from the vault, glowing blue and violet
-        for (let k = 0; k < 9 && byWall.length; k++) {
-          const [x, y] = pick(byWall), [dx, dy] = wallSide(x, y), base = local(x + 0.5 + dx * 0.32, y + 0.5 + dy * 0.32);
+        for (let k = 0; k < 7 && walls.length; k++) {
+          const [x, y, [dx, dy]] = pick(walls), base = local(x + 0.5 + dx * 0.3, y + 0.5 + dy * 0.3);
           const mat = rand() < 0.65 ? M.crystalBlue : M.crystalViolet;
-          for (let n = 0; n < 4; n++) {
-            const len = 0.5 + rand() * 1.4, o = mesh(new THREE.OctahedronGeometry(0.22, 0), mat, base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.6, len * 0.45, (rand() - 0.5) * 0.6)));
+          for (let n = 0; n < 3; n++) {
+            const len = 0.5 + rand() * 1.2, o = mesh(GEO.shard, mat, base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.6, len * 0.45, (rand() - 0.5) * 0.6)));
             o.scale.set(1, len * 2.2, 1);
             o.rotation.set((rand() - 0.5) * 0.9, rand() * 3, (rand() - 0.5) * 0.9);
-            o.castShadow = false;
           }
-          glowAt(base.clone().setY(0.8), mat === M.crystalBlue ? '#4fc8ff' : '#b06bff', 2.2, 0.15);
+          glowAt(base.clone().setY(0.8), mat === M.crystalBlue ? '#4fc8ff' : '#b06bff', 2.4, 0.15);
         }
-        for (let k = 0; k < 7; k++) {
-          const [x, y] = pick(floorTiles), v = local(x + 0.5, y + 0.5, hgt);
-          const o = mesh(new THREE.OctahedronGeometry(0.2, 0), M.crystalBlue, v.clone().setY(hgt - 0.5));
-          o.scale.set(1, 3, 1);
-          o.castShadow = false;
+        for (let k = 0; k < 5; k++) {
+          const [x, y] = pick(floor), o = mesh(GEO.shard, M.crystalBlue, local(x + 0.5, y + 0.5, high(x, y) - 0.45));
+          o.scale.set(1, 2.6, 1);
         }
-        const l = light(mid.clone().setY(hgt - 1.6), '#58cfff', 15, 18, 0.12);
-        anim.push((t) => { l.intensity = 15 * LUX * (0.85 + 0.15 * Math.sin(t * 0.9)); });
       } else if (r.kind === 'hall') {
-        // torches on the long walls, banners between; one torch casts its shadows
-        const along = r.w >= r.h, walls = along ? [[r.x + (r.w >> 1), r.y, 0, -1], [r.x + (r.w >> 1), r.y + r.h - 1, 0, 1]] : [[r.x, r.y + (r.h >> 1), -1, 0], [r.x + r.w - 1, r.y + (r.h >> 1), 1, 0]];
-        for (const [x, y, dx, dy] of walls) {
-          for (const off of [-2, 2]) {
-            const tx = x + (along ? off : 0), ty = y + (along ? 0 : off);
-            if (at(tx + dx, ty + dy) !== TILE.rock || at(tx, ty) === TILE.rock) continue;
-            const v = local(tx + 0.5 + dx * 0.42, ty + 0.5 + dy * 0.42, 2.6);
-            mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), M.iron, v.clone().setY(2.35));
-            mesh(new THREE.CylinderGeometry(0.12, 0.07, 0.25, 8), M.iron, v.clone().setY(2.65));
-            const f = glowAt(v.clone().setY(2.95), '#ffb050', 0.9, 0.3), f2 = glowAt(v.clone().setY(2.9), '#ff6a20', 1.5, 0.25);
-            const l = light(v.clone().setY(3).add(new THREE.Vector3(-dx * 0.25, 0, -dy * 0.25)), '#ff9a4a', 7, 12, 0.35, shadows < 2 && off < 0);
-            if (l.castShadow) shadows++;
-            anim.push((t) => { const k = 0.85 + 0.1 * Math.sin(t * 13 + l.position.x) + 0.05 * Math.sin(t * 31); f.scale.setScalar(0.9 * k); f2.scale.setScalar(1.5 * k); });
-          }
-          // a banner in the middle of the wall
-          const bv = local(x + 0.5 + dx * 0.44, y + 0.5 + dy * 0.44, hgt - 2.3);
-          const ban = mesh(new THREE.PlaneGeometry(1.1, 2.6, 1, 6), rand() < 0.5 ? M.bannerRed : M.bannerBlue, bv);
-          ban.rotation.y = Math.atan2(-dx, -dy);
-          ban.castShadow = false;
-          const pos = ban.geometry.attributes.position, rest = Float32Array.from(pos.array);
-          anim.push((t) => { for (let i = 0; i < pos.count; i++) pos.setZ(i, rest[i * 3 + 2] + Math.sin(t * 1.3 + rest[i * 3 + 1] * 2) * 0.03 * (1.3 - rest[i * 3 + 1])); pos.needsUpdate = true; });
+        // threads of glow-worms hang among the columns
+        for (let k = 0; k < 14; k++) {
+          const [x, y] = pick(floor), len = 0.3 + rand() * 0.8, top = local(x + rand(), y + rand(), high(x, y));
+          mesh(GEO.strand, M.worm, top.clone().setY(top.y - len / 2)).scale.y = len;
+          mesh(GEO.dot, M.worm, top.clone().setY(top.y - len));
         }
+        for (let k = 0; k < 4; k++) { const [x, y] = pick(floor); glowAt(local(x + 0.5, y + 0.5, high(x, y) - 0.6), '#7fdcff', 1.6, 0.3); }
       } else if (r.kind === 'pool') {
-        // still water, ringed with stones; a teal light over it whose ripples it throws back
         for (let y = r.y; y < r.y + r.h; y++) {
           for (let x = r.x; x < r.x + r.w; x++) {
             if (at(x, y) !== TILE.water) continue;
-            const w = mesh(new THREE.PlaneGeometry(T, T), M.water, local(x + 0.5, y + 0.5, 0.18));
-            w.rotation.x = -Math.PI / 2;
-            w.castShadow = false;
-            const sunk = mesh(new THREE.BoxGeometry(T, 0.1, T), M.dark, local(x + 0.5, y + 0.5, -0.3));
-            sunk.castShadow = false;
+            mesh(GEO.tile, M.water, local(x + 0.5, y + 0.5, 0.14)).rotation.x = -Math.PI / 2;
+            // its bank: stones where the water ends
             for (const [dx, dy] of NS.DIRS) {
               if (at(x + dx, y + dy) === TILE.water) continue;
-              const st = mesh(new THREE.BoxGeometry(dx ? 0.25 : T, 0.32, dy ? 0.25 : T), M.pillar, local(x + 0.5 + dx * 0.5, y + 0.5 + dy * 0.5, 0.16));
-              st.castShadow = false;
+              const sz = 0.3 + rand() * 0.3;
+              put('lump', local(x + 0.5 + dx * 0.5 + (rand() - 0.5) * 0.4, y + 0.5 + dy * 0.5 + (rand() - 0.5) * 0.4, 0.08), [sz, sz * 0.6, sz], [rand() * 3, rand() * 3, 0], shade(TINT.pool[1]));
             }
           }
         }
-        light(mid.clone().setY(hgt - 1.4), '#4fe0d0', 5, 12, 0.08);
-        for (let k = 0; k < 5; k++) glowAt(mid.clone().add(new THREE.Vector3((rand() - 0.5) * r.w, 0.4, (rand() - 0.5) * r.h)), '#3fd0c0', 0.5, 0.5);
+        for (let k = 0; k < 4; k++) glowAt(mid.clone().add(new THREE.Vector3((rand() - 0.5) * r.w * 0.6, 0.35, (rand() - 0.5) * r.h * 0.6)), '#3fd0c0', 0.8, 0.5);
       } else if (r.kind === 'grotto') {
-        // glowing mushrooms by the walls, roots from the vault, fireflies
-        for (let k = 0; k < 14 && byWall.length; k++) {
-          const [x, y] = pick(byWall), [dx, dy] = wallSide(x, y), base = local(x + 0.5 + dx * 0.25, y + 0.5 + dy * 0.25);
+        for (let k = 0; k < 9 && walls.length; k++) {
+          const [x, y, [dx, dy]] = pick(walls), base = local(x + 0.5 + dx * 0.2, y + 0.5 + dy * 0.2);
           const mat = rand() < 0.6 ? M.capGreen : M.capViolet;
           for (let n = 0; n < 3; n++) {
-            const hh = 0.2 + rand() * 0.55, at3 = base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.7, 0, (rand() - 0.5) * 0.7));
-            mesh(new THREE.CylinderGeometry(0.035, 0.05, hh, 6), M.stem, at3.clone().setY(hh / 2)).castShadow = false;
-            const cap = mesh(new THREE.SphereGeometry(0.12 + hh * 0.25, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat, at3.clone().setY(hh));
-            cap.castShadow = false;
+            const hh = 0.2 + rand() * 0.55, p3 = base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.7, 0, (rand() - 0.5) * 0.7));
+            mesh(GEO.stem, M.stem, p3.clone().setY(hh / 2)).scale.y = hh;
+            mesh(GEO.cap, mat, p3.clone().setY(hh)).scale.setScalar(0.24 + hh * 0.5);
           }
-          glowAt(base.clone().setY(0.45), mat === M.capGreen ? '#6dff86' : '#d07bff', 1.4, 0.2);
+          glowAt(base.clone().setY(0.45), mat === M.capGreen ? '#6dff86' : '#d07bff', 1.5, 0.2);
         }
-        for (let k = 0; k < 16; k++) {
-          const [x, y] = pick(floorTiles), len = 0.6 + rand() * 1.6;
-          const o = mesh(new THREE.CylinderGeometry(0.02, 0.05, len, 5), M.root, local(x + rand(), y + rand(), hgt - len / 2));
-          o.rotation.z = (rand() - 0.5) * 0.4;
-        }
-        light(mid.clone().setY(1.6), '#79ff9c', 6, 13, 0.06);
-        this.motes(group, mid, r, hgt, '#c8ff8a', 26, 0.09, anim, 0.6);
+        this.motes(home(mid).g, mid, r, hgt, '#c8ff8a', 14, 0.09, anim, 0.6);
       } else if (r.kind === 'shrine') {
-        // an altar under a beam from a crack in the vault, the orb on it glowing
-        const altar = mid.clone();
-        mesh(new THREE.BoxGeometry(1.5, 0.9, 1, 1, 1, 1), M.marble, altar.clone().setY(0.45));
-        mesh(new THREE.BoxGeometry(1.7, 0.12, 1.2), M.gold, altar.clone().setY(0.95));
-        const orb = mesh(new THREE.SphereGeometry(0.22, 18, 12), new THREE.MeshStandardMaterial({ color: '#fff6d8', emissive: '#ffd58a', emissiveIntensity: 3 }), altar.clone().setY(1.45));
-        orb.material.userData.own = true;
-        orb.castShadow = false;
-        glowAt(altar.clone().setY(1.45), '#ffd27a', 1.1, 0.2);
-        anim.push((t) => { orb.position.y = 1.45 + Math.sin(t * 1.2) * 0.08; });
-        const crack = mesh(new THREE.CircleGeometry(0.55, 16), M.opening, altar.clone().setY(hgt - 0.01));
+        // a slab nobody remembers, a light over it, a beam on it from a crack in the vault
+        const top = high(r.x + (r.w >> 1), r.y + (r.h >> 1));
+        put('lump', mid.clone().setY(0.3), [1.9, 0.9, 1.3], [0, rand() * 3, 0], shade('#8f8a80'));
+        const orb = mesh(GEO.skull, M.orb, mid.clone().setY(1.3));
+        glowAt(mid.clone().setY(1.3), '#ffd27a', 1.3, 0.2);
+        anim.push({ g: home(mid).g, f: (t) => { orb.position.y = 1.3 + Math.sin(t * 1.2) * 0.08; } });
+        const crack = mesh(new THREE.CircleGeometry(0.45, 9), M.opening, mid.clone().setY(top - 0.01));
         crack.rotation.x = Math.PI / 2;
-        crack.castShadow = false;
-        shafts.push(this.shaft(group, altar.clone().setY(hgt), altar.clone(), 0.5, 1.7, 'beam', shadows < 3));
-        shadows++;
+        shafts.push(this.shaft(home(mid).g, mid.clone().setY(top), mid.clone(), 0.4, 1.4, 'beam'));
       } else if (r.kind === 'ember') {
-        // the floor cracked with fire, embers rising, a red glow that breathes
-        for (let k = 0; k < 18; k++) {
-          const [x, y] = pick(floorTiles), len = 0.4 + rand() * 1.2;
-          const o = mesh(new THREE.BoxGeometry(len, 0.04, 0.06), M.ember, local(x + rand(), y + rand(), 0.01));
+        for (let k = 0; k < 14; k++) {
+          const [x, y] = pick(floor), o = mesh(GEO.crack, M.ember, local(x + rand(), y + rand(), 0.02));
+          o.scale.x = 0.4 + rand() * 1.2;
           o.rotation.y = rand() * Math.PI;
-          o.castShadow = false;
-          if (rand() < 0.35) glowAt(o.position.clone().setY(0.15), '#ff6a1a', 0.9, 0.35);
+          if (rand() < 0.3) glowAt(o.position.clone().setY(0.15), '#ff6a1a', 1.1, 0.35);
         }
-        for (let k = 0; k < 6; k++) {
-          const [x, y] = pick(floorTiles), sz = 0.3 + rand() * 0.5;
-          mesh(new THREE.DodecahedronGeometry(sz, 0), M.floorRock, local(x + rand(), y + rand(), sz * 0.5));
-        }
-        const l = light(mid.clone().setY(1.2), '#ff5a1a', 9, 14, 0.25);
-        anim.push((t) => { l.intensity = 9 * LUX * (0.8 + 0.2 * Math.sin(t * 2.1) * Math.sin(t * 3.7)); });
-        this.motes(group, mid, r, hgt, '#ff8a3a', 40, 0.07, anim, -1.2);
-      } else if (r.kind === 'entry') {
-        // braziers either side of the stairs
-        const [sx, sy] = d.stairs, [ax, ay] = d.arrive, dx = sx - ax, dy = sy - ay;
-        for (const side of [-1, 1]) {
-          const bx = ax + 0.5 + dy * side * 1.2, by = ay + 0.5 - dx * side * 1.2;
-          if (at(Math.floor(bx), Math.floor(by)) !== TILE.floor) continue;
-          const v = local(bx, by);
-          mesh(new THREE.CylinderGeometry(0.08, 0.14, 1, 8), M.iron, v.clone().setY(0.5));
-          mesh(new THREE.CylinderGeometry(0.32, 0.18, 0.25, 12), M.iron, v.clone().setY(1.05));
-          const f = glowAt(v.clone().setY(1.35), '#ffb050', 1.1, 0.3);
-          anim.push((t) => { f.scale.setScalar(1.1 * (0.88 + 0.12 * Math.sin(t * 11 + side))); });
-        }
-        light(mid.clone().setY(2.5), '#ffb070', 4, 11, 0.2);
+        for (let k = 0; k < 5; k++) { const [x, y] = pick(floor), sz = 0.5 + rand() * 0.7; put('lump', local(x + rand(), y + rand(), sz * 0.3), [sz, sz * 0.8, sz], [rand() * 3, rand() * 3, 0], shade('#5a3a30')); }
+        this.motes(home(mid).g, mid, r, hgt, '#ff8a3a', 20, 0.07, anim, -1.2);
       }
-      // dust in every room, seen where the light falls
-      this.motes(group, mid, r, hgt, '#fff2d8', 30, 0.04, anim, 0.05);
+      // a wisp drifts about some rooms; dust in all, seen where his light falls
+      if (r.kind !== 'entry' && rand() < 0.6) {
+        const sp = glowAt(mid.clone().setY(1.2), r.kind === 'ember' ? '#ffb070' : '#bfe8ff', 0.5, 0.4);
+        wisps.push({ sp, mid, rx: r.w * T * 0.28, rz: r.h * T * 0.28, w: 0.25 + rand() * 0.3, ph: rand() * 6 });
+      }
+      this.motes(home(mid).g, mid, r, hgt, '#fff2d8', 12, 0.04, anim, 0.05);
     }
 
-    // the stairs: steps up into the shaft of light that falls down them from the island
+    // the stairs: rough steps up to a doorway of daylight (moonlight at night), whose light falls
+    // down them into the cave
+    let sky = null;
     {
       const [sx, sy] = d.stairs, [ax, ay] = d.arrive, dx = sx - ax, dy = sy - ay, steps = 7;
       for (let k = 0; k < steps; k++) {
-        const v = local(sx + 0.5 - dx * 0.5 + dx * (k + 0.5) / steps, sy + 0.5 - dy * 0.5 + dy * (k + 0.5) / steps, (k + 1) * 0.22 / 2);
-        const st = mesh(new THREE.BoxGeometry(dx ? T / steps : T, (k + 1) * 0.22, dy ? T / steps : T), M.flags, v);
-        st.receiveShadow = true;
+        const v = local(sx + 0.5 - dx * 0.5 + dx * (k + 0.5) / steps + (rand() - 0.5) * 0.04, sy + 0.5 - dy * 0.5 + dy * (k + 0.5) / steps + (rand() - 0.5) * 0.04, (k + 1) * 0.22 / 2);
+        put('flat', v, [dx ? 1 / steps : 0.96, (k + 1) * 0.22, dy ? 1 / steps : 0.96], [0, (rand() - 0.5) * 0.06, 0], shade(TINT.stairs[1]));
       }
-      // at their top a doorway of daylight (moonlight at night), arched, the way out; its light
-      // falls down the stairs into the hall
       const door = new THREE.Group();
       door.position.copy(local(sx + 0.5 + dx * 0.49, sy + 0.5 + dy * 0.49, 1.55));
       door.rotation.y = Math.atan2(-dx, -dy);
       const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.7), M.opening);
       pane.position.y = 0.85;
-      const top = new THREE.Mesh(new THREE.CircleGeometry(0.55, 16, 0, Math.PI), M.opening);
-      top.position.y = 1.7;
-      door.add(pane, top);
-      group.add(door);
+      const arch = new THREE.Mesh(new THREE.CircleGeometry(0.55, 9, 0, Math.PI), M.opening);
+      arch.position.y = 1.7;
+      door.add(pane, arch);
+      home(door.position).g.add(door);
       glowAt(local(sx + 0.5 + dx * 0.4, sy + 0.5 + dy * 0.4, 2.5), '#fff3d8', 3.2, 0.05).userData.sky = true;
-      shafts.push(this.shaft(group, local(sx + 0.5 + dx * 0.45, sy + 0.5 + dy * 0.45, 2.6), local(ax + 0.5 - dx * 2.2, ay + 0.5 - dy * 2.2, 0), 0.6, 1.9, 'sky', true));
+      const from = local(sx + 0.5 + dx * 0.45, sy + 0.5 + dy * 0.45, 2.6), to = local(ax + 0.5 - dx * 2.2, ay + 0.5 - dy * 2.2, 0);
+      shafts.push(this.shaft(home(from).g, from, to, 0.6, 1.9, 'sky'));
+      // the one real light besides his own (always on: lights that come and go cost a shader each)
+      sky = new THREE.SpotLight('#fff1d6', 60 * LUX, 20, 0.42, 0.65, 1.2);
+      sky.position.copy(from);
+      sky.target.position.copy(to);
+      group.add(sky, sky.target);
     }
 
-    // the chests: wood bound with iron, a gold lock; their lids open as they are opened
+    // the chests: wood bound with iron; their lids open as they are opened
     const chests = d.chests.map((k) => {
       const [dx, dy] = wallSide(k.x, k.y) ?? [0, -1], g = new THREE.Group();
       g.position.copy(local(k.x + 0.5 - dx * 0.05, k.y + 0.5 - dy * 0.05));
-      g.rotation.y = Math.atan2(-dx, -dy); // its front to the room
-      mesh(new THREE.BoxGeometry(1.0, 0.55, 0.62), M.wood, new THREE.Vector3(0, 0.3, 0), g);
-      for (const bx of [-0.36, 0.36]) mesh(new THREE.BoxGeometry(0.07, 0.57, 0.64), M.iron, new THREE.Vector3(bx, 0.3, 0), g);
+      g.rotation.y = Math.atan2(-dx, -dy); // its front to the cave
+      const part = (geo, mat, x, y, z, parent = g) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+      part(new THREE.BoxGeometry(1.0, 0.55, 0.62), M.wood, 0, 0.3, 0);
+      for (const bx of [-0.36, 0.36]) part(new THREE.BoxGeometry(0.07, 0.57, 0.64), M.iron, bx, 0.3, 0);
       const hinge = new THREE.Group();
       hinge.position.set(0, 0.58, -0.31);
       g.add(hinge);
-      const lid = mesh(new THREE.CylinderGeometry(0.31, 0.31, 1.0, 14, 1, false, 0, Math.PI), M.wood, new THREE.Vector3(0, 0, 0.31), hinge);
-      lid.rotation.z = Math.PI / 2;
-      mesh(new THREE.BoxGeometry(1.0, 0.04, 0.62), M.wood, new THREE.Vector3(0, 0.0, 0.31), hinge);
-      const hollow = mesh(new THREE.PlaneGeometry(0.9, 0.52), M.dark, new THREE.Vector3(0, 0.575, 0), g);
-      hollow.rotation.x = -Math.PI / 2;
-      hollow.castShadow = false;
-      for (const bx of [-0.36, 0.36]) {
-        const band = mesh(new THREE.CylinderGeometry(0.325, 0.325, 0.07, 14, 1, true, 0, Math.PI), M.iron, new THREE.Vector3(bx, 0, 0.31), hinge);
-        band.rotation.z = Math.PI / 2;
-      }
-      mesh(new THREE.BoxGeometry(0.16, 0.18, 0.05), M.gold, new THREE.Vector3(0, 0.5, 0.33), g);
-      group.add(g);
+      part(new THREE.CylinderGeometry(0.31, 0.31, 1.0, 8, 1, false, 0, Math.PI), M.wood, 0, 0, 0.31, hinge).rotation.z = Math.PI / 2;
+      part(new THREE.BoxGeometry(1.0, 0.04, 0.62), M.wood, 0, 0, 0.31, hinge);
+      part(new THREE.PlaneGeometry(0.9, 0.52), M.dark, 0, 0.575, 0).rotation.x = -Math.PI / 2;
+      part(new THREE.BoxGeometry(0.16, 0.18, 0.05), M.gold, 0, 0.5, 0.33);
+      home(g.position).g.add(g);
       const shine = glowAt(g.position.clone().setY(0.7), '#ffd27a', 1.2, 0.25);
       return { chest: k, g, hinge, shine, open: k.opened ? 1 : 0, was: k.opened, orb: null };
     });
 
-    // passages: a sconce glows here and there, too dim to light the way: the Priest's light does
-    for (let y = 0; y < d.h; y++) {
-      for (let x = 0; x < N; x++) {
-        if (at(x, y) !== TILE.floor || kind[y * N + x] !== 'passage' || (x * 7 + y * 13) % 9 !== 0) continue;
-        const side = wallSide(x, y);
-        if (!side) continue;
-        glowAt(local(x + 0.5 + side[0] * 0.45, y + 0.5 + side[1] * 0.45, 1.9), '#ff9a4a', 0.55, 0.3);
+    // what the dark keeps. Eyes in the walls: they watch, blink, and are gone when he comes near
+    const eyes = [];
+    for (let k = 0; k < 16 && byWall.length; k++) {
+      const [x, y, [dx, dy]] = pick(byWall), g = new THREE.Group();
+      g.position.copy(local(x + 0.5 + dx * 0.36, y + 0.5 + dy * 0.36, 0.4 + rand() * 1.3));
+      g.rotation.y = Math.atan2(-dx, -dy);
+      for (const ex of [-0.07, 0.07]) { const o = new THREE.Mesh(GEO.dot, M.eye); o.position.x = ex; g.add(o); }
+      g.scale.setScalar(0.8 + rand() * 0.9);
+      home(g.position).g.add(g);
+      eyes.push({ g, at: g.position, ph: rand() * 20, gone: 0 });
+    }
+    // glyphs that hang in the air by the walls, and wake as he passes
+    const glyphs = [];
+    for (let k = 0; k < 12 && byWall.length; k++) {
+      const [x, y, [dx, dy]] = pick(byWall);
+      const mat = new THREE.MeshBasicMaterial({ map: pick(M.glyphs), color: pick(['#7fd8ff', '#ffcf7a', '#c79bff']), transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      mat.userData.own = true;
+      const o = mesh(GEO.pane, mat, local(x + 0.5 + dx * 0.2, y + 0.5 + dy * 0.2, 1 + rand() * 0.8));
+      o.rotation.y = Math.atan2(-dx, -dy);
+      glyphs.push({ o, y: o.position.y, ph: rand() * 6 });
+    }
+    // old bones by the walls, roots through the vaults of the passages
+    for (let k = 0; k < 9 && byWall.length; k++) {
+      const [x, y, [dx, dy]] = pick(byWall), base = local(x + 0.5 + dx * 0.15, y + 0.5 + dy * 0.15, 0);
+      mesh(GEO.skull, M.bone, base.clone().setY(0.12)).scale.set(1, 0.9, 1.15);
+      for (let n = 0; n < 3; n++) {
+        const o = mesh(GEO.bone, M.bone, base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.7, 0.03, (rand() - 0.5) * 0.7)));
+        o.rotation.set(Math.PI / 2, 0, rand() * 3);
       }
     }
-    return { lights, anim, glows, shafts, chests, local };
+    for (const [x, y] of open) {
+      if (kindAt(x, y) !== 'passage' || rand() > 0.3) continue;
+      const len = 0.3 + rand() * 0.7, o = mesh(GEO.stem, M.root, local(x + rand(), y + rand(), high(x, y) - len / 2));
+      o.scale.set(0.8, len, 0.8);
+      o.rotation.z = (rand() - 0.5) * 0.5;
+      if (rand() < 0.12) glowAt(local(x + 0.5, y + 0.5, 0.25), '#59e0a0', 0.5, 0.4);
+    }
+
+    // each chunk's rock, as four instanced meshes
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3();
+    for (const c of chunks.values()) {
+      for (const [lot, items] of Object.entries(c.lots)) {
+        if (!items.length) continue;
+        const im = new THREE.InstancedMesh(GEO[lot], M.stone, items.length);
+        items.forEach((it, n) => {
+          im.setMatrixAt(n, m4.compose(it.v, q.setFromEuler(e.set(...it.r)), sc.set(...it.s)));
+          im.setColorAt(n, it.color);
+        });
+        im.castShadow = lot === 'wall' || lot === 'lump';
+        im.receiveShadow = true;
+        im.frustumCulled = false;
+        c.g.add(im);
+      }
+      c.lots = null;
+    }
+    return { anim, glows, shafts, chests, local, chunks: [...chunks.values()], eyes, glyphs, wisps, sky, kindAt };
   },
 
   /** Dust or fireflies or embers drifting in a room: `rise` is how they go (up for embers). */
-  motes(group, mid, r, hgt, color, n, size, anim, rise) {
+  motes(parent, mid, r, hgt, color, n, size, anim, rise) {
     const T = TILE_SIZE, pos = new Float32Array(n * 3), seed = [];
     const rand = seeded(Math.floor(mid.x * 97 + mid.z * 31 + n));
-    for (let i = 0; i < n; i++) {
-      seed.push([(rand() - 0.5) * r.w * T * 0.9, rand() * hgt, (rand() - 0.5) * r.h * T * 0.9, rand() * 10]);
-    }
+    for (let i = 0; i < n; i++) seed.push([(rand() - 0.5) * r.w * T * 0.8, rand() * hgt, (rand() - 0.5) * r.h * T * 0.8, rand() * 10]);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({ color, size, map: glowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
@@ -632,33 +610,29 @@ AFRAME.registerComponent('ns-dungeon', {
     const pts = new THREE.Points(geo, mat);
     pts.position.copy(mid);
     pts.frustumCulled = false;
-    group.add(pts);
-    anim.push((t) => {
-      for (let i = 0; i < n; i++) {
-        const [x, y, z, ph] = seed[i];
-        const yy = rise < 0 ? (y + t * -rise * 0.4 + ph) % hgt : y + Math.sin(t * 0.3 + ph) * 0.3 * (1 + rise);
-        pos[i * 3] = x + Math.sin(t * 0.2 + ph) * 0.4;
-        pos[i * 3 + 1] = yy;
-        pos[i * 3 + 2] = z + Math.cos(t * 0.17 + ph * 1.3) * 0.4;
-      }
-      geo.attributes.position.needsUpdate = true;
+    parent.add(pts);
+    anim.push({
+      g: parent,
+      f: (t) => {
+        for (let i = 0; i < n; i++) {
+          const [x, y, z, ph] = seed[i];
+          pos[i * 3] = x + Math.sin(t * 0.2 + ph) * 0.4;
+          pos[i * 3 + 1] = rise < 0 ? (y + t * -rise * 0.4 + ph) % hgt : y + Math.sin(t * 0.3 + ph) * 0.3 * (1 + rise);
+          pos[i * 3 + 2] = z + Math.cos(t * 0.17 + ph * 1.3) * 0.4;
+        }
+        geo.attributes.position.needsUpdate = true;
+      },
     });
   },
 
-  /** A shaft of light from `from` down to `to`: a spot light and the glowing air it falls through. */
-  shaft(group, from, to, top, bottom, tone, shadow) {
-    const spot = new THREE.SpotLight('#fff1d6', 60, 24, 0.42, 0.65, 1.2);
-    spot.position.copy(from);
-    spot.target.position.copy(to);
-    group.add(spot, spot.target);
-    if (shadow) { spot.castShadow = true; spot.shadow.mapSize.set(1024, 1024); spot.shadow.bias = -0.0006; spot.shadow.camera.near = 0.5; }
-    const len = from.distanceTo(to), cone = new THREE.Mesh(new THREE.CylinderGeometry(top, bottom, len, 28, 1, true), shaftMaterial('#fff1d6'));
+  /** A shaft of light from `from` down to `to`: the glowing air it falls through (no light of its own). */
+  shaft(parent, from, to, top, bottom, tone) {
+    const len = from.distanceTo(to), cone = new THREE.Mesh(new THREE.CylinderGeometry(top, bottom, len, 16, 1, true), shaftMaterial('#fff1d6'));
     cone.material.userData.own = true;
     cone.position.copy(from).add(to).multiplyScalar(0.5);
     cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), from.clone().sub(to).normalize());
-    cone.castShadow = cone.receiveShadow = false;
-    group.add(cone);
-    return { spot, cone, tone };
+    parent.add(cone);
+    return { cone, tone, mid: cone.position };
   },
 
   /** The portal of a dungeon on its island: a stone gate over stairs going down, braziers by it. */
@@ -667,24 +641,22 @@ AFRAME.registerComponent('ns-dungeon', {
     g.position.set(wx(x), groundAt(x, y), wz(y));
     g.scale.setScalar(1.15);
     const mesh = (geo, mat, px, py, pz) => { const o = new THREE.Mesh(geo, mat); o.position.set(px, py, pz); o.castShadow = o.receiveShadow = true; g.add(o); return o; };
-    const stone = M.pillar;
+    const stone = new THREE.MeshLambertMaterial({ map: M.stone.map, color: '#b3aca0' });
     mesh(new THREE.BoxGeometry(2.1, 0.18, 2.1), stone, 0, 0.09, 0);
     mesh(new THREE.BoxGeometry(0.4, 1.9, 1.8), stone, -0.8, 1.05, 0);
     mesh(new THREE.BoxGeometry(0.4, 1.9, 1.8), stone, 0.8, 1.05, 0);
     mesh(new THREE.BoxGeometry(2.0, 1.9, 0.3), stone, 0, 1.05, -0.8);
-    const arch = mesh(new THREE.CylinderGeometry(1.0, 1.0, 1.9, 16, 1, false, 0, Math.PI), stone, 0, 2.0, 0.05);
+    const arch = mesh(new THREE.CylinderGeometry(1.0, 1.0, 1.9, 12, 1, false, 0, Math.PI), stone, 0, 2.0, 0.05);
     arch.rotation.z = Math.PI / 2;
     arch.rotation.y = Math.PI / 2;
-    // the dark of the stairwell, steps going down into it, a rune glowing over the door
-    const dark = mesh(new THREE.PlaneGeometry(1.2, 1.85), M.dark, 0, 1.0, 0.62);
-    dark.castShadow = false;
+    mesh(new THREE.PlaneGeometry(1.2, 1.85), M.dark, 0, 1.0, 0.62).castShadow = false;
     for (let k = 0; k < 4; k++) mesh(new THREE.BoxGeometry(1.15, 0.12, 0.3), stone, 0, 0.3 - k * 0.07, 0.8 - k * 0.32).castShadow = false;
-    const rune = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.03, 6, 20), new THREE.MeshStandardMaterial({ color: '#ffe3a0', emissive: '#ffb340', emissiveIntensity: 2.2 }));
+    const rune = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.03, 6, 16), M.orb);
     rune.position.set(0, 2.55, 0.97);
     g.add(rune);
     for (const side of [-1, 1]) {
-      mesh(new THREE.CylinderGeometry(0.05, 0.09, 0.8, 8), M.iron, side * 1.25, 0.4, 0.95);
-      mesh(new THREE.CylinderGeometry(0.2, 0.12, 0.16, 10), M.iron, side * 1.25, 0.86, 0.95);
+      mesh(new THREE.CylinderGeometry(0.05, 0.09, 0.8, 6), M.iron, side * 1.25, 0.4, 0.95);
+      mesh(new THREE.CylinderGeometry(0.2, 0.12, 0.16, 8), M.iron, side * 1.25, 0.86, 0.95);
       const f = new THREE.Sprite(M.flame);
       f.position.set(side * 1.25, 1.2, 0.95);
       f.scale.setScalar(1.1);
@@ -702,7 +674,7 @@ AFRAME.registerComponent('ns-dungeon', {
     return b.local(x, y, h).applyMatrix4(b.group.matrixWorld);
   },
 
-  /** Down or up: the dungeon shown with the deep's light and fog, or the islands again. */
+  /** Down or up: the dungeon shown with the deep's dark, or the islands again. */
   setInside(on) {
     if (on === this.inside) return;
     this.inside = on;
@@ -714,9 +686,10 @@ AFRAME.registerComponent('ns-dungeon', {
     const fog = scene.object3D.fog;
     if (on) {
       this.saved = { fog: fog ? { color: fog.color.clone(), near: fog.near, far: fog.far } : null };
-      if (fog) { fog.color.set('#06070b'); fog.near = 3; fog.far = 34; }
+      // the dark has everything past his light
+      if (fog) { fog.color.set('#020203'); fog.near = 6; fog.far = REVEAL; }
       const sky = document.getElementById('skylight')?.getObject3D('light');
-      if (sky) { sky.color.set('#5a6684'); sky.groundColor.set('#1c1714'); sky.intensity = 0.55; }
+      if (sky) { sky.color.set('#5a6684'); sky.groundColor.set('#1c1714'); sky.intensity = 0.2; }
       scene.renderer?.setClearColor?.('#020203');
     } else {
       if (fog && this.saved?.fog) { fog.color.copy(this.saved.fog.color); fog.near = this.saved.fog.near; fog.far = this.saved.fog.far; }
@@ -743,34 +716,52 @@ AFRAME.registerComponent('ns-dungeon', {
     if (!this.inside || !this.built) return;
     const here = this.built[b.dungeon];
     for (const x of this.built) x.group.visible = x === here;
+    // where he is, in the dungeon's own space: only the chunks his light reaches are drawn
+    const tx = b.x / NS.WALK_SUB, ty = b.y / NS.WALK_SUB, me = here.local(tx, ty, 1.4);
+    const reach = REVEAL + CHUNK * TILE_SIZE * 0.71;
+    for (const c of here.chunks) c.g.visible = Math.hypot(c.mid.x - me.x, c.mid.z - me.z) < reach;
+    const near = (v) => Math.hypot(v.x - me.x, v.z - me.z);
     // daylight down the stairs, or moonlight at night
     const sky = new THREE.Color('#fff1d6').lerp(new THREE.Color('#8fa6ff'), dark);
+    here.sky.color.copy(sky);
+    here.sky.intensity = 60 * (1 - dark * 0.55) * LUX;
     for (const sh of here.shafts) {
-      const tone = sh.tone === 'sky' ? sky : new THREE.Color('#ffe2a8');
-      sh.spot.color.copy(tone);
-      sh.spot.intensity = (sh.tone === 'sky' ? 60 * (1 - dark * 0.55) : 26) * LUX;
-      sh.cone.material.uniforms.color.value.copy(tone);
-      sh.cone.material.uniforms.time.value = s;
-      sh.cone.material.uniforms.strength.value = sh.tone === 'sky' ? 0.8 * (1 - dark * 0.4) : 0.55;
+      const u = sh.cone.material.uniforms, seen = THREE.MathUtils.clamp((REVEAL - near(sh.mid)) / 6, 0, 1);
+      u.color.value.copy(sh.tone === 'sky' ? sky : this.tone.set('#ffe2a8'));
+      u.time.value = s;
+      u.strength.value = (sh.tone === 'sky' ? 0.8 * (1 - dark * 0.4) : 0.55) * seen;
     }
     this.mats.opening.color.copy(sky).multiplyScalar(1.4);
-    for (const gl of here.glows) if (gl.sp.userData.sky) gl.sp.material.color.copy(sky);
-    for (const l of here.lights) if (l.flicker) l.l.intensity = l.base * (1 - l.flicker * 0.5 + l.flicker * 0.5 * (Math.sin(s * 11 + l.phase) * 0.5 + Math.sin(s * 23 + l.phase * 2) * 0.5));
-    for (const gl of here.glows) if (gl.pulse) gl.sp.material.opacity = 0.9 * (1 - gl.pulse + gl.pulse * (0.5 + 0.5 * Math.sin(s * 2 + gl.phase)));
-    for (const f of here.anim) f(s);
+    for (const gl of here.glows) {
+      if (!gl.g.visible) continue;
+      if (gl.sp.userData.sky) gl.sp.material.color.copy(sky);
+      if (gl.pulse) gl.sp.material.opacity = 0.9 * (1 - gl.pulse + gl.pulse * (0.5 + 0.5 * Math.sin(s * 2 + gl.phase)));
+    }
+    for (const a of here.anim) if (a.g.visible) a.f(s);
     this.mats.water.normalMap.offset.set(s * 0.012, s * 0.007);
-    // the chests: a lid opens as its chest is opened, with a flash, and a Spell's orb rises out
+    // eyes: they blink, and are gone when he comes near (and stay gone a while)
+    for (const ey of here.eyes) {
+      if (near(ey.at) < 5.5) ey.gone = s + 20;
+      ey.g.visible = s > ey.gone && Math.sin(s * 0.7 + ey.ph) > -0.85 && (s * 0.31 + ey.ph) % 5 > 0.15;
+    }
+    // glyphs wake as he passes; wisps drift
+    for (const gy of here.glyphs) {
+      const wake = THREE.MathUtils.clamp(1 - near(gy.o.position) / 6, 0, 1);
+      gy.o.material.opacity = 0.08 + wake * 0.75 + 0.05 * Math.sin(s * 1.7 + gy.ph);
+      gy.o.position.y = gy.y + Math.sin(s * 0.8 + gy.ph) * 0.06;
+    }
+    for (const w of here.wisps) w.sp.position.set(w.mid.x + Math.cos(s * w.w + w.ph) * w.rx, 1.1 + Math.sin(s * 0.9 + w.ph) * 0.35, w.mid.z + Math.sin(s * w.w * 1.3 + w.ph) * w.rz);
+    // the chests: a lid opens as its chest is opened, his light flaring, and a Spell's glow rises out
     for (const c of here.chests) {
       if (c.chest.opened && !c.was) {
         c.was = true;
-        this.flash.position.copy(c.g.position).add(here.group.position).setY(DEPTH + 1.2);
-        this.flash.intensity = 14 * LUX;
+        this.boost = 1;
         if (c.chest.holds.length) {
           c.orb = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#bfe8ff', blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
           c.orb.material.userData.own = true;
           c.orb.position.copy(c.g.position).setY(0.7);
           c.orb.scale.setScalar(0.6);
-          here.group.add(c.orb);
+          c.g.parent.add(c.orb);
           c.orbAge = 0;
         }
       }
@@ -785,13 +776,14 @@ AFRAME.registerComponent('ns-dungeon', {
         if (c.orbAge > 1.6) { c.orb.removeFromParent(); c.orb = null; }
       }
     }
-    this.flash.intensity *= Math.exp(-dt / 400);
-    // the Priest's light, held at his staff: right of his eyes, a little above and before them
+    this.boost *= Math.exp(-dt / 400);
+    // the Priest's light, held at his staff, in the tone of the cave he is in
     const cam = this.el.sceneEl.camera;
     if (cam) {
       const o = new THREE.Vector3(0.18, 0.62, 0.12).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion())).add(cam.getWorldPosition(new THREE.Vector3()));
       this.lamp.position.copy(this.root.worldToLocal(o));
-      this.lamp.intensity = 4.5 * LUX * (0.96 + 0.04 * Math.sin(s * 7));
+      this.lamp.color.lerp(this.tone.set(TONE[here.kindAt(Math.floor(tx), Math.floor(ty))] ?? TONE.passage), Math.min(1, dt / 600));
+      this.lamp.intensity = 9 * LUX * (0.96 + 0.04 * Math.sin(s * 7)) * (1 + this.boost * 1.5);
     }
   },
 });

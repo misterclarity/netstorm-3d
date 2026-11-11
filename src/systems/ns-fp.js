@@ -50,10 +50,10 @@ const ISLANDS = {
     if (!s || s.ride || (p.path.length && !order)) return null;
     let x = s.x, y = s.y;
     if (p.state === 'normal' && !(p.casting > 0) && G.view.terrain[p.y * NS.W + p.x] !== 0) {
-      const lead = order ? order.lead / 100 : 1;
-      const first = NS.walkStep(G.world, p, x, y, s.vx, s.vy, Math.min(alpha, lead));
+      const lead = order ? order.lead / 100 : 1, pace = NS.hoverNow(G.world, p);
+      const first = NS.walkStep(G.world, p, x, y, s.vx, s.vy, Math.min(alpha, lead) * pace);
       ({ x, y } = first);
-      if (order && alpha > lead && !first.ride) ({ x, y } = NS.walkStep(G.world, p, x, y, order.vx, order.vy, alpha - lead));
+      if (order && alpha > lead && !first.ride) ({ x, y } = NS.walkStep(G.world, p, x, y, order.vx, order.vy, (alpha - lead) * pace));
     }
     return [x / NS.WALK_SUB, y / NS.WALK_SUB];
   },
@@ -66,9 +66,9 @@ const CAVE = {
   at(p, alpha, order) {
     const b = G.world.below?.get(p.id), d = b && G.world.dungeons[b.dungeon];
     if (!d) return null;
-    const lead = order ? order.lead / 100 : 1;
-    let at = NS.caveStep(d, b.x, b.y, b.vx, b.vy, Math.min(alpha, lead));
-    if (order && alpha > lead) at = NS.caveStep(d, at.x, at.y, order.vx, order.vy, alpha - lead);
+    const lead = order ? order.lead / 100 : 1, pace = NS.hoverNow(G.world, p);
+    let at = NS.caveStep(d, b.x, b.y, b.vx, b.vy, Math.min(alpha, lead) * pace);
+    if (order && alpha > lead) at = NS.caveStep(d, at.x, at.y, order.vx, order.vy, (alpha - lead) * pace);
     return [at.x / NS.WALK_SUB, at.y / NS.WALK_SUB];
   },
 };
@@ -86,6 +86,17 @@ AFRAME.registerSystem('ns-fp', {
     this.raycaster = new THREE.Raycaster();
     this.centre = new THREE.Vector2(0, 0);
     this.eye = new THREE.Vector3();
+    // Shift held: he hovers (if he has prayed for the Hover and some of it is left)
+    const hover = (on) => {
+      const p = this.priest(), h = p && G.world.hover?.get(p.id);
+      if (!this.active || !h || on === this.hovering) return;
+      if (on && !(h.charge > 0 && !h.pray)) return;
+      this.hovering = on;
+      submit({ t: 'hover', on });
+    };
+    window.addEventListener('keydown', (e) => { if (e.key === 'Shift') hover(true); });
+    window.addEventListener('keyup', (e) => { if (e.key === 'Shift') hover(false); });
+    window.addEventListener('blur', () => hover(false));
     window.addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
       if (this.active && WALK_KEYS.has(k) && !e.target?.closest?.('input,textarea,select')) { this.keys.add(k); e.preventDefault(); this.steer(); }
@@ -197,6 +208,7 @@ AFRAME.registerSystem('ns-fp', {
       // R turns a bridge piece in hand, as from above; else he prays
       r: () => (G.tool.kind === 'piece' ? this.game().rotate() : this.below() ? this.game().hud.toast('Down here he cannot pray: climb out first', 'bad') : e.shiftKey ? this.nextPrayer() : this.pray()),
       b: () => { if (p) this.game().bankCargo(p); },
+      h: () => { submit({ t: 'prayHover' }); this.game().hud.toast(`Praying for the Hover: ${NS.HOVER_PRAY_SECONDS} s, standing still`, 'good'); },
       x: () => { if (p?.carrying !== null && p?.carrying !== undefined) submit({ t: 'dropCargo', transport: p.id }); },
       tab: () => this.cycleBuild(e.shiftKey ? -1 : 1),
     }[k];
@@ -359,7 +371,11 @@ AFRAME.registerSystem('ns-fp', {
     if (this.keys.size) this.steer();
     // his eyes: where the rules will have him this frame (walked by hand), else where his figure is
     // drawn (a ride on a lift, a walk ordered from above)
-    const eye = p.state === 'down' ? EYE_DOWN : EYE, cam = document.getElementById('camera').object3D;
+    // hovering, he floats a hand above the ground, and sways a little
+    const up = NS.hoverNow(G.world, p) > 1 ? 1 : 0;
+    this.lift = (this.lift ?? 0) + (up - (this.lift ?? 0)) * Math.min(1, dt / 180);
+    if (!up) this.hovering = false;
+    const eye = (p.state === 'down' ? EYE_DOWN : EYE) + this.lift * (0.3 + Math.sin(t / 380) * 0.035), cam = document.getElementById('camera').object3D;
     const pending = this.order && G.commands.includes(this.order) ? this.order : null;
     const down = this.below();
     this.place = down ? CAVE : ISLANDS;
@@ -391,6 +407,14 @@ AFRAME.registerSystem('ns-fp', {
     if (!this.nextHud || t > this.nextHud) { this.hud(); this.nextHud = t + 250; }
   },
 
+  /** A line on the Hover: what is left of it, its prayer, or how to pray for it. */
+  hoverLine() {
+    const p = this.priest(), h = p && G.world.hover?.get(p.id);
+    if (h?.pray > 0) return `Praying for the Hover: ${Math.ceil(h.pray / TPS)} s (a step breaks it off)`;
+    if (h?.charge > 0) return `${h.on ? '<b>Hovering</b>' : 'Hover'}: ${Math.ceil(h.charge / TPS)} s left · hold <kbd>Shift</kbd> to float and go faster`;
+    return `<kbd>H</kbd> pray for the Hover (${NS.HOVER_PRAY_SECONDS} s standing still, for ${NS.HOVER_SECONDS} s of floating at ${NS.HOVER_PACE}× his pace)`;
+  },
+
   /** The first person's own lines: his state, what he holds, the keys. */
   hud() {
     const box = document.getElementById('fp');
@@ -406,6 +430,7 @@ AFRAME.registerSystem('ns-fp', {
       const left = Math.max(0, NS.DEEP_SECONDS - (G.world.tick - down.b.since) / TPS), t = this.within();
       lines.push(`<b>In the dungeon</b> under your island · the deep air: ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')} left`);
       if (p.spell) lines.push(`Holds the ${spellName(p.spell)}: cast it on the surface`);
+      lines.push(this.hoverLine());
       const opened = down.d.chests.filter((c) => c.opened).length;
       lines.push(t?.kind === 'chest' ? '<kbd>E</kbd> or click: <b>open the chest</b>' : t?.kind === 'stairs' ? '<kbd>E</kbd> or click: <b>climb the stairs out</b>'
         : `Chests opened ${opened} of ${down.d.chests.length} · walk up to one, or back to the stairs to climb out`);
@@ -429,6 +454,7 @@ AFRAME.registerSystem('ns-fp', {
       const prayers = this.prayers();
       if (!p.spell && !(p.praying > 0) && prayers.length) lines.push(`<kbd>R</kbd> pray for the ${spellName(prayers[this.prayer % prayers.length])}${prayers.length > 1 ? ' · <kbd>Shift</kbd>+<kbd>R</kbd> another' : ''}`);
     }
+    if (p) lines.push(this.hoverLine());
     const build = G.tool.kind === 'build' ? defs.get(G.tool.type) : null;
     lines.push(build ? `Laying a ${build.name} (⚡${build.cost}): click to lay it · wheel or <kbd>Tab</kbd> for another · right-click to put it away`
       : 'Wheel or <kbd>Tab</kbd>: something to build');

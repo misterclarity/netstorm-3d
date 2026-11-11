@@ -260,7 +260,9 @@ AFRAME.registerComponent('ns-unit', {
       const night = G.world.nights ? nightness(G.world.tick / TPS) : 0;
       this.halo.intensity = !below && e.state !== 'carried' ? night * 30 : 0;
       rep.body.rotation.x = e.state === 'down' ? -Math.PI / 2 * 0.95 : 0;
-      rep.body.position.y = e.state === 'down' ? 0.25 : e.state === 'chained' ? 0.5 + Math.sin(s * 2) * 0.1 : 0;
+      // hovering (the Hover he prayed for), he floats a hand above the ground
+      const floats = e.state === 'normal' && NS.hoverNow(G.world, e) > 1;
+      rep.body.position.y = e.state === 'down' ? 0.25 : e.state === 'chained' ? 0.5 + Math.sin(s * 2) * 0.1 : floats ? 0.35 + Math.sin(s * 4) * 0.05 : 0;
     }
     if (e.kind === 'building') {
       const grow = e.rising > 0 ? Math.max(0.06, 1 - e.rising / (NS.BUILD_SECONDS * TPS)) : 1;

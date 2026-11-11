@@ -728,7 +728,40 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   if (go({ t: 'enterDungeon' }).length) fail('a Priest could not go down again after a while');
   for (let i = 0; i < NS.DEEP_SECONDS * NS.TPS; i++) w.step([]);
   if (w.below.has(p.id)) fail('the deep air did not bring the Priest up');
-  console.log(`dungeons: ${seeds} dug, rooms of ${kinds.size} kinds, every chest in reach and one holding a Spell; down, out of reach, walked, the chest opened (${p.spell}), no cast below, out by the stairs, up again after ${NS.DEEP_SECONDS} s`);
+  // the Hover: prayed for standing still (a step breaks it off), then 1.8 times his pace while it lasts
+  {
+    const hw = skirmish(3), priest = hw.priestOf(NS.ME);
+    const cmd = (c) => { hw.step([{ player: NS.ME, ...c }]); return hw.drainEvents().filter((e) => e.what === 'rejected').length; };
+    if (!cmd({ t: 'hover', on: true })) fail('a Priest hovered without the Hover');
+    cmd({ t: 'prayHover' });
+    cmd({ t: 'steerPriest', vx: 100, vy: 0, lead: 0 });
+    cmd({ t: 'steerPriest', vx: 0, vy: 0, lead: 0 });
+    if (hw.hover.get(priest.id).pray !== 0 || hw.hover.get(priest.id).charge !== 0) fail('a step did not break the prayer for the Hover off');
+    cmd({ t: 'prayHover' });
+    for (let i = 0; i < NS.HOVER_PRAY_SECONDS * NS.TPS; i++) hw.step([]);
+    const h = hw.hover.get(priest.id);
+    if (h.charge !== NS.HOVER_SECONDS * NS.TPS) fail(`the Hover prayed for: ${JSON.stringify(h)}`);
+    const dug = NS.digDungeon(hw, NS.ME, 3);
+    Object.assign(priest, { x: dug.x - 1, y: dug.y, path: [] });
+    hw.walking.delete(priest.id);
+    cmd({ t: 'enterDungeon' });
+    const hb = hw.below.get(priest.id), dash = (on) => {
+      Object.assign(hb, { x: (dug.arrive[0] + 0.5) * NS.WALK_SUB, y: (dug.arrive[1] + 0.5) * NS.WALK_SUB, vx: 0, vy: 0 });
+      cmd({ t: 'hover', on });
+      const sx = dug.stairs[0] - dug.arrive[0], sy = dug.stairs[1] - dug.arrive[1], x0 = hb.x, y0 = hb.y;
+      cmd({ t: 'steerPriest', vx: -sx * 100, vy: -sy * 100, lead: 0 });
+      hw.step([]);
+      cmd({ t: 'steerPriest', vx: 0, vy: 0, lead: 0 });
+      return Math.hypot(hb.x - x0, hb.y - y0);
+    };
+    const walk = dash(false), left = h.charge, fly = dash(true);
+    if (Math.abs(fly / walk - NS.HOVER_PACE) > 0.05 || h.charge >= left || !(h.charge > left - 5)) fail(`hovering: ${JSON.stringify({ walk, fly, left, h })}`);
+    h.charge = 1;
+    cmd({ t: 'steerPriest', vx: 0, vy: 100, lead: 0 });
+    hw.step([]);
+    if (h.on || h.charge !== 0 || NS.hoverNow(hw, priest) !== 1) fail(`the Hover spent: ${JSON.stringify(h)}`);
+  }
+  console.log(`dungeons: ${seeds} dug, rooms of ${kinds.size} kinds, every chest in reach and one holding a Spell; down, out of reach, walked, the chest opened (${p.spell}), no cast below, out by the stairs, up again after ${NS.DEEP_SECONDS} s; the Hover prayed for, 1.8 times his pace, spent`);
 }
 
 console.log(`check passed: ${played}`);

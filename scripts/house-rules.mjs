@@ -2294,7 +2294,8 @@ export function cellHash(x: number, y: number, s: number): number {
     return;
   }
 
-  advance(world, p, PRIEST_SPEED);`,
+  // (netstorm-3d) hovering, he goes faster by the grid too
+  advance(world, p, PRIEST_SPEED * (p.path.length ? hoverPace(world, p) : 1));`,
 }, {
   file: 'rules/priest.ts',
   why: 'walking by hand',
@@ -2462,14 +2463,15 @@ function walkByHand(world: World, p: Priest): boolean {
   p.goal = p.carrying === null ? 'idle' : 'home';
   p.target = null;
   const lead = next ? next.lead / 100 : 1;
-  let at = walkStep(world, p, s.x, s.y, s.vx, s.vy, lead);
+  const pace = hoverPace(world, p);
+  let at = walkStep(world, p, s.x, s.y, s.vx, s.vy, lead * pace);
 
   if (next) {
     s.vx = next.vx;
     s.vy = next.vy;
 
     if (!at.ride && lead < 1) {
-      at = walkStep(world, p, at.x, at.y, s.vx, s.vy, 1 - lead);
+      at = walkStep(world, p, at.x, at.y, s.vx, s.vy, (1 - lead) * pace);
     }
   }
 
@@ -2749,6 +2751,8 @@ CHANGES.push({
   /** (netstorm-3d) Priests below, by id: the dungeon (its index), where they stand in 1/WALK_SUB of
    * a tile, the way they are steered, an order of this tick, the tick they went down. */
   below = new Map<number, { dungeon: number; x: number; y: number; vx: number; vy: number; next: { vx: number; vy: number; lead: number; } | null; since: number; }>();
+  /** (netstorm-3d) The Priests' Hover, by id: ticks of it left, whether he hovers, ticks of its prayer left. */
+  hover = new Map<number, { charge: number; on: boolean; pray: number; }>();
   /** (netstorm-3d) The tick each Priest last climbed out of a dungeon. */
   surfaced = new Map<number, number>();
   /** (netstorm-3d) The hit points left to the lifts that have been hit, by the key of the cells they join. */`,
@@ -2817,7 +2821,11 @@ export const PORTAL_FOOT = 2;
       case 'leaveDungeon':
         return leaveDungeon(this, c);
       case 'openChest':
-        return openChest(this, c);`,
+        return openChest(this, c);
+      case 'prayHover':
+        return prayHover(this, c);
+      case 'hover':
+        return setHover(this, c);`,
 }, {
   file: 'world.ts',
   why: 'dungeons',
@@ -2830,6 +2838,8 @@ export const PORTAL_FOOT = 2;
   enterDungeon,
   leaveDungeon,
   openChest,
+  prayHover,
+  setHover,
 } from './rules/priest.js';`,
 }, {
   file: 'world.ts',
@@ -2860,7 +2870,10 @@ import { PORTAL_FOOT, type Dungeon } from '../world.js';`,
   if (walkByHand(world, p)) {
     return;
   }`,
-  now: `  // (netstorm-3d) below, in a dungeon
+  now: `  // (netstorm-3d) his prayer for the Hover goes on while he stands
+  hoverPray(world, p);
+
+  // (netstorm-3d) below, in a dungeon
   if (delve(world, p)) {
     return;
   }
@@ -2990,31 +3003,50 @@ export function digDungeon(world: World, owner: number, seed: number): Dungeon |
   rooms.forEach((r, i) => { r.kind = i === 0 ? 'entry' : kinds[(i - 1) % kinds.length]!; });
 
   for (const r of rooms) {
-    for (let y = r.y; y < r.y + r.h; y++) {
-      for (let x = r.x; x < r.x + r.w; x++) {
-        tiles[y * N + x] = TILE.floor;
+    // caves, not chambers: a room is a ragged blob about its middle, bulging a tile past its
+    // bounds here and short of them there (the entry, where the stairs stand, is squarer)
+    const within = (x: number, y: number) => {
+      const nx = (x + 0.5 - (r.x + r.w / 2)) / (r.w / 2), ny = (y + 0.5 - (r.y + r.h / 2)) / (r.h / 2);
+      return nx * nx + ny * ny;
+    };
+
+    for (let y = r.y - 1; y <= r.y + r.h; y++) {
+      for (let x = r.x - 1; x <= r.x + r.w; x++) {
+        const inside = x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+
+        if (r.kind === 'entry' ? inside && within(x, y) < 1.5 + rand() * 0.4 : within(x, y) < 0.75 + rand() * 0.55) {
+          tiles[y * N + x] = TILE.floor;
+        }
       }
     }
 
     const cx = r.x + (r.w >> 1), cy = r.y + (r.h >> 1);
+    const floorAt = (x: number, y: number) => tiles[y * N + x] === TILE.floor;
 
-    // a hall's two rows of pillars, a shrine's four, a pool in the middle of a pool room
+    // a hall's columns stand where they will, a shrine's stones about its middle, a pool is a blob
     if (r.kind === 'hall') {
-      for (let x = r.x + 1; x < r.x + r.w - 1; x += 2) {
-        for (const y of [r.y + 1, r.y + r.h - 2]) {
-          if (x !== cx) {
-            tiles[y * N + x] = TILE.pillar;
-          }
+      for (let k = 0; k < Math.floor((r.w * r.h) / 8); k++) {
+        const x = r.x + Math.floor(rand() * r.w), y = r.y + Math.floor(rand() * r.h);
+        const lone = DIRS.every(([dx, dy]) => tiles[(y + dy!) * N + x + dx!] !== TILE.pillar);
+
+        if (floorAt(x, y) && lone && (x !== cx || y !== cy)) {
+          tiles[y * N + x] = TILE.pillar;
         }
       }
     } else if (r.kind === 'shrine') {
       for (const [x, y] of [[r.x + 1, r.y + 1], [r.x + r.w - 2, r.y + 1], [r.x + 1, r.y + r.h - 2], [r.x + r.w - 2, r.y + r.h - 2]]) {
-        tiles[y! * N + x!] = TILE.pillar;
+        const jx = x! + (rand() < 0.4 ? Math.sign(cx - x!) : 0), jy = y! + (rand() < 0.4 ? Math.sign(cy - y!) : 0);
+
+        if (floorAt(jx, jy) && (jx !== cx || jy !== cy)) {
+          tiles[jy * N + jx] = TILE.pillar;
+        }
       }
     } else if (r.kind === 'pool') {
-      for (let y = r.y + 2; y < r.y + r.h - 2; y++) {
-        for (let x = r.x + 2; x < r.x + r.w - 2; x++) {
-          tiles[y * N + x] = TILE.water;
+      for (let y = r.y + 1; y < r.y + r.h - 1; y++) {
+        for (let x = r.x + 1; x < r.x + r.w - 1; x++) {
+          if (floorAt(x, y) && within(x, y) < 0.22 + rand() * 0.2) {
+            tiles[y * N + x] = TILE.water;
+          }
         }
       }
     }
@@ -3026,7 +3058,14 @@ export function digDungeon(world: World, owner: number, seed: number): Dungeon |
   const dig = (a: Dungeon['rooms'][number], b: Dungeon['rooms'][number]) => {
     const [ax, ay] = centre(a), [bx, by] = centre(b);
     const across = rand() < 0.5;
-    const cut = (x: number, y: number) => { tiles[y * N + x] = TILE.floor; };
+    // (a passage widens here and there)
+    const cut = (x: number, y: number) => {
+      tiles[y * N + x] = TILE.floor;
+
+      if (rand() < 0.22) {
+        tiles[rand() < 0.5 ? y * N + x + 1 : (y + 1) * N + x] = TILE.floor;
+      }
+    };
 
     if (across) {
       for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); x++) cut(x, ay);
@@ -3113,10 +3152,7 @@ export function digDungeon(world: World, owner: number, seed: number): Dungeon |
 
     for (let y = r.y; y < r.y + r.h; y++) {
       for (let x = r.x; x < r.x + r.w; x++) {
-        const edge = x === r.x || y === r.y || x === r.x + r.w - 1 || y === r.y + r.h - 1;
-        const corner = (x === r.x || x === r.x + r.w - 1) && (y === r.y || y === r.y + r.h - 1);
-
-        if (!edge || corner || tiles[y * N + x] !== TILE.floor || far[y * N + x] < 0) {
+        if (tiles[y * N + x] !== TILE.floor || far[y * N + x] < 0) {
           continue;
         }
 
@@ -3129,7 +3165,7 @@ export function digDungeon(world: World, owner: number, seed: number): Dungeon |
           other += t !== TILE.rock && t !== TILE.floor ? 1 : 0;
         }
 
-        if (rock === 1 && other === 0) {
+        if (rock >= 1 && rock <= 2 && other === 0) {
           spots.push([x, y, far[y * N + x]]);
         }
       }
@@ -3331,6 +3367,84 @@ export function openChest(world: World, c: { player: number; chest: number; }): 
   return null;
 }
 
+/* oxlint-disable no-magic-numbers -- netstorm-3d's Hover */
+/** (netstorm-3d) The Hover: a Priest prays for it HOVER_PRAY_SECONDS standing still (a step breaks
+ * the prayer off) and has HOVER_SECONDS of it; hovering, he floats a hand above the ground and
+ * goes HOVER_PACE times his pace, on the islands and below, and it runs down only while he moves. */
+export const HOVER_PRAY_SECONDS = 12;
+export const HOVER_SECONDS = 30;
+export const HOVER_PACE = 1.8;
+/* oxlint-enable no-magic-numbers */
+
+/** (netstorm-3d) The player's Priest prays for the Hover. */
+export function prayHover(world: World, c: { player: number; }): CommandError | null {
+  const p = world.priestOf(c.player);
+
+  if (!p || p.state !== 'normal' || p.casting > 0 || p.praying > 0) {
+    return 'priest unavailable';
+  }
+
+  const h = world.hover.get(p.id) ?? { charge: 0, on: false, pray: 0 };
+  h.pray = HOVER_PRAY_SECONDS * TPS;
+  h.on = false;
+  world.hover.set(p.id, h);
+  return null;
+}
+
+/** (netstorm-3d) The player's Priest hovers, or sets his feet down again. */
+export function setHover(world: World, c: { player: number; on?: boolean; }): CommandError | null {
+  const p = world.priestOf(c.player), h = p ? world.hover.get(p.id) : undefined;
+
+  if (!p || !h || (c.on !== false && (h.charge <= 0 || h.pray > 0))) {
+    return 'not ready';
+  }
+
+  h.on = c.on !== false;
+  return null;
+}
+
+/** (netstorm-3d) A tick of a Priest's prayer for the Hover: it goes on while he stands still. */
+function hoverPray(world: World, p: Priest): void {
+  const h = world.hover.get(p.id);
+
+  if (!h || h.pray <= 0) {
+    return;
+  }
+
+  const s = world.below.get(p.id) ?? world.walking.get(p.id);
+  const steered = s !== undefined && (s.vx !== 0 || s.vy !== 0 || (s.next !== null && (s.next.vx !== 0 || s.next.vy !== 0)));
+
+  if (p.path.length > 0 || steered || p.casting > 0) {
+    h.pray = 0;
+    world.emit({ what: 'hover', who: p.owner, data: { priest: p.id, broken: true } });
+  } else if (--h.pray === 0) {
+    h.charge = HOVER_SECONDS * TPS;
+    world.emit({ what: 'hover', who: p.owner, data: { priest: p.id, ready: true } });
+  }
+}
+
+/** (netstorm-3d) How many times his pace a Priest goes now: HOVER_PACE hovering, else 1. */
+export function hoverNow(world: World, p: Priest): number {
+  const h = world.hover.get(p.id);
+  return h && h.on && h.charge > 0 && h.pray === 0 ? HOVER_PACE : 1;
+}
+
+/** (netstorm-3d) The pace of a Priest who moves this tick; hovering, a tick of the Hover is spent. */
+function hoverPace(world: World, p: Priest): number {
+  const h = world.hover.get(p.id);
+
+  if (!h || hoverNow(world, p) === 1) {
+    return 1;
+  }
+
+  if (--h.charge === 0) {
+    h.on = false;
+    world.emit({ what: 'hover', who: p.owner, data: { priest: p.id, spent: true } });
+  }
+
+  return HOVER_PACE;
+}
+
 /** (netstorm-3d) A tick of a Priest below; true while he is below. */
 function delve(world: World, p: Priest): boolean {
   const b = world.below.get(p.id);
@@ -3349,14 +3463,16 @@ function delve(world: World, p: Priest): boolean {
   const next = b.next;
   b.next = null;
   const lead = next ? next.lead / 100 : 1;
-  let at = caveStep(d, b.x, b.y, b.vx, b.vy, lead);
+  const moves = b.vx !== 0 || b.vy !== 0 || (next !== null && (next.vx !== 0 || next.vy !== 0));
+  const pace = moves ? hoverPace(world, p) : 1;
+  let at = caveStep(d, b.x, b.y, b.vx, b.vy, lead * pace);
 
   if (next) {
     b.vx = next.vx;
     b.vy = next.vy;
 
     if (lead < 1) {
-      at = caveStep(d, at.x, at.y, b.vx, b.vy, 1 - lead);
+      at = caveStep(d, at.x, at.y, b.vx, b.vy, (1 - lead) * pace);
     }
   }
 
@@ -3429,6 +3545,10 @@ export function movePriest(`,
   DEEP_SECONDS,
   REENTER_SECONDS,
   DUNGEON_REACH,
+  hoverNow,
+  HOVER_PACE,
+  HOVER_SECONDS,
+  HOVER_PRAY_SECONDS,
 } from './rules/priest.js';`,
 });
 
