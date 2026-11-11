@@ -259,6 +259,7 @@ AFRAME.registerComponent('ns-unit', {
       }
       const night = G.world.nights ? nightness(G.world.tick / TPS) : 0;
       this.halo.intensity = !below && e.state !== 'carried' ? night * 30 : 0;
+      this.ritual(e, s, dt);
       rep.body.rotation.x = e.state === 'down' ? -Math.PI / 2 * 0.95 : 0;
       // hovering (the Hover he prayed for), he floats a hand above the ground
       const floats = e.state === 'normal' && NS.hoverNow(G.world, e) > 1;
@@ -343,6 +344,71 @@ AFRAME.registerComponent('ns-unit', {
     this.anim.scale.y = e.kind === 'building' && e.rising > 0 ? Math.max(0.06, 1 - e.rising / (NS.BUILD_SECONDS * TPS)) : 1;
     this.anim.visible = visible;
     this.anim.quaternion.copy(cameraTurn(this.el.sceneEl, t));
+  },
+
+  /**
+   * The Sacrifice, seen. Five runes stand in a ring about a captive chained to an Altar; the Priest
+   * performing it stands by the Altar, turns to the rune he is warding, his staff raised and a
+   * beam from it on the rune, which shrinks as he wards it and is gone when it is warded: one
+   * rune fewer each time, until none is left.
+   */
+  ritual(e, s, dt) {
+    const RUNES = NS.RUNES ?? 5, EVERY = NS.RUNE_INTERVAL ?? 15 * TPS, ring = (i) => (i / RUNES) * Math.PI * 2 + 0.6, R = 3.3, UP = 2.6;
+    if (e.state === 'chained') {
+      if (!this.runes) {
+        this.runes = new THREE.Group();
+        // (drawn over the Altar, which is a broad picture in the sprites' view)
+        const geo = new THREE.BoxGeometry(0.5, 0.78, 0.08), mat = new THREE.MeshBasicMaterial({ color: '#ffd27a', depthTest: false, transparent: true });
+        for (let i = 0; i < RUNES; i++) {
+          const m = new THREE.Mesh(geo, mat);
+          m.position.set(Math.cos(ring(i)) * R, UP, Math.sin(ring(i)) * R);
+          m.renderOrder = 20;
+          m.rotation.y = -ring(i) + Math.PI / 2;
+          this.runes.add(m);
+        }
+        this.el.object3D.add(this.runes);
+      }
+      this.runes.visible = true;
+      this.runes.children.forEach((m, i) => {
+        m.visible = i >= e.runes;
+        const now = i === e.runes && e.runeTimer > 0, k = now ? 1 - 0.7 * (e.runeTimer / EVERY) : 1;
+        m.scale.setScalar(k * (now ? 1 + Math.sin(s * 14) * 0.08 : 1));
+        m.position.y = UP + Math.sin(s * 1.5 + i) * 0.06;
+      });
+    } else if (this.runes) this.runes.visible = false;
+    // performing it: by his Altar, by day, a captive chained there
+    let captive = null;
+    if (e.state === 'normal' && !G.world.isNight()) {
+      for (const c of G.view.entities.values()) {
+        if (c.kind !== 'priest' || c.state !== 'chained' || c.chainedAt === null) continue;
+        const altar = G.view.entities.get(c.chainedAt);
+        if (altar?.owner === e.owner && altar.hp > 0 && G.world.adjacentTo(e.x, e.y, altar)) captive = c;
+      }
+    }
+    const rep = this.rep, was = rep.ritual;
+    rep.ritual = !!captive;
+    if (rep.ritual && !was) this.el.sceneEl.systems['ns-sound']?.play('shortzap', this.el.object3D.position);
+    if (!captive) { if (this.beam) this.beam.visible = false; return; }
+    const there = this.el.sceneEl.systems['ns-game'].units()?.byId.get(captive.id)?.object3D.position;
+    if (!there) return;
+    const a = ring(Math.min(captive.runes, RUNES - 1)), me = this.el.object3D.position;
+    const rune = new THREE.Vector3(there.x + Math.cos(a) * R - me.x, there.y + UP - me.y, there.z + Math.sin(a) * R - me.z);
+    // he turns to the rune
+    let turn = Math.atan2(rune.x, rune.z) - rep.yaw;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    rep.yaw += turn * Math.min(1, dt / 150);
+    this.model.rotation.y = rep.yaw;
+    // the beam from his staff to it
+    if (!this.beam) {
+      this.beam = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1, 5), new THREE.MeshBasicMaterial({ color: '#fff0b0', transparent: true, opacity: 0.8, depthWrite: false, depthTest: false }));
+      this.beam.renderOrder = 19;
+      this.el.object3D.add(this.beam);
+    }
+    const from = new THREE.Vector3(0, 1.7, 0), len = from.distanceTo(rune);
+    this.beam.visible = captive.runeTimer > 0;
+    this.beam.position.copy(from).add(rune).multiplyScalar(0.5);
+    this.beam.scale.set(1 + Math.sin(s * 20) * 0.3, len, 1 + Math.sin(s * 20) * 0.3);
+    this.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), rune.clone().sub(from).normalize());
   },
 
   /** How high an air ship's sprite is drawn, gently bobbing; its shadow shown on the ground. */

@@ -678,16 +678,16 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     const again = NS.digDungeon(skirmish(seed), NS.ME, seed);
     if (JSON.stringify(again.tiles) !== JSON.stringify(d.tiles) || again.x !== d.x || again.y !== d.y) fail(`seed ${seed} dug two dungeons`);
     if (process.env.DUNGEON_MAP === String(seed)) console.log(map(d), JSON.stringify(d.rooms), d.arrive);
-    if (d.rooms.length < 6 || d.chests.length < 2 || d.chests.filter((c) => c.holds.length).length !== 1) fail(`seed ${seed}: ${d.rooms.length} rooms, chests ${JSON.stringify(d.chests)}`);
+    if (d.rooms.length < 6 || d.chests.length < 2 || d.chests.filter((c) => c.role === 'spell').length !== 1 || !d.things.some((t) => t.kind === 'tunnel')) fail(`seed ${seed}: ${d.rooms.length} rooms, chests ${JSON.stringify(d.chests)}`);
     for (const r of d.rooms) kinds.add(r.kind);
     // every chest has a floor tile beside it the stairs reach
     const N = d.w, seen = new Uint8Array(N * N), q = [d.arrive[1] * N + d.arrive[0]];
     seen[q[0]] = 1;
     for (let h = 0; h < q.length; h++) {
       const i = q[h], x = i % N, y = (i / N) | 0;
-      for (const [dx, dy] of NS.DIRS) { const j = (y + dy) * N + x + dx; if (!seen[j] && d.tiles[j] === NS.TILE.floor) { seen[j] = 1; q.push(j); } }
+      for (const [dx, dy] of NS.DIRS) { const j = (y + dy) * N + x + dx; if (!seen[j] && (d.tiles[j] === NS.TILE.floor || d.tiles[j] === NS.TILE.pit)) { seen[j] = 1; q.push(j); } }
     }
-    for (const c of d.chests) if (!NS.DIRS.some(([dx, dy]) => seen[(c.y + dy) * N + c.x + dx])) fail(`seed ${seed}: chest ${c.id} out of reach`);
+    for (const c of [...d.chests, ...d.things]) if (!NS.DIRS.some(([dx, dy]) => seen[(c.y + dy) * N + c.x + dx])) fail(`seed ${seed}: ${c.kind ?? 'chest'} ${c.id} out of reach`);
     for (const r of d.rooms) if (!seen[(r.y + (r.h >> 1)) * N + r.x + (r.w >> 1)] && d.tiles[(r.y + (r.h >> 1)) * N + r.x + (r.w >> 1)] === NS.TILE.floor) fail(`seed ${seed}: a ${r.kind} room out of reach`);
     if (!w.view().canBuild({ player: NS.ME, type: 'windbattery', x: d.x, y: d.y }) === null) fail('a Generator could be built on the portal');
     if (w.view().canBuild({ player: NS.ME, type: 'windbattery', ...NS.anchorFor(w.def('windbattery'), d.x, d.y) }) === null) fail(`seed ${seed}: a Generator could be built on the portal`);
@@ -713,7 +713,7 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   if (d.tiles[ty * d.w + tx] !== NS.TILE.floor || d.tiles[ty * d.w + tx + 1] === NS.TILE.floor || b.x === d.arrive[0] * NS.WALK_SUB + NS.WALK_SUB / 2) fail(`a Priest below walked ${JSON.stringify({ tx, ty, b })}`);
   go({ t: 'steerPriest', vx: 0, vy: 0, lead: 0 });
   // the chest with a Spell: too far to open, then beside it
-  const chest = d.chests.find((c) => c.holds.length);
+  const chest = d.chests.find((c) => c.role === 'spell');
   if (!go({ t: 'openChest', chest: chest.id }).length) fail('a chest far off was opened');
   const beside = NS.DIRS.map(([dx, dy]) => [chest.x + dx, chest.y + dy]).find(([x, y]) => d.tiles[y * d.w + x] === NS.TILE.floor);
   Object.assign(b, { x: beside[0] * NS.WALK_SUB + NS.WALK_SUB / 2, y: beside[1] * NS.WALK_SUB + NS.WALK_SUB / 2 });
@@ -761,7 +761,67 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     hw.step([]);
     if (h.on || h.charge !== 0 || NS.hoverNow(hw, priest) !== 1) fail(`the Hover spent: ${JSON.stringify(h)}`);
   }
-  console.log(`dungeons: ${seeds} dug, rooms of ${kinds.size} kinds, every chest in reach and one holding a Spell; down, out of reach, walked, the chest opened (${p.spell}), no cast below, out by the stairs, up again after ${NS.DEEP_SECONDS} s; the Hover prayed for, 1.8 times his pace, spent`);
+  // what the dungeons give and take: the vault and its key, a tunnel to the enemy's dungeon, the
+  // roots of his Generators, a pit only the Hover crosses, a lurker's bite, and a charge under the Altar
+  {
+    const dw = skirmish(4), mine = NS.digDungeon(dw, NS.ME, 4), his = NS.digDungeon(dw, 2, 5), pr = dw.priestOf(NS.ME);
+    const cmd = (c) => { dw.step([{ player: NS.ME, ...c }]); return dw.drainEvents().filter((e) => e.what === 'rejected').length; };
+    for (const u of [mine, his]) u.lurkers.length = 0;
+    Object.assign(pr, { x: mine.x - 1, y: mine.y, path: [] });
+    cmd({ t: 'enterDungeon' });
+    const bb = dw.below.get(pr.id), by = (u, c) => { const [x, y] = NS.DIRS.map(([dx, dy]) => [c.x + dx, c.y + dy]).find(([ux, uy]) => u.tiles[uy * u.w + ux] === NS.TILE.floor); Object.assign(bb, { x: (x + 0.5) * NS.WALK_SUB, y: (y + 0.5) * NS.WALK_SUB }); };
+    const vault = mine.chests.find((c) => c.role === 'vault'), key = mine.chests.find((c) => c.role === 'key'), storm = () => dw.players.get(NS.ME).storm;
+    if (vault && key) {
+      by(mine, vault);
+      if (!cmd({ t: 'openChest', chest: vault.id })) fail('the vault opened without its key');
+      by(mine, key);
+      cmd({ t: 'openChest', chest: key.id });
+      by(mine, vault);
+      const had = storm();
+      if (cmd({ t: 'openChest', chest: vault.id }) || storm() - had !== 400 || !dw.relics.get(NS.ME)) fail(`the vault with its key: ${storm() - had}, ${JSON.stringify(dw.relics.get(NS.ME))}`);
+    }
+    by(mine, mine.things.find((t) => t.kind === 'tunnel'));
+    if (cmd({ t: 'useThing', thing: mine.things.find((t) => t.kind === 'tunnel').id }) || bb.dungeon !== 1) fail('the tunnel did not lead to the enemy dungeon');
+    const roots = his.things.find((t) => t.kind === 'roots');
+    if (roots) {
+      by(his, roots);
+      if (cmd({ t: 'useThing', thing: roots.id }) || !(dw.blackout.get(2) > dw.tick)) fail('a charge at the roots did not put the Generators out');
+    }
+    // a pit: not walked onto, flown over
+    const pit = his.tiles.indexOf(NS.TILE.pit);
+    if (pit >= 0) {
+      const px = pit % his.w, py = (pit / his.w) | 0, [dx, dy] = NS.DIRS.find(([ax, ay]) => his.tiles[(py + ay) * his.w + px + ax] === NS.TILE.floor);
+      const from = [(px + dx + 0.5) * NS.WALK_SUB, (py + dy + 0.5) * NS.WALK_SUB];
+      let walk = { x: from[0], y: from[1] }, fly = { x: from[0], y: from[1] };
+      for (let i = 0; i < 12; i++) { walk = NS.caveStep(his, walk.x, walk.y, -dx * 100, -dy * 100, 1, false); fly = NS.caveStep(his, fly.x, fly.y, -dx * 100, -dy * 100, 1, true); }
+      const on = (q) => his.tiles[Math.floor(q.y / NS.WALK_SUB) * his.w + Math.floor(q.x / NS.WALK_SUB)];
+      if (on(walk) === NS.TILE.pit || (on(fly) === NS.TILE.floor && Math.hypot(fly.x - from[0], fly.y - from[1]) < NS.WALK_SUB)) fail(`a pit: ${JSON.stringify({ walk, fly })}`);
+    }
+    // a lurker by him bites
+    his.lurkers.push({ x: bb.x + 300, y: bb.y, hx: his.arrive[0], hy: his.arrive[1], sleep: 0 });
+    const whole = pr.hp;
+    dw.step([]);
+    if (whole - pr.hp !== 18) fail(`a lurker's bite took ${whole - pr.hp}`);
+    his.lurkers.length = 0;
+    // out by the enemy's stairs: on his island, by his portal
+    Object.assign(bb, { x: (his.arrive[0] + 0.5) * NS.WALK_SUB, y: (his.arrive[1] + 0.5) * NS.WALK_SUB });
+    if (cmd({ t: 'leaveDungeon' }) || Math.abs(pr.x - his.x) > 4 || Math.abs(pr.y - his.y) > 4) fail(`out by the enemy's stairs: ${[pr.x, pr.y]} by ${[his.x, his.y]}`);
+    // chained to the enemy's Altar; a Golem of his side stands by the enemy's portal: the charge frees him, knocked out
+    const t2 = dw.templeOf(2);
+    let altar = null;
+    for (let y = t2.y - 12; y < t2.y + 12 && !altar; y++) for (let x = t2.x - 12; x < t2.x + 12 && !altar; x++) if (dw.view().canBuild({ player: 2, type: 'altar', x, y }) === null) altar = dw.spawnBuilding('altar', 2, x, y, 0);
+    altar.rising = 0;
+    Object.assign(pr, { state: 'chained', chainedAt: altar.id, runes: 2, runeTimer: 0, x: altar.x, y: altar.y });
+    const spot = [[his.x - 1, his.y], [his.x + 2, his.y], [his.x, his.y - 1], [his.x, his.y + 2]].find(([x, y]) => !dw.takenBy(x, y));
+    const sapper = dw.spawnTransport('sunwalker', NS.ME, spot[0], spot[1]);
+    dw.drainEvents();
+    for (let i = 0; i < NS.SAP_SECONDS * NS.TPS - 5; i++) dw.step([]);
+    if (pr.state !== 'chained') fail('the charge went off early');
+    for (let i = 0; i < 10; i++) dw.step([]);
+    const blast = dw.drainEvents().some((e) => e.what === 'sap' && e.data.blast);
+    if (!blast || pr.state !== 'down' || pr.chainedAt !== null || !(altar.hp <= altar.hpMax / 2) || !dw.entities.has(sapper.id)) fail(`the charge under the Altar: ${JSON.stringify({ blast, state: pr.state, altar: altar.hp })}`);
+  }
+  console.log(`dungeons: ${seeds} dug, rooms of ${kinds.size} kinds, every chest in reach and one holding a Spell; down, out of reach, walked, the chest opened (${p.spell}), no cast below, out by the stairs, up again after ${NS.DEEP_SECONDS} s; the Hover prayed for, 1.8 times his pace, spent; a vault and its key, a tunnel, the roots, a pit, a lurker, a charge under the Altar`);
 }
 
 console.log(`check passed: ${played}`);

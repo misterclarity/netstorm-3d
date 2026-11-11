@@ -893,7 +893,21 @@ export class Hud {
         Below, nothing reaches him, but nor can he cast or pray, and the deep air is heavy: after
         ${NS.DEEP_SECONDS / 60} minutes he climbs out by himself, and he may go down again only after ${NS.REENTER_SECONDS} s.
         Back at the stairs, under the doorway of daylight, <kbd>E</kbd> takes him up. The caves are dark: only
-        what his light reaches is seen. At night, on the islands too,
+        what his light reaches is seen.</p>
+      <p>What glows can be used with <kbd>E</kbd>. <b>Chests</b>: Spells, Storm Power, the <b>key</b> of the red-glowing
+        <b>vault</b> (a relic that strengthens one Fury’s guns for ${NS.RELIC_SECONDS / 60} minutes, and Storm Power), and the moon’s
+        blue chest, which opens only at night; at each new moon the chests are filled again. A <b>pocket of air</b>
+        gives the deep’s time over again. A <b>shrine</b> gives a boon that stays (a stronger ward, a longer Hover,
+        more air). A great <b>crystal</b> charges the Spell he holds, at night: its next casting costs nothing. The
+        <b>valve</b> opens your geysers (half as much again for ${NS.VALVE_SECONDS} s). <b>Pits</b> only the Hover
+        crosses. Things <b>lurk</b> in the far caves and come for his light: <kbd>L</kbd> shades it (they find him only
+        close by, and he sees little), the Hover outruns them; a bite hurts, and below half his health he is dragged
+        out. A <b>tunnel</b> leads to the dungeon under the enemy’s island: there he can shut the enemy’s valve, set
+        a charge at the <b>roots of the enemy’s Generators</b> (out for ${NS.ROOTS_SECONDS} s), or climb out on the enemy’s island.</p>
+      <p><b>A charge under the Altar.</b> If your Priest is chained to the enemy’s Altar, send a Golem to the portal of
+        the dungeon on the enemy’s island: standing ${NS.SAP_SECONDS} s beside it, it sets a charge under the Altar. The
+        rite is broken and your Priest thrown clear, free but knocked out: fetch him before the enemy does. The
+        enemy can do the same to you: guard your portal. At night, on the islands too,
         a light is about him.</p>
       <h3>Capturing the enemy Priest</h3>
       <ol><li>Build guns within reach of the enemy Priest and knock him out: he falls when he is below half

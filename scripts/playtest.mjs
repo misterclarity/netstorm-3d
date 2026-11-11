@@ -1727,7 +1727,7 @@ SCENARIOS.dungeon = async () => {
   // the chest with a Spell: walked up to, opened with E; the Spell his
   await look('dungeon-chest', () => {
     const { G, NS } = window.NS3D, p = G.world.priestOf(NS.ME), b = G.world.below.get(p.id), d = G.world.dungeons[0], fp = document.querySelector('a-scene').systems['ns-fp'];
-    const c = d.chests.find((k) => k.holds.length);
+    const c = d.chests.find((k) => k.role === 'spell');
     const [x, y] = NS.DIRS.map(([dx, dy]) => [c.x + dx, c.y + dy]).find(([tx, ty]) => d.tiles[ty * d.w + tx] === NS.TILE.floor);
     b.x = (x + 0.5) * NS.WALK_SUB;
     b.y = (y + 0.5) * NS.WALK_SUB;
@@ -1776,6 +1776,44 @@ SCENARIOS.dungeon = async () => {
   await page.waitForTimeout(1500);
   await shot('dungeon-night-priest');
   console.log(`  a portal on the starting island, rooms ${portal.rooms.join(' ')}, ${portal.chests} chests; down, the chest's ${opened.spell} his, out by the stairs; his light at night ${halo.light.toFixed(1)}`);
+  return errors;
+};
+
+SCENARIOS.ritual = async () => {
+  const { page, errors } = await open({ width: 1100, height: 700 });
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  await page.click('#modal button.main');
+  await page.waitForTimeout(800);
+  // the enemy Priest chained to an Altar of yours, your Priest beside it: the Sacrifice
+  const set = await page.evaluate(() => {
+    const { G, NS, wx, wz } = window.NS3D, w = G.world, t = w.templeOf(NS.ME);
+    let altar = null;
+    for (let y = t.y - 12; y < t.y + 12 && !altar; y++) for (let x = t.x - 12; x < t.x + 12 && !altar; x++) if (w.view().canBuild({ player: NS.ME, type: 'altar', x, y }) === null) altar = w.spawnBuilding('altar', NS.ME, x, y, 0);
+    altar.rising = 0;
+    const foe = w.priestOf(2), me = w.priestOf(NS.ME);
+    Object.assign(foe, { state: 'chained', chainedAt: altar.id, runes: 0, runeTimer: 0, x: altar.x + (altar.fx >> 1), y: altar.y + (altar.fy >> 1), path: [] });
+    const spot = [];
+    for (let x = altar.x - 1; x <= altar.x + altar.fx; x++) for (const y of [altar.y - 1, altar.y + altar.fy]) if (w.walkable(NS.ME, x, y) && !w.takenBy(x, y)) spot.push([x, y]);
+    Object.assign(me, { x: spot[0][0], y: spot[0][1], path: [], goal: 'idle' });
+    document.getElementById('camera').components['orbit-rig'].focus(wx(altar.x + 2), wz(altar.y + 2), 16);
+    return { altar: altar.id, foe: foe.id, me: me.id };
+  });
+  const seen = () => page.evaluate(({ foe, me }) => {
+    const { G, game } = window.NS3D, c = game.units().byId.get(foe).components['ns-unit'], m = game.units().byId.get(me).components['ns-unit'];
+    return { runes: G.world.entities.get(foe).runes, shown: c.runes?.visible ? c.runes.children.filter((r) => r.visible).length : -1, ritual: !!m.rep.ritual, beam: !!m.beam?.visible, played: [...document.querySelector('a-scene').systems['ns-sound'].played] };
+  }, set);
+  await page.waitForFunction(({ foe }) => window.NS3D.G.world.entities.get(foe).runeTimer > 20, set, { timeout: 60000 });
+  const first = await seen();
+  if (first.shown !== 5 || !first.ritual || !first.beam) throw new Error(`the Sacrifice is not shown: ${JSON.stringify(first)}`);
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/ritual.png` });
+  await page.evaluate(() => { window.NS3D.G.speed = 4; });
+  await page.waitForFunction(({ foe }) => window.NS3D.G.world.entities.get(foe).runes >= 2, set, { timeout: 120000 });
+  // (the view draws only now and then in a headless browser: wait for it to show the rune gone)
+  await page.waitForFunction(({ foe }) => { const c = window.NS3D.game.units().byId.get(foe).components['ns-unit'], e = window.NS3D.G.world.entities.get(foe); return c.runes.children.filter((r) => r.visible).length === 5 - e.runes; }, set, { timeout: 30000 }).catch(() => {});
+  const later = await seen();
+  if (later.shown !== 5 - later.runes || !later.played.includes('dissolve')) throw new Error(`the runes do not go one by one, with their sound: ${JSON.stringify(later)}`);
+  console.log(`  five runes about the captive, the Priest turned to the first with his beam on it; ${later.runes} warded, ${later.shown} left, each with its sound`);
   return errors;
 };
 

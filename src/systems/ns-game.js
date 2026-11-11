@@ -273,6 +273,7 @@ AFRAME.registerSystem('ns-game', {
         case 'dungeon':
           if (!mine) break;
           if (ev.data.down) hud.log('Your Priest went down into the dungeon', 'good');
+          else if (ev.data.why === 'lurker') { hud.toast('Your Priest was dragged out of the dungeon, more dead than alive', 'bad'); hud.log('Your Priest was driven out of the dungeon', 'bad'); }
           else if (ev.data.why === 'air') { hud.toast('The deep air drove your Priest back up: he may go down again in a while', 'bad'); hud.log('Your Priest climbed out of the dungeon, short of air'); }
           else hud.log('Your Priest climbed out of the dungeon');
           break;
@@ -284,8 +285,32 @@ AFRAME.registerSystem('ns-game', {
           break;
         case 'chest':
           if (!mine) break;
-          if (ev.data.holds.length) { hud.toast(`In the chest: the ${spellName(ev.data.holds[0])}! Your Priest holds it now`, 'good'); hud.log(`Your Priest found the ${spellName(ev.data.holds[0])} in a chest`, 'good'); }
-          else hud.toast('The chest is empty, for now');
+          for (const loot of ev.data.holds) {
+            const [what, arg] = loot.split(':');
+            const text = what === 'storm' ? `⚡${arg} Storm Power` : what === 'relic' ? `a relic of ${arg[0].toUpperCase()}${arg.slice(1)}: its guns hit ×${NS.RELIC_HIT} for ${NS.RELIC_SECONDS / 60} minutes` : what === 'key' ? 'the key of the vault' : `the ${spellName(loot)}, which he holds now`;
+            hud.toast(`In the chest: ${text}`, 'good');
+            hud.log(`Your Priest found ${text} in a chest`, 'good');
+          }
+          if (!ev.data.holds.length) hud.toast('The chest is empty');
+          break;
+        case 'thing': {
+          const k = ev.data.kind, foe = ev.data.foe;
+          if (mine) hud.log({ tunnel: 'Your Priest went through the tunnel', air: 'Your Priest breathed good air', crystal: 'The crystal charged your Priest’s Spell: its next casting costs nothing', valve: foe ? 'Your Priest shut the valve of the enemy’s geysers' : 'Your Priest opened the valve of your geysers', roots: 'A charge at their roots put the enemy’s Generators out', shrine: 'Your Priest prayed at the shrine' }[k] ?? 'Done', 'good');
+          else if (ev.data.owner === ME && (k === 'roots' || k === 'valve')) hud.toast(k === 'roots' ? 'A charge under your island put your Generators out!' : 'The valve of your geysers was shut from below!', 'bad');
+          break;
+        }
+        case 'boon':
+          if (mine) hud.toast({ ward: `The shrine’s boon: his ward is stronger (no hit takes more than ${NS.PRIEST_WARD_BOON})`, hover: 'The shrine’s boon: his Hover lasts twice as long', air: 'The shrine’s boon: a minute more of the deep air' }[ev.data.boon], 'good');
+          break;
+        case 'lurker': if (mine) hud.toast('Something bit your Priest in the dark! Shade the light (L) or outrun it (the Hover)', 'bad'); break;
+        case 'pit': if (mine) hud.toast('The Hover gave out over the pit: your Priest fell, and was washed back to the stairs', 'bad'); break;
+        case 'sap':
+          if (ev.data.start) hud.toast(mine ? `Your Golem is setting a charge under the Altar: ${NS.SAP_SECONDS} s by the portal` : 'An enemy Golem at your dungeon’s portal is setting a charge under your Altar!', mine ? 'good' : 'bad');
+          else if (ev.data.broken) hud.toast(mine ? 'The charge was not set: your Golem left the portal' : 'The charge under your Altar was not set');
+          else if (ev.data.blast) {
+            fx?.explode({ kind: 'building', foot: [3] }, new THREE.Vector3(wx(ev.data.x + 1), groundAt(ev.data.x + 1, ev.data.y + 1), wz(ev.data.y + 1)));
+            hud.toast(mine ? 'The charge went off under the Altar: your Priest is free, but knocked out. Fetch him!' : 'A charge went off under your Altar: the captive is thrown clear', mine ? 'good' : 'bad');
+          }
           break;
         // a lift spent by the hits on its riders bursts as a building does, and its bridge falls
         case 'lift destroyed': {

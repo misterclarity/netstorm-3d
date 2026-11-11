@@ -270,7 +270,8 @@ AFRAME.registerSystem('ns-sound', {
       case 'captured': this.play(mine ? 'enemypriestcaptured' : 'ourpriestcaptured'); break;
       case 'priest down': if (mine) this.play('ourpriestimmobile'); break;
       case 'released': this.play('priestfree'); break;
-      case 'chained': for (const name of SACRIFICE_SOUNDS) this.load(name); break; // ready for the end
+      case 'chained': for (const name of [...SACRIFICE_SOUNDS, 'dissolve', 'shortzap']) this.load(name); break; // ready for the rite
+      case 'rune': this.play('dissolve', positionOf(d.priest)); break; // a rune warded: it is gone
       case 'sacrifice': {
         const upgrade = d.gift === NS.GIFT_UPGRADE;
         this.later(upgrade ? 'priestsacrifice4' : 'priestsacrifice2', upgrade ? SACRIFICE.upgradeCry : SACRIFICE.cry);

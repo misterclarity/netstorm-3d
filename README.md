@@ -134,6 +134,26 @@ The main menu offers two kinds of battle against netstorm-web's computer opponen
   looks through the eyes of a Priest down in it. Every Priest also carries a **light at night**.
   Islands of their own with harder dungeons, entered from the side or from the layer below, are
   to come: a dungeon's `side` says from where.
+- **What the dungeons give and take.** Every side's island has a dungeon, and a **tunnel** in
+  the deepest cave of each leads to the next one's. **Chests**: a Spell; Storm Power; the **key**
+  of the red **vault** (a relic that makes one Fury's guns hit ×1.25 for three minutes, and Storm
+  Power); the moon's blue chest, which opens only at night; all filled again at each new moon.
+  **Things** (each glows; E uses it): a pocket of **air** (the deep's time over again), a
+  **shrine** (a boon that stays: a ward of 20, a Hover twice as long, a minute more air), a great
+  **crystal** (at night it charges the Spell he holds: its next casting is free), the geysers'
+  **valve** (the island's owner mines half as much again for 120 s; shut by a foe, half), the
+  **roots of the Generators** (a foe's charge puts them out for 90 s). **Pits** in two passages
+  only the Hover crosses (spent over one, he falls and is washed back to the stairs). **Lurkers**
+  sleep in the far caves and come for his light from 7 tiles (2.5 with the light shaded, **L**);
+  a bite takes 18, and below half his health he is dragged out. Climbing out, he comes up by the
+  portal of the dungeon he is in, so the tunnel is a way onto the enemy's island.
+  **A charge under the Altar:** while a Priest is chained to an Altar, a Golem of his side that
+  stands 20 s beside the portal on the Altar's island sets a charge under it: the rite is broken,
+  the Altar loses half its strength, and the captive is thrown clear, free but knocked out. The
+  computer does not go underground, so two Priests never meet below.
+- **The Sacrifice, seen and heard.** Five runes stand about the captive; the Priest performing it
+  turns to the one he is warding, staff raised, a beam on it; it shrinks and is gone with a
+  sound, one rune fewer each time.
 - **The Hover.** A Priest prays for it (**H** in his eyes, or his card): 12 s standing still, a
   step breaks the prayer off. Then he has 30 s of it: holding **Shift** in his eyes (or "Hover"
   on his card) he floats a hand above the ground and goes 1.8 times his pace, on the islands and

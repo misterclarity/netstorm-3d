@@ -1659,7 +1659,7 @@ export const MODELS = {
     }
     runes.visible = false;
     rep.anim.push((s, e) => {
-      const prays = (e?.praying > 0 || e?.casting > 0) && e.state === 'normal';
+      const prays = (e?.praying > 0 || e?.casting > 0 || rep.ritual) && e.state === 'normal';
       runes.visible = prays;
       runes.rotation.y = s * 1.2;
       right.rotation.x = prays ? -2.4 : -0.15;

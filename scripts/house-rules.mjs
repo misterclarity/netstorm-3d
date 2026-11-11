@@ -1779,6 +1779,8 @@ export const LIGHT_GUNS: ReadonlySet<string> = new Set([CROSSBOW, DISC_THROWER, 
 export const LIGHT_VS_BUILDINGS = 0.75;
 /** (netstorm-3d) A Priest's ward: the most a single hit of a gun or flyer takes off him. */
 export const PRIEST_WARD = 35;
+/** (netstorm-3d) And with a dungeon shrine's boon. */
+export const PRIEST_WARD_BOON = 20;
 /* oxlint-enable no-magic-numbers */
 
 /** (netstorm-3d) A gun to the rules of reach and hits: a building, or one about to be laid. */
@@ -1900,7 +1902,10 @@ export function hitParts(
 
   const levels = world.tiered && gun.type !== DISC_THROWER && !airborne(world, target);
   const height = levels ? Math.max(LOW_HIT, 1 + HIGH_HIT * world.levelsAbove(gun as Entity, target)) : 1;
-  return { against, height, fury: world.furyStrength(world.def(gun.type).theme) };
+  // (a relic from a dungeon's vault strengthens its Fury's guns for its finder's side a while)
+  const theme = world.def(gun.type).theme, relic = world.relics.get(gun.owner);
+  const blessed = relic && relic.theme === theme && world.tick < relic.until ? 1.25 : 1;
+  return { against, height, fury: world.furyStrength(theme) * blessed };
 }
 
 /** (netstorm-3d) What a gun's hit on a target is multiplied by: the product of hitParts. */
@@ -1926,7 +1931,7 @@ export function hitFactor(world: World, gun: Gun, target: Entity): number {
 
   // (netstorm-3d) a Priest's ward: no single hit of a gun or flyer takes more than PRIEST_WARD
   if (entity.kind === 'priest' && (from !== undefined || air)) {
-    amount = Math.min(amount, PRIEST_WARD);
+    amount = Math.min(amount, world.boons.get(entity.id)?.has('ward') ? PRIEST_WARD_BOON : PRIEST_WARD);
   }
 
   const before = entity.hp;`,
@@ -1986,14 +1991,15 @@ export function hitFactor(world: World, gun: Gun, target: Entity): number {
   why: 'the moon and the Furies: a Sun Generator is dark at night',
   was: `    if (count && source.theme && dx * dx + dy * dy < reach) {`,
   now: `    // (netstorm-3d) a Sun Generator gives no Energy at night
-    const dark = source.group === 'battery' && source.theme === 'sun' && world.isNight?.();
+    const dark = source.group === 'battery'
+      && ((source.theme === 'sun' && world.isNight?.()) || world.tick < (world.blackout?.get(b.owner) ?? 0));
 
     if (count && source.theme && !dark && dx * dx + dy * dy < reach) {`,
 }, {
   file: 'rules/building.ts',
   why: 'the moon and the Furies: a Sun Generator is dark at night',
   was: `    } else if (d.group === 'battery') {`,
-  now: `    } else if (d.group === 'battery' && !(d.theme === 'sun' && world.isNight?.())) {`,
+  now: `    } else if (d.group === 'battery' && !(d.theme === 'sun' && world.isNight?.()) && !(world.tick < (world.blackout?.get(b.owner) ?? 0))) {`,
 }, {
   file: 'rules/priest.ts',
   why: 'the moon and the Furies: a Priest heals faster by day',
@@ -2271,7 +2277,7 @@ export function cellHash(x: number, y: number, s: number): number {
   file: 'rules/priest.ts',
   why: 'walking by hand',
   was: `import { TPS, Terrain, type Priest } from '../state.js';`,
-  now: `import { TPS, Terrain, DIRS, type Priest } from '../state.js';`,
+  now: `import { TPS, Terrain, DIRS, isGround, type Priest } from '../state.js';`,
 }, {
   file: 'rules/priest.ts',
   why: 'walking by hand',
@@ -2753,6 +2759,18 @@ CHANGES.push({
   below = new Map<number, { dungeon: number; x: number; y: number; vx: number; vy: number; next: { vx: number; vy: number; lead: number; } | null; since: number; }>();
   /** (netstorm-3d) The Priests' Hover, by id: ticks of it left, whether he hovers, ticks of its prayer left. */
   hover = new Map<number, { charge: number; on: boolean; pray: number; }>();
+  /** (netstorm-3d) What the dungeons give: Priests holding a vault's key; their lasting boons; those
+   * whose Spell is charged (its next casting free); those whose light is shaded; each side's relic
+   * (its Fury's guns hit harder until a tick), geysers (their yield times k until a tick) and
+   * Generators (out until a tick); charges being set under Altars (the tick they go off). */
+  keys = new Set<number>();
+  boons = new Map<number, Set<string>>();
+  charged = new Set<number>();
+  dim = new Set<number>();
+  relics = new Map<number, { theme: string; until: number; }>();
+  flow = new Map<number, { k: number; until: number; }>();
+  blackout = new Map<number, number>();
+  saps = new Map<number, number>();
   /** (netstorm-3d) The tick each Priest last climbed out of a dungeon. */
   surfaced = new Map<number, number>();
   /** (netstorm-3d) The hit points left to the lifts that have been hit, by the key of the cells they join. */`,
@@ -2801,8 +2819,16 @@ export interface Dungeon {
   /** The stairs' tile, and the tile below them one arrives on. */
   stairs: [number, number];
   arrive: [number, number];
-  chests: { id: number; x: number; y: number; holds: string[]; opened: boolean; }[];
+  /** A chest holds Spells (their ids), 'storm:N' (Storm Power), 'relic:<Fury>' or 'key'; its role:
+   * 'vault' is locked, 'moon' opens only at night. */
+  chests: { id: number; x: number; y: number; holds: string[]; opened: boolean; role: string; }[];
   seed: number;
+  /** Things to use, each on a tile of its own: 'tunnel', 'shrine', 'crystal', 'valve', 'roots', 'air'. */
+  things: { id: number; kind: string; x: number; y: number; used: boolean; ready: number; }[];
+  /** What comes for a light: where (in 1/WALK_SUB of a tile), its home tile, the tick it sleeps to. */
+  lurkers: { x: number; y: number; hx: number; hy: number; sleep: number; }[];
+  /** The moon's round its chests were last filled in. */
+  cycle: number;
 }
 
 /** (netstorm-3d) A dungeon portal's size on the surface, in cells. */
@@ -2822,6 +2848,10 @@ export const PORTAL_FOOT = 2;
         return leaveDungeon(this, c);
       case 'openChest':
         return openChest(this, c);
+      case 'useThing':
+        return useThing(this, c);
+      case 'lamp':
+        return setLamp(this, c);
       case 'prayHover':
         return prayHover(this, c);
       case 'hover':
@@ -2840,6 +2870,8 @@ export const PORTAL_FOOT = 2;
   openChest,
   prayHover,
   setHover,
+  useThing,
+  setLamp,
 } from './rules/priest.js';`,
 }, {
   file: 'world.ts',
@@ -2862,7 +2894,7 @@ export const PORTAL_FOOT = 2;
   why: 'dungeons',
   was: `import { tickPrayer, breakPrayer } from './spells.js';`,
   now: `import { tickPrayer, breakPrayer, loseSpell } from './spells.js';
-import { PORTAL_FOOT, type Dungeon } from '../world.js';`,
+import { PORTAL_FOOT, DAY_SECONDS, NIGHT_SECONDS, type Dungeon } from '../world.js';`,
 }, {
   file: 'rules/priest.ts',
   why: 'dungeons',
@@ -2911,7 +2943,7 @@ import { PORTAL_FOOT, type Dungeon } from '../world.js';`,
   was: `export function movePriest(`,
   now: `/* oxlint-disable no-magic-numbers -- netstorm-3d's dungeons */
 /** (netstorm-3d) What a dungeon's tile is. */
-export const TILE = { rock: 0, floor: 1, stairs: 2, pillar: 3, water: 4, chest: 5 } as const;
+export const TILE = { rock: 0, floor: 1, stairs: 2, pillar: 3, water: 4, chest: 5, thing: 6, pit: 7 } as const;
 /** (netstorm-3d) A dungeon's size in tiles; how long a Priest may stay below, and how long he must
  * wait to go down again; how near he must be to a chest or the stairs, in tiles. */
 export const DUNGEON_SIZE = 48;
@@ -3138,25 +3170,16 @@ export function digDungeon(world: World, owner: number, seed: number): Dungeon |
     }
   }
 
-  // chests: against a wall of three rooms past the entry (no passage beside them), the farthest
-  // from the stairs holding a Spell, the rest empty for now
-  const chests: Dungeon['chests'] = [];
-  const spells = CHEST_SPELLS.filter((id) => world.defs.has(id));
-
-  for (const r of rooms.slice(1)) {
-    if (chests.length >= 3) {
-      break;
-    }
-
-    const spots: [number, number, number][] = [];
+  // nooks: floor against a wall with no passage beside it, where a chest or a thing can stand
+  const nooks = (r: Dungeon['rooms'][number]) => {
+    const spots: [number, number][] = [];
 
     for (let y = r.y; y < r.y + r.h; y++) {
       for (let x = r.x; x < r.x + r.w; x++) {
-        if (tiles[y * N + x] !== TILE.floor || far[y * N + x] < 0) {
+        if (tiles[y * N + x] !== TILE.floor || far[y * N + x] < 0 || (x === arrive[0] && y === arrive[1])) {
           continue;
         }
 
-        // against the wall: rock on its outer side (no passage), floor on the rest
         let rock = 0, other = 0;
 
         for (const [dx, dy] of DIRS) {
@@ -3166,70 +3189,139 @@ export function digDungeon(world: World, owner: number, seed: number): Dungeon |
         }
 
         if (rock >= 1 && rock <= 2 && other === 0) {
-          spots.push([x, y, far[y * N + x]]);
+          spots.push([x, y]);
         }
       }
     }
 
-    if (!spots.length) {
-      continue;
-    }
-
-    const [x, y] = spots[Math.floor(rand() * spots.length)]!;
-    tiles[y * N + x] = TILE.chest;
-    chests.push({ id: chests.length + 1, x, y, holds: [], opened: false });
-  }
-
-  // the chests must leave every room reachable: one that cuts a way off is taken out again
+    return spots;
+  };
   const reach = () => {
     const seen = new Uint8Array(N * N), q = [arrive[1] * N + arrive[0]];
     seen[q[0]!] = 1;
 
     for (let head = 0; head < q.length; head++) {
-      const i = q[head]!, x = i % N, y = (i / N) | 0;
+      const k = q[head]!, x = k % N, y = (k / N) | 0;
 
       for (const [dx, dy] of DIRS) {
-        const j = (y + dy!) * N + x + dx!;
+        const m = (y + dy!) * N + x + dx!;
 
-        if (!seen[j] && tiles[j] === TILE.floor) {
-          seen[j] = 1;
-          q.push(j);
+        if (!seen[m] && tiles[m] === TILE.floor) {
+          seen[m] = 1;
+          q.push(m);
         }
       }
     }
 
     return q.length;
   };
-  for (const c of [...chests]) {
-    tiles[c.y * N + c.x] = TILE.floor;
-    const without = reach();
-    tiles[c.y * N + c.x] = TILE.chest;
+  // stand something on a nook of a room, if that cuts no floor off from the stairs
+  const stand = (tile: number, r: Dungeon['rooms'][number] | undefined): [number, number] | null => {
+    const spots = r ? nooks(r) : [];
 
-    if (reach() < without - 1) {
-      tiles[c.y * N + c.x] = TILE.floor;
-      chests.splice(chests.indexOf(c), 1);
+    for (let tries = 0; tries < 6 && spots.length; tries++) {
+      const [x, y] = spots.splice(Math.floor(rand() * spots.length), 1)[0]!;
+      const before = reach();
+      tiles[y * N + x] = tile;
+
+      if (reach() === before - 1) {
+        return [x, y];
+      }
+
+      tiles[y * N + x] = TILE.floor;
+    }
+
+    return null;
+  };
+  const past = rooms.slice(1);
+  const roomOf = (kind: string) => past.find((r) => r.kind === kind) ?? past[Math.floor(rand() * past.length)];
+
+  // chests in up to four rooms past the entry. The farthest from the stairs is the vault, locked
+  // (its key lies in another) and rich; then one with a Spell; one sealed by the moon, that opens
+  // only at night; one with the key
+  const chests: Dungeon['chests'] = [];
+  const spells = CHEST_SPELLS.filter((id) => world.defs.has(id));
+  const spell = () => spells[Math.floor(rand() * spells.length)] ?? 'storm:200';
+
+  for (const r of past) {
+    const at = chests.length < 4 ? stand(TILE.chest, r) : null;
+
+    if (at) {
+      chests.push({ id: chests.length + 1, x: at[0], y: at[1], holds: [], opened: false, role: 'storm' });
     }
   }
 
-  const farthest = chests.reduce<Dungeon['chests'][number] | null>(
-    (best, c) => (!best || far[c.y * N + c.x] > far[best.y * N + best.x] ? c : best),
-    null,
-  );
+  const byFar = [...chests].sort((a, b) => Math.max(...DIRS.map(([dx, dy]) => far[(b.y + dy!) * N + b.x + dx!])) - Math.max(...DIRS.map(([dx, dy]) => far[(a.y + dy!) * N + a.x + dx!])));
+  const roles = byFar.length >= 4 ? ['vault', 'spell', 'moon', 'key'] : byFar.length === 3 ? ['vault', 'spell', 'key'] : ['spell', 'storm'];
+  byFar.forEach((c, k) => {
+    c.role = roles[k] ?? 'storm';
+    c.holds = c.role === 'vault' ? ['relic:' + ['sun', 'rain', 'thunder', 'wind'][Math.floor(rand() * 4)], 'storm:400']
+      : c.role === 'spell' ? [spell()] : c.role === 'moon' ? ['storm:250'] : c.role === 'key' ? ['key'] : ['storm:200'];
+  });
 
-  if (farthest && spells.length) {
-    farthest.holds = [spells[Math.floor(rand() * spells.length)]!];
+  // things to use: a tunnel to the next island's dungeon in the room farthest from the stairs; a
+  // shrine; a crystal that charges a Spell at night; the valve of the island's geysers; pockets
+  // of air; and the roots of the island's Generators, where a charge puts them out
+  const things: Dungeon['things'] = [];
+  const thing = (kind: string, r: Dungeon['rooms'][number] | undefined) => {
+    const at = stand(TILE.thing, r);
+
+    if (at) {
+      things.push({ id: things.length + 1, kind, x: at[0], y: at[1], used: false, ready: 0 });
+    }
+  };
+  const deepest = [...past].sort((a, b) => far[(b.y + (b.h >> 1)) * N + b.x + (b.w >> 1)] - far[(a.y + (a.h >> 1)) * N + a.x + (a.w >> 1)])[0];
+  thing('tunnel', deepest);
+  thing('shrine', roomOf('shrine'));
+  thing('crystal', roomOf('crystal'));
+  thing('valve', roomOf('pool'));
+  thing('roots', roomOf('ember'));
+  thing('air', roomOf('grotto'));
+  thing('air', roomOf('hall'));
+
+  // pits across two passages: only the Hover crosses them
+  const lanes: number[] = [];
+
+  for (let y = 1; y < N - 1; y++) {
+    for (let x = 1; x < N - 1; x++) {
+      const k = y * N + x, t = (dx: number, dy: number) => tiles[k + dy * N + dx];
+      const inRoom = rooms.some((r) => x >= r.x - 1 && x <= r.x + r.w && y >= r.y - 1 && y <= r.y + r.h);
+      const lane = (t(1, 0) === TILE.floor && t(-1, 0) === TILE.floor && t(0, 1) === TILE.rock && t(0, -1) === TILE.rock)
+        || (t(0, 1) === TILE.floor && t(0, -1) === TILE.floor && t(1, 0) === TILE.rock && t(-1, 0) === TILE.rock);
+
+      if (tiles[k] === TILE.floor && !inRoom && lane && far[k] > 6) {
+        lanes.push(k);
+      }
+    }
+  }
+
+  for (let n = 0; n < 2 && lanes.length; n++) {
+    tiles[lanes.splice(Math.floor(rand() * lanes.length), 1)[0]!] = TILE.pit;
+  }
+
+  // lurkers: they sleep in the far rooms, and come for a light
+  const lurkers: Dungeon['lurkers'] = [];
+
+  for (const r of [...past].sort((a, b) => far[(b.y + (b.h >> 1)) * N + b.x + (b.w >> 1)] - far[(a.y + (a.h >> 1)) * N + a.x + (a.w >> 1)]).slice(0, 3)) {
+    const x = r.x + (r.w >> 1), y = r.y + (r.h >> 1);
+
+    if (tiles[y * N + x] === TILE.floor) {
+      lurkers.push({ x: x * WALK_SUB + WALK_SUB / 2, y: y * WALK_SUB + WALK_SUB / 2, hx: x, hy: y, sleep: 0 });
+    }
   }
 
   const dungeon: Dungeon = {
     id: world.dungeons.length + 1, owner, x: px, y: py, side: 'top', w: N, h: N, tiles, rooms, stairs, arrive, chests, seed,
+    things, lurkers, cycle: 0,
   };
   world.dungeons.push(dungeon);
   return dungeon;
 }
 
 /** (netstorm-3d) Whether a Priest below may step onto tile (x, y) of a dungeon. */
-function caveOpen(d: Dungeon, x: number, y: number): boolean {
-  return x >= 0 && y >= 0 && x < d.w && y < d.h && d.tiles[y * d.w + x] === TILE.floor;
+function caveOpen(d: Dungeon, x: number, y: number, fly = false): boolean {
+  const t = x >= 0 && y >= 0 && x < d.w && y < d.h ? d.tiles[y * d.w + x] : TILE.rock;
+  return t === TILE.floor || (fly && t === TILE.pit);
 }
 
 /** (netstorm-3d) Where a Priest below at (x, y) (in 1/WALK_SUB of a tile) is after \`share\` of a tick
@@ -3242,6 +3334,7 @@ export function caveStep(
   vx: number,
   vy: number,
   share = 1,
+  fly = false,
 ): { x: number; y: number; } {
   for (const axis of [0, 1]) {
     const dd = ((axis ? vy : vx) / 100) * WALK_STEP * share;
@@ -3251,7 +3344,7 @@ export function caveStep(
     }
 
     const cx = Math.floor(x / WALK_SUB), cy = Math.floor(y / WALK_SUB), c = axis ? cy : cx;
-    const open = axis ? caveOpen(d, cx, cy + Math.sign(dd)) : caveOpen(d, cx + Math.sign(dd), cy);
+    const open = axis ? caveOpen(d, cx, cy + Math.sign(dd), fly) : caveOpen(d, cx + Math.sign(dd), cy, fly);
     let v = (axis ? y : x) + dd;
 
     if (!open) {
@@ -3299,6 +3392,20 @@ export function enterDungeon(world: World, c: { player: number; }): CommandError
   }
 
   const d = world.dungeons[at]!;
+  // at each new moon the chests are filled again
+  const round = Math.floor(world.tick / TPS / (DAY_SECONDS + NIGHT_SECONDS) / 4);
+
+  if (world.nights && d.cycle !== round) {
+    d.cycle = round;
+
+    for (const k of d.chests) {
+      if (k.opened) {
+        k.opened = false;
+        k.holds = k.role === 'spell' ? [CHEST_SPELLS.filter((id) => world.defs.has(id))[(round + k.id) % CHEST_SPELLS.length] ?? 'storm:150'] : ['storm:150'];
+      }
+    }
+  }
+
   breakPrayer(p);
   p.path = [];
   p.move = 0;
@@ -3314,6 +3421,27 @@ export function enterDungeon(world: World, c: { player: number; }): CommandError
 
 /** (netstorm-3d) A Priest below climbs out, onto the cell he went down from. */
 function climbOut(world: World, p: Priest, why: string): void {
+  // beside the portal of the dungeon he is in (he may have come through a tunnel)
+  const d = world.dungeons[world.below.get(p.id)!.dungeon]!;
+  const by = (x: number, y: number) => x >= d.x - 1 && x <= d.x + PORTAL_FOOT && y >= d.y - 1 && y <= d.y + PORTAL_FOOT;
+
+  if (!by(p.x, p.y)) {
+    search: for (let ring = 1; ring <= 3; ring++) {
+      for (let y = d.y - ring; y < d.y + PORTAL_FOOT + ring; y++) {
+        for (let x = d.x - ring; x < d.x + PORTAL_FOOT + ring; x++) {
+          if (!world.dungeonAt(x, y) && world.inside(x, y) && isGround(world.terrain[world.at(x, y)]) && !world.takenBy(x, y) && !world.priestAt(x, y)) {
+            p.x = x;
+            p.y = y;
+            break search;
+          }
+        }
+      }
+    }
+  }
+
+  p.path = [];
+  p.move = 0;
+  world.walking.delete(p.id);
   world.below.delete(p.id);
   world.surfaced.set(p.id, world.tick);
   world.emit({ what: 'dungeon', who: p.owner, data: { priest: p.id, down: false, why } });
@@ -3351,8 +3479,29 @@ export function openChest(world: World, c: { player: number; chest: number; }): 
     return 'bad target';
   }
 
+  // the vault wants its key; the moon's chest opens only at night
+  if ((chest.role === 'vault' && !world.keys.has(p.id)) || (chest.role === 'moon' && world.nights && !world.isNight())) {
+    return 'not ready';
+  }
+
+  if (chest.role === 'vault') {
+    world.keys.delete(p.id);
+  }
+
   chest.opened = true;
   const spell = chest.holds.find((id) => world.defs.has(id)) ?? null;
+
+  for (const loot of chest.holds) {
+    const [what, arg] = loot.split(':');
+
+    if (what === 'storm') {
+      world.players.get(p.owner)!.storm += Number(arg) || 0;
+    } else if (what === 'relic') {
+      world.relics.set(p.owner, { theme: arg!, until: world.tick + RELIC_SECONDS * TPS });
+    } else if (what === 'key') {
+      world.keys.add(p.id);
+    }
+  }
 
   if (spell) {
     if (p.spell && p.spell !== spell) {
@@ -3418,7 +3567,7 @@ function hoverPray(world: World, p: Priest): void {
     h.pray = 0;
     world.emit({ what: 'hover', who: p.owner, data: { priest: p.id, broken: true } });
   } else if (--h.pray === 0) {
-    h.charge = HOVER_SECONDS * TPS;
+    h.charge = HOVER_SECONDS * TPS * (world.boons.get(p.id)?.has('hover') ? 2 : 1);
     world.emit({ what: 'hover', who: p.owner, data: { priest: p.id, ready: true } });
   }
 }
@@ -3445,6 +3594,223 @@ function hoverPace(world: World, p: Priest): number {
   return HOVER_PACE;
 }
 
+/* oxlint-disable no-magic-numbers -- netstorm-3d's dungeons */
+/** (netstorm-3d) How long a relic strengthens its Fury's guns, the geysers' valve its geysers, a
+ * charge at the Generators' roots puts them out; how long a Golem at a portal takes to set a
+ * charge under the Altar; what a lurker's bite and a fall into a pit take off a Priest. */
+export const RELIC_SECONDS = 180;
+export const RELIC_HIT = 1.25;
+export const VALVE_SECONDS = 120;
+export const ROOTS_SECONDS = 90;
+export const SAP_SECONDS = 20;
+const LURKER_BITE = 18;
+const PIT_FALL = 12;
+const LURKER_SEES = 7;
+const LURKER_SMELLS = 2.5;
+/* oxlint-enable no-magic-numbers */
+
+/** (netstorm-3d) How long a Priest may stay below: longer with the shrine's boon of air. */
+export function deepLimit(world: World, p: Priest): number {
+  return DEEP_SECONDS + (world.boons.get(p.id)?.has('air') ? 60 : 0);
+}
+
+/** (netstorm-3d) The player's Priest shades his light below, or bares it: shaded, lurkers find him only close by. */
+export function setLamp(world: World, c: { player: number; dim?: boolean; }): CommandError | null {
+  const p = world.priestOf(c.player);
+
+  if (!p) {
+    return 'priest unavailable';
+  }
+
+  if (c.dim) {
+    world.dim.add(p.id);
+  } else {
+    world.dim.delete(p.id);
+  }
+
+  return null;
+}
+
+/** (netstorm-3d) The player's Priest below uses the thing he stands by: see scripts/house-rules.mjs. */
+export function useThing(world: World, c: { player: number; thing: number; }): CommandError | null {
+  const p = world.priestOf(c.player), b = p ? world.below.get(p.id) : undefined;
+
+  if (!p || !b) {
+    return 'priest unavailable';
+  }
+
+  const d = world.dungeons[b.dungeon]!, t = d.things.find((k) => k.id === c.thing);
+
+  if (!t || belowFrom(b, t.x, t.y) > DUNGEON_REACH) {
+    return 'bad target';
+  }
+
+  if (world.tick < t.ready) {
+    return 'not ready';
+  }
+
+  const foe = world.hostile(p.owner, d.owner);
+
+  switch (t.kind) {
+    case 'tunnel': {
+      // through to the next island's dungeon, out of its tunnel
+      const next = (b.dungeon + 1) % world.dungeons.length, o = world.dungeons[next]!;
+      const out = o.things.find((k) => k.kind === 'tunnel');
+      const tile = out ? DIRS.map(([dx, dy]) => [out.x + dx!, out.y + dy!]).find(([x, y]) => o.tiles[y! * o.w + x!] === TILE.floor) : undefined;
+
+      if (next === b.dungeon || !tile) {
+        return 'bad target';
+      }
+
+      b.dungeon = next;
+      b.x = tile[0]! * WALK_SUB + WALK_SUB / 2;
+      b.y = tile[1]! * WALK_SUB + WALK_SUB / 2;
+      break;
+    }
+
+    case 'air':
+      // a pocket of good air, once: the deep's time over again
+      if (t.used) {
+        return 'not ready';
+      }
+
+      b.since = world.tick;
+      break;
+    case 'shrine': {
+      // a boon that stays, once a shrine: a stronger ward, a longer Hover, more air
+      const has = world.boons.get(p.id) ?? new Set<string>();
+      const boon = ['ward', 'hover', 'air'].find((k) => !has.has(k));
+
+      if (t.used || !boon) {
+        return 'not ready';
+      }
+
+      has.add(boon);
+      world.boons.set(p.id, has);
+      world.emit({ what: 'boon', who: p.owner, data: { priest: p.id, boon } });
+      break;
+    }
+
+    case 'crystal':
+      // at night it charges the Spell he holds: its next casting costs nothing
+      if (!p.spell || world.charged.has(p.id) || (world.nights && !world.isNight())) {
+        return 'not ready';
+      }
+
+      world.charged.add(p.id);
+      t.ready = world.tick + VALVE_SECONDS * TPS;
+      break;
+    case 'valve':
+      // the island's geysers: opened by their owner they give half as much again, shut by a foe half
+      world.flow.set(d.owner, { k: foe ? 0.5 : 1.5, until: world.tick + VALVE_SECONDS * TPS });
+      t.ready = world.tick + VALVE_SECONDS * 2 * TPS;
+      break;
+    case 'roots':
+      // a charge at the roots of the island's Generators puts them out for a while: a foe's work
+      if (!foe) {
+        return 'bad target';
+      }
+
+      world.blackout.set(d.owner, world.tick + ROOTS_SECONDS * TPS);
+      t.ready = world.tick + ROOTS_SECONDS * 3 * TPS;
+      break;
+    default:
+      return 'bad target';
+  }
+
+  t.used = true;
+  world.emit({ what: 'thing', who: p.owner, data: { priest: p.id, kind: t.kind, foe, owner: d.owner } });
+  return null;
+}
+
+/**
+ * (netstorm-3d) A charge under the Altar. While a Priest is chained to an Altar, a Golem of his side
+ * that stands SAP_SECONDS beside the portal of the dungeon under the Altar's island sets a charge
+ * under it: the rite is broken, the Altar loses half its strength, and the captive is thrown
+ * clear, free but knocked out. True when the charge went off. (From tickRitual, each tick.)
+ */
+export function sapAltar(world: World, captive: Priest, altar: { id: number; owner: number; hp: number; hpMax: number; x: number; y: number; }): 'blast' | null {
+  const d = world.dungeons.find((k) => k.owner === altar.owner);
+
+  if (!d) {
+    return null;
+  }
+
+  let sapper = null;
+
+  for (const e of world.entities.values()) {
+    if (
+      e.kind === 'transport' && !world.hostile(e.owner, captive.owner) && world.hostile(e.owner, altar.owner) && !e.path.length
+      && e.x >= d.x - 1 && e.x <= d.x + PORTAL_FOOT && e.y >= d.y - 1 && e.y <= d.y + PORTAL_FOOT
+    ) {
+      sapper = e;
+      break;
+    }
+  }
+
+  const sap = world.saps.get(altar.id);
+
+  if (!sapper) {
+    if (sap) {
+      world.saps.delete(altar.id);
+      world.emit({ what: 'sap', who: captive.owner, data: { altar: altar.id, broken: true } });
+    }
+
+    return null;
+  }
+
+  if (!sap) {
+    world.saps.set(altar.id, world.tick + SAP_SECONDS * TPS);
+    world.emit({ what: 'sap', who: captive.owner, data: { altar: altar.id, start: true } });
+    return null;
+  }
+
+  if (world.tick < sap) {
+    return null;
+  }
+
+  world.saps.delete(altar.id);
+  world.emit({ what: 'sap', who: captive.owner, data: { altar: altar.id, blast: true, x: altar.x, y: altar.y } });
+  return 'blast';
+}
+
+/** (netstorm-3d) What comes for a light, a tick: toward a Priest it sees (or, his light shaded, smells), else home. */
+function lurk(world: World, p: Priest, d: Dungeon, b: { x: number; y: number; }): boolean {
+  const sees = world.dim.has(p.id) ? LURKER_SMELLS : LURKER_SEES;
+
+  for (const l of d.lurkers) {
+    if (world.tick < l.sleep) {
+      continue;
+    }
+
+    const dx = b.x - l.x, dy = b.y - l.y, far = Math.hypot(dx, dy) / WALK_SUB;
+    const hx = l.hx * WALK_SUB + WALK_SUB / 2 - l.x, hy = l.hy * WALK_SUB + WALK_SUB / 2 - l.y, home = Math.hypot(hx, hy);
+
+    if (far < 0.7) {
+      // its bite; then it slinks home and sleeps a while
+      p.hp = Math.max(1, p.hp - LURKER_BITE);
+      l.x += hx;
+      l.y += hy;
+      l.sleep = world.tick + 8 * TPS;
+      world.emit({ what: 'lurker', who: p.owner, data: { priest: p.id } });
+
+      if (p.hp < p.hpMax / 2) {
+        return true; // he is dragged out, more dead than alive
+      }
+    } else if (far < sees) {
+      const at = caveStep(d, l.x, l.y, (dx / (far * WALK_SUB)) * 100, (dy / (far * WALK_SUB)) * 100, 0.75, true);
+      l.x = Math.round(at.x);
+      l.y = Math.round(at.y);
+    } else if (home > WALK_SUB / 4) {
+      const at = caveStep(d, l.x, l.y, (hx / home) * 100, (hy / home) * 100, 0.4, true);
+      l.x = Math.round(at.x);
+      l.y = Math.round(at.y);
+    }
+  }
+
+  return false;
+}
+
 /** (netstorm-3d) A tick of a Priest below; true while he is below. */
 function delve(world: World, p: Priest): boolean {
   const b = world.below.get(p.id);
@@ -3454,7 +3820,7 @@ function delve(world: World, p: Priest): boolean {
   }
 
   // the deep air is heavy: after DEEP_SECONDS he climbs out by himself
-  if (world.tick - b.since >= DEEP_SECONDS * TPS) {
+  if (world.tick - b.since >= deepLimit(world, p) * TPS) {
     climbOut(world, p, 'air');
     return true;
   }
@@ -3464,20 +3830,34 @@ function delve(world: World, p: Priest): boolean {
   b.next = null;
   const lead = next ? next.lead / 100 : 1;
   const moves = b.vx !== 0 || b.vy !== 0 || (next !== null && (next.vx !== 0 || next.vy !== 0));
+  const fly = hoverNow(world, p) > 1;
   const pace = moves ? hoverPace(world, p) : 1;
-  let at = caveStep(d, b.x, b.y, b.vx, b.vy, lead * pace);
+  let at = caveStep(d, b.x, b.y, b.vx, b.vy, lead * pace, fly);
 
   if (next) {
     b.vx = next.vx;
     b.vy = next.vy;
 
     if (lead < 1) {
-      at = caveStep(d, at.x, at.y, b.vx, b.vy, (1 - lead) * pace);
+      at = caveStep(d, at.x, at.y, b.vx, b.vy, (1 - lead) * pace, fly);
     }
   }
 
   b.x = Math.round(at.x);
   b.y = Math.round(at.y);
+
+  // the Hover spent over a pit: he falls, and is washed back to the stairs
+  if (d.tiles[Math.floor(b.y / WALK_SUB) * d.w + Math.floor(b.x / WALK_SUB)] === TILE.pit && hoverNow(world, p) === 1) {
+    p.hp = Math.max(1, p.hp - PIT_FALL);
+    b.x = d.arrive[0] * WALK_SUB + WALK_SUB / 2;
+    b.y = d.arrive[1] * WALK_SUB + WALK_SUB / 2;
+    world.emit({ what: 'pit', who: p.owner, data: { priest: p.id } });
+  }
+
+  if (lurk(world, p, d, b) || p.hp < p.hpMax / 2) {
+    climbOut(world, p, 'lurker');
+  }
+
   return true;
 }
 
@@ -3545,11 +3925,79 @@ export function movePriest(`,
   DEEP_SECONDS,
   REENTER_SECONDS,
   DUNGEON_REACH,
+  deepLimit,
+  sapAltar,
+  RELIC_SECONDS,
+  RELIC_HIT,
+  VALVE_SECONDS,
+  ROOTS_SECONDS,
+  SAP_SECONDS,
   hoverNow,
   HOVER_PACE,
   HOVER_SECONDS,
   HOVER_PRAY_SECONDS,
 } from './rules/priest.js';`,
+});
+
+// What the dungeons give and take above ground (netstorm-3d): a charge set under an Altar by a
+// Golem at the portal breaks the rite (sapAltar); a Spell charged at a dungeon's crystal is cast
+// for nothing, once; a side whose geysers' valve was turned mines crystals worth more, or less.
+CHANGES.push({
+  file: 'rules/capture.ts',
+  why: 'dungeons: a charge under the Altar',
+  was: `  const sacrificer = world.priestOf(altar.owner);
+
+  if (!sacrificer) {
+    return;
+  }
+`,
+  now: `  // (netstorm-3d) a charge set under the Altar from the dungeon below: the rite is broken, the
+  // Altar loses half its strength, the captive is thrown clear, free but knocked out
+  if (sapAltar(world, p, altar) === 'blast') {
+    releasePriest(world, p, p.x, p.y);
+    p.state = 'down';
+    p.hp = Math.floor(p.hpMax / 4);
+    sapDamage(world, 0, altar, altar.hpMax / 2);
+    return;
+  }
+
+  const sacrificer = world.priestOf(altar.owner);
+
+  if (!sacrificer) {
+    return;
+  }
+`,
+}, {
+  file: 'rules/capture.ts',
+  why: 'dungeons: a charge under the Altar',
+  was: `/** One tick of a chained priest: the altar owner's priest wards five runes to complete the Sacrifice. */`,
+  now: `import { sapAltar } from './priest.js';
+import { damage as sapDamage } from './combat.js';
+
+/** One tick of a chained priest: the altar owner's priest wards five runes to complete the Sacrifice. */`,
+}, {
+  file: 'rules/spells.ts',
+  why: 'dungeons: a Spell charged at a crystal is cast for nothing',
+  was: `  if (player.storm < def.cost) {
+    return 'no storm power';
+  }
+
+  player.storm -= def.cost;`,
+  now: `  const free = world.charged.delete(t.id);
+
+  if (!free && player.storm < def.cost) {
+    return 'no storm power';
+  }
+
+  player.storm -= free ? 0 : def.cost;`,
+}, {
+  file: 'world.ts',
+  why: 'dungeons: the geysers\' valve',
+  was: `  spawnCrystal(carrier: Transport | Priest, value: number): Crystal {`,
+  now: `  spawnCrystal(carrier: Transport | Priest, mined: number): Crystal {
+    // (netstorm-3d) a side whose geysers' valve was turned below mines more, or less, for a while
+    const flow = this.flow.get(carrier.owner);
+    const value = flow && this.tick < flow.until ? Math.round(mined * flow.k) : mined;`,
 });
 
 export function houseRules() {

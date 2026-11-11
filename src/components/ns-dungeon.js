@@ -357,7 +357,9 @@ AFRAME.registerComponent('ns-dungeon', {
           continue;
         }
         const k = kindAt(x, y), h = high(x, y);
-        put('flat', local(x + 0.5, y + 0.5, -0.1), [1, 0.2, 1], [0, 0, 0], shade(TINT[k][1]));
+        // (a pit has no floor: the dark below it)
+        if (t !== TILE.pit) put('flat', local(x + 0.5, y + 0.5, -0.1), [1, 0.2, 1], [0, 0, 0], shade(TINT[k][1]));
+        else glowAt(local(x + 0.5, y + 0.5, -0.6), '#3a4a6a', 2.2, 0.3);
         put('flat', local(x + 0.5, y + 0.5, (h + TOP) / 2), [1, TOP - h, 1], [0, 0, 0], shade(TINT[k][2]));
         if (t !== TILE.floor) continue;
         open.push([x, y]);
@@ -536,8 +538,55 @@ AFRAME.registerComponent('ns-dungeon', {
       part(new THREE.PlaneGeometry(0.9, 0.52), M.dark, 0, 0.575, 0).rotation.x = -Math.PI / 2;
       part(new THREE.BoxGeometry(0.16, 0.18, 0.05), M.gold, 0, 0.5, 0.33);
       home(g.position).g.add(g);
-      const shine = glowAt(g.position.clone().setY(0.7), '#ffd27a', 1.2, 0.25);
+      // (the vault glows red, the moon's chest blue)
+      const shine = glowAt(g.position.clone().setY(0.7), { vault: '#ff6a5a', moon: '#8fb8ff' }[k.role] ?? '#ffd27a', 1.2, 0.25);
       return { chest: k, g, hinge, shine, open: k.opened ? 1 : 0, was: k.opened, orb: null };
+    });
+
+    // things to use, each with its glow: a tunnel's dark mouth, a shrine's standing stone, a great
+    // crystal, the geysers' valve, the Generators' roots, a pocket of air
+    const things = d.things.map((k) => {
+      const [dx, dy] = wallSide(k.x, k.y) ?? [0, -1], v = local(k.x + 0.5, k.y + 0.5), turn = Math.atan2(-dx, -dy);
+      const color = { tunnel: '#6fb8ff', shrine: '#ffd27a', crystal: '#c79bff', valve: '#4fe0d0', roots: '#ff8a3a', air: '#e8f6ff' }[k.kind] ?? '#ffffff';
+      if (k.kind === 'tunnel') {
+        const o = mesh(new THREE.PlaneGeometry(1.2, 1.9), M.dark, local(k.x + 0.5 + dx * 0.3, k.y + 0.5 + dy * 0.3, 0.95));
+        o.rotation.y = turn;
+        for (const sx of [-0.7, 0.7]) put('lump', local(k.x + 0.5 + dx * 0.3 - dy * sx, k.y + 0.5 + dy * 0.3 + dx * sx, 0.9), [0.6, 2.2, 0.6], [0, rand() * 3, 0], shade('#5a5650'));
+      } else if (k.kind === 'shrine') {
+        put('lump', v.clone().setY(0.8), [0.8, 2, 0.6], [0, turn, 0.1], shade('#8f8a80'));
+        const mat = new THREE.MeshBasicMaterial({ map: M.glyphs[0], color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+        mat.userData.own = true;
+        mesh(GEO.pane, mat, local(k.x + 0.5 - dx * 0.36, k.y + 0.5 - dy * 0.36, 1.1)).rotation.y = turn;
+      } else if (k.kind === 'crystal') {
+        for (let n = 0; n < 4; n++) {
+          const o = mesh(GEO.shard, M.crystalViolet, v.clone().add(new THREE.Vector3((rand() - 0.5) * 0.6, 0.6 + rand() * 0.3, (rand() - 0.5) * 0.6)));
+          o.scale.set(1.4, 3 + rand() * 2, 1.4);
+          o.rotation.set((rand() - 0.5) * 0.6, rand() * 3, (rand() - 0.5) * 0.6);
+        }
+      } else if (k.kind === 'valve') {
+        mesh(new THREE.CylinderGeometry(0.14, 0.14, 1.1, 6), M.iron, v.clone().setY(0.55));
+        const wheel = mesh(new THREE.TorusGeometry(0.34, 0.05, 5, 10), M.iron, local(k.x + 0.5 - dx * 0.2, k.y + 0.5 - dy * 0.2, 1.0));
+        wheel.rotation.y = turn;
+      } else if (k.kind === 'roots') {
+        for (let n = 0; n < 5; n++) {
+          const o = mesh(GEO.stem, M.root, v.clone().add(new THREE.Vector3((rand() - 0.5) * 0.7, 1.2, (rand() - 0.5) * 0.7)));
+          o.scale.set(3 + rand() * 2, 2.4, 3 + rand() * 2);
+          o.rotation.set((rand() - 0.5) * 0.5, 0, (rand() - 0.5) * 0.5);
+        }
+      } else {
+        const o = mesh(new THREE.CircleGeometry(0.5, 7), M.dark, v.clone().setY(0.02));
+        o.rotation.x = -Math.PI / 2;
+      }
+      return { thing: k, glow: glowAt(v.clone().setY(1), color, 1.7, 0.3) };
+    });
+    // what comes for a light: a shape darker than the dark, two red eyes
+    const lurkers = d.lurkers.map((l) => {
+      const g = new THREE.Group(), body = new THREE.Mesh(GEO.lump, M.dark);
+      body.scale.set(1.1, 0.9, 1.4);
+      g.add(body);
+      for (const ex of [-0.12, 0.12]) { const o = new THREE.Mesh(GEO.dot, M.ember); o.position.set(ex, 0.12, 0.62); o.scale.setScalar(1.3); g.add(o); }
+      group.add(g);
+      return { l, g };
     });
 
     // what the dark keeps. Eyes in the walls: they watch, blink, and are gone when he comes near
@@ -595,7 +644,7 @@ AFRAME.registerComponent('ns-dungeon', {
       }
       c.lots = null;
     }
-    return { anim, glows, shafts, chests, local, chunks: [...chunks.values()], eyes, glyphs, wisps, sky, kindAt };
+    return { anim, glows, shafts, chests, local, chunks: [...chunks.values()], eyes, glyphs, wisps, sky, kindAt, things, lurkers };
   },
 
   /** Dust or fireflies or embers drifting in a room: `rise` is how they go (up for embers). */
@@ -751,8 +800,18 @@ AFRAME.registerComponent('ns-dungeon', {
       gy.o.position.y = gy.y + Math.sin(s * 0.8 + gy.ph) * 0.06;
     }
     for (const w of here.wisps) w.sp.position.set(w.mid.x + Math.cos(s * w.w + w.ph) * w.rx, 1.1 + Math.sin(s * 0.9 + w.ph) * 0.35, w.mid.z + Math.sin(s * w.w * 1.3 + w.ph) * w.rz);
+    // things that can be used glow; spent, or not ready again yet, they are dull
+    for (const th of here.things) th.glow.material.opacity *= (th.thing.used && (th.thing.kind === 'air' || th.thing.kind === 'shrine')) || G.world.tick < th.thing.ready ? 0.12 : 1;
+    // what comes for his light
+    for (const lu of here.lurkers) {
+      const at = here.local(lu.l.x / NS.WALK_SUB, lu.l.y / NS.WALK_SUB, 0.45);
+      lu.g.visible = G.world.tick >= lu.l.sleep && near(at) < REVEAL;
+      lu.g.position.copy(at).setY(0.45 + Math.sin(s * 5 + at.x) * 0.04);
+      lu.g.rotation.y = Math.atan2(me.x - at.x, me.z - at.z);
+    }
     // the chests: a lid opens as its chest is opened, his light flaring, and a Spell's glow rises out
     for (const c of here.chests) {
+      if (!c.chest.opened) c.was = false; // (filled again at a new moon)
       if (c.chest.opened && !c.was) {
         c.was = true;
         this.boost = 1;
@@ -783,7 +842,8 @@ AFRAME.registerComponent('ns-dungeon', {
       const o = new THREE.Vector3(0.18, 0.62, 0.12).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion())).add(cam.getWorldPosition(new THREE.Vector3()));
       this.lamp.position.copy(this.root.worldToLocal(o));
       this.lamp.color.lerp(this.tone.set(TONE[here.kindAt(Math.floor(tx), Math.floor(ty))] ?? TONE.passage), Math.min(1, dt / 600));
-      this.lamp.intensity = 9 * LUX * (0.96 + 0.04 * Math.sin(s * 7)) * (1 + this.boost * 1.5);
+      // (shaded, it shows little, and less finds him)
+      this.lamp.intensity = 9 * LUX * (0.96 + 0.04 * Math.sin(s * 7)) * (1 + this.boost * 1.5) * (G.world.dim?.has(fp.id) ? 0.22 : 1);
     }
   },
 });

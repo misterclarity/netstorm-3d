@@ -67,8 +67,8 @@ const CAVE = {
     const b = G.world.below?.get(p.id), d = b && G.world.dungeons[b.dungeon];
     if (!d) return null;
     const lead = order ? order.lead / 100 : 1, pace = NS.hoverNow(G.world, p);
-    let at = NS.caveStep(d, b.x, b.y, b.vx, b.vy, Math.min(alpha, lead) * pace);
-    if (order && alpha > lead) at = NS.caveStep(d, at.x, at.y, order.vx, order.vy, (alpha - lead) * pace);
+    let at = NS.caveStep(d, b.x, b.y, b.vx, b.vy, Math.min(alpha, lead) * pace, pace > 1);
+    if (order && alpha > lead) at = NS.caveStep(d, at.x, at.y, order.vx, order.vy, (alpha - lead) * pace, pace > 1);
     return [at.x / NS.WALK_SUB, at.y / NS.WALK_SUB];
   },
 };
@@ -208,6 +208,8 @@ AFRAME.registerSystem('ns-fp', {
       // R turns a bridge piece in hand, as from above; else he prays
       r: () => (G.tool.kind === 'piece' ? this.game().rotate() : this.below() ? this.game().hud.toast('Down here he cannot pray: climb out first', 'bad') : e.shiftKey ? this.nextPrayer() : this.pray()),
       b: () => { if (p) this.game().bankCargo(p); },
+      // L shades his light below, or bares it
+      l: () => { if (p && this.below()) { const dim = !G.world.dim.has(p.id); submit({ t: 'lamp', dim }); this.game().hud.toast(dim ? 'Light shaded: what lurks finds you only close by, and you see little' : 'Light bared'); } },
       h: () => { submit({ t: 'prayHover' }); this.game().hud.toast(`Praying for the Hover: ${NS.HOVER_PRAY_SECONDS} s, standing still`, 'good'); },
       x: () => { if (p?.carrying !== null && p?.carrying !== undefined) submit({ t: 'dropCargo', transport: p.id }); },
       tab: () => this.cycleBuild(e.shiftKey ? -1 : 1),
@@ -258,7 +260,8 @@ AFRAME.registerSystem('ns-fp', {
     if (!at || !p) return null;
     const { b, d } = at, x = b.x / NS.WALK_SUB, y = b.y / NS.WALK_SUB;
     const fx = -Math.sin(this.yaw), fy = -Math.cos(this.yaw);
-    const things = [{ kind: 'stairs', x: d.stairs[0], y: d.stairs[1] }, ...d.chests.filter((c) => !c.opened).map((c) => ({ kind: 'chest', x: c.x, y: c.y, chest: c }))];
+    const things = [{ kind: 'stairs', x: d.stairs[0], y: d.stairs[1] }, ...d.chests.filter((c) => !c.opened).map((c) => ({ kind: 'chest', x: c.x, y: c.y, chest: c })),
+      ...d.things.map((k) => ({ kind: k.kind, x: k.x, y: k.y, thing: k }))];
     let best = null, score = Infinity;
     for (const t of things) {
       const dx = t.x + 0.5 - x, dy = t.y + 0.5 - y, far = Math.hypot(dx, dy);
@@ -269,15 +272,39 @@ AFRAME.registerSystem('ns-fp', {
     return best;
   },
 
+  /** A thing below, in words: what E does there (`do`), or why it does nothing now (`no`). */
+  thingText(k, d) {
+    const p = this.priest(), w = G.world, foe = w.hostile(p.owner, d.owner), wait = Math.ceil((k.ready - w.tick) / TPS);
+    const later = wait > 0 ? `Not again for ${wait} s` : '';
+    switch (k.kind) {
+      case 'tunnel': return { do: `go through the tunnel to ${foe ? 'your own' : 'the enemy’s'} dungeon` };
+      case 'air': return { do: 'breathe at the pocket of air (the deep’s time over again)', no: k.used ? 'The pocket of air is spent' : '' };
+      case 'shrine': return { do: 'pray at the shrine for a boon that stays', no: k.used ? 'This shrine has given its boon' : '' };
+      case 'crystal': return { do: 'charge your Spell at the crystal (its next casting costs nothing)', no: later || (!p.spell ? 'The crystal charges a Spell: you hold none' : w.charged.has(p.id) ? 'Your Spell is charged already' : w.nights && !w.isNight() ? 'The crystal wakes only at night' : '') };
+      case 'valve': return { do: foe ? `shut the valve of the enemy’s geysers (half the crystals for ${NS.VALVE_SECONDS} s)` : `open the valve of your geysers (half as much again for ${NS.VALVE_SECONDS} s)`, no: later };
+      case 'roots': return { do: `set a charge at the roots of the enemy’s Generators (out for ${NS.ROOTS_SECONDS} s)`, no: later || (foe ? '' : 'The roots of your own Generators: an enemy would set a charge here') };
+      default: return { do: 'use it' };
+    }
+  },
+
   /** E, or a click: below, the stairs or the chest he stands by; on the islands, the portal he stands
    * by (or, for a click, the one the crosshair is on), else what the crosshair is on. */
   use(click = false) {
-    const game = this.game();
-    if (this.below()) {
+    const game = this.game(), at = this.below();
+    if (at) {
       const t = this.within();
       if (!t) { game.hud.toast('Nothing to open here: walk up to a chest, or to the stairs to climb out', 'bad'); return; }
       if (t.kind === 'stairs') submit({ t: 'leaveDungeon' });
-      else submit({ t: 'openChest', chest: t.chest.id });
+      else if (t.chest) {
+        const p = this.priest();
+        if (t.chest.role === 'vault' && !G.world.keys.has(p.id)) game.hud.toast('The vault is locked: its key lies in another chest', 'bad');
+        else if (t.chest.role === 'moon' && G.world.nights && !G.world.isNight()) game.hud.toast('The moon seals this chest: it opens only at night', 'bad');
+        else submit({ t: 'openChest', chest: t.chest.id });
+      } else {
+        const why = this.thingText(t.thing, at.d).no;
+        if (why) game.hud.toast(why, 'bad');
+        else submit({ t: 'useThing', thing: t.thing.id });
+      }
       return;
     }
     const d = this.portal();
@@ -427,15 +454,19 @@ AFRAME.registerSystem('ns-fp', {
     const down = this.below();
     if (p && down) {
       // below: the deep air's time, what he stands by, the keys
-      const left = Math.max(0, NS.DEEP_SECONDS - (G.world.tick - down.b.since) / TPS), t = this.within();
-      lines.push(`<b>In the dungeon</b> under your island · the deep air: ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')} left`);
+      const left = Math.max(0, NS.deepLimit(G.world, p) - (G.world.tick - down.b.since) / TPS), t = this.within();
+      const whose = G.world.hostile(p.owner, down.d.owner) ? 'the enemy’s island' : 'your island';
+      const has = [G.world.keys.has(p.id) ? 'the vault’s key' : '', G.world.charged.has(p.id) ? 'a charged Spell' : '', G.world.dim.has(p.id) ? 'light shaded' : ''].filter(Boolean).join(' · ');
+      lines.push(`<b>In the dungeon</b> under ${whose} · the deep air: ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')} left · ${Math.ceil(p.hp)}/${p.hpMax}${has ? ` · ${has}` : ''}`);
       if (p.spell) lines.push(`Holds the ${spellName(p.spell)}: cast it on the surface`);
       lines.push(this.hoverLine());
       const opened = down.d.chests.filter((c) => c.opened).length;
-      lines.push(t?.kind === 'chest' ? '<kbd>E</kbd> or click: <b>open the chest</b>' : t?.kind === 'stairs' ? '<kbd>E</kbd> or click: <b>climb the stairs out</b>'
+      const use = t?.thing ? this.thingText(t.thing, down.d) : null;
+      lines.push(use ? (use.no ? use.no : `<kbd>E</kbd> or click: <b>${use.do}</b>`)
+        : t?.kind === 'chest' ? `<kbd>E</kbd> or click: <b>open the ${{ vault: 'vault (locked: it wants its key)', moon: 'moon’s chest (at night)' }[t.chest.role] ?? 'chest'}</b>` : t?.kind === 'stairs' ? '<kbd>E</kbd> or click: <b>climb the stairs out</b>'
         : `Chests opened ${opened} of ${down.d.chests.length} · walk up to one, or back to the stairs to climb out`);
       lines.push(document.pointerLockElement === this.el.canvas
-        ? '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · mouse look · <kbd>E</kbd> use · <kbd>Esc</kbd> free the mouse · <kbd>V</kbd> view the battle from above'
+        ? '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · mouse look · <kbd>E</kbd> use · <kbd>L</kbd> shade the light · <kbd>Esc</kbd> free the mouse · <kbd>V</kbd> view the battle from above'
         : '<b>Click the view to look about with the mouse</b> · <kbd>V</kbd> view the battle from above');
       const html = lines.map((l) => `<div>${l}</div>`).join('');
       const info = document.getElementById('fpInfo');

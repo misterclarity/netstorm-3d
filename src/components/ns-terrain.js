@@ -67,11 +67,23 @@ AFRAME.registerComponent('ns-terrain', {
     const g = cv.getContext('2d');
     g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, cv.width, cv.height);
+    // ground nobody owns (a geyser's, an islet's) that touches an owned island is painted as that
+    // island's ground, by whichever owned ground is nearest along the land: else it shows as a green
+    // seam between the two
+    const near = new Map(), queue = [];
+    for (let cy = 0; cy < h; cy++) for (let cx = 0; cx < w; cx++) { const i = (y0 + cy) * WORLD + x0 + cx; if (this.land(x0 + cx, y0 + cy) && G.view.owner[i]) { near.set(i, G.view.owner[i]); queue.push(i); } }
+    for (let n = 0; n < queue.length; n++) {
+      const i = queue[n], x = i % WORLD, y = (i / WORLD) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const j = (y + dy) * WORLD + x + dx;
+        if (this.land(x + dx, y + dy) && !near.has(j)) { near.set(j, near.get(i)); queue.push(j); }
+      }
+    }
     for (let cy = 0; cy < h; cy++) {
       for (let cx = 0; cx < w; cx++) {
         const x = x0 + cx, y = y0 + cy;
         if (!this.land(x, y)) continue;
-        const owner = G.view.owner[y * WORLD + x];
+        const owner = near.get(y * WORLD + x) ?? 0;
         const theme = owner ? playerTheme(owner) : 'sun';
         const set = tiles?.[owner ? FURY_TILES[theme] : 'rgrass'];
         if (set?.length) {
