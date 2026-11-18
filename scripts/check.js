@@ -4,6 +4,7 @@
  * steps (a Workshop, a Golem sent to a geyser, a bridge piece). It fails on any exception or if
  * nothing happens.
  */
+import { readdirSync, readFileSync } from 'node:fs';
 import * as NS from '../src/engine.js';
 import DATA from '../build/game-data.json';
 
@@ -822,6 +823,142 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     if (!blast || pr.state !== 'down' || pr.chainedAt !== null || !(altar.hp <= altar.hpMax / 2) || !dw.entities.has(sapper.id)) fail(`the charge under the Altar: ${JSON.stringify({ blast, state: pr.state, altar: altar.hp })}`);
   }
   console.log(`dungeons: ${seeds} dug, rooms of ${kinds.size} kinds, every chest in reach and one holding a Spell; down, out of reach, walked, the chest opened (${p.spell}), no cast below, out by the stairs, up again after ${NS.DEEP_SECONDS} s; the Hover prayed for, 1.8 times his pace, spent; a vault and its key, a tunnel, the roots, a pit, a lurker, a charge under the Altar`);
+
+  // What a check of the code found in the dungeons' rules, and set right. Every dungeon has each of
+  // its things (a valve or a shrine was left out where its own kind of room had no nook for it).
+  for (let seed = 1; seed <= 12; seed++) {
+    const sw = skirmish(seed);
+    for (const id of [NS.ME, 2]) {
+      const dug = NS.digDungeon(sw, id, seed + id - NS.ME);
+      const lacks = ['tunnel', 'shrine', 'crystal', 'valve', 'roots', 'air'].filter((k) => !dug?.things.some((t) => t.kind === k));
+      if (!dug || lacks.length) fail(`seed ${seed}, side ${id}: the dungeon lacks ${dug ? lacks.join(', ') : 'everything'}`);
+    }
+  }
+  // A Priest below is out of the war above. His Sacrifice waits (an Altar beside his own portal
+  // would else let him ward the runes from where nothing reaches him), and goes on when he is up
+  // again; he takes no order for the islands, and nothing is laid that he would have to build.
+  {
+    const bw = skirmish(3), bd = NS.digDungeon(bw, NS.ME, 3), own = bw.priestOf(NS.ME), foe = bw.priestOf(2), foot = bw.def('altar');
+    const cmd = (c) => { bw.step([{ player: NS.ME, ...c }]); return bw.drainEvents().filter((e) => e.what === 'rejected').map((e) => e.data.err); };
+    const ring = [];
+    for (let y = bd.y - 1; y <= bd.y + NS.PORTAL_FOOT; y++) for (let x = bd.x - 1; x <= bd.x + NS.PORTAL_FOOT; x++) if (!bw.dungeonAt(x, y) && bw.walkable(NS.ME, x, y) && !bw.takenBy(x, y)) ring.push([x, y]);
+    let altar = null, stand = null;
+    for (let y = bd.y - 6; y <= bd.y + 6 && !altar; y++) {
+      for (let x = bd.x - 6; x <= bd.x + 6 && !altar; x++) {
+        if (bw.view().canBuild({ player: NS.ME, type: 'altar', x, y }) !== null) continue;
+        stand = ring.find(([cx, cy]) => bw.adjacentTo(cx, cy, { x, y, fx: foot.footX, fy: foot.footY }));
+        if (stand) altar = bw.spawnBuilding('altar', NS.ME, x, y, 0);
+      }
+    }
+    if (!altar) fail('no place for an Altar beside the portal');
+    altar.rising = 0;
+    Object.assign(own, { x: stand[0], y: stand[1], path: [], goal: 'idle' });
+    Object.assign(foe, { state: 'chained', chainedAt: altar.id, runes: 0, runeTimer: 0, x: altar.x, y: altar.y });
+    for (let i = 0; i < 5; i++) bw.step([]);
+    if (!(foe.runeTimer > 0)) fail('the Sacrifice did not begin with the Priest at his Altar');
+    // something he alone builds, laid where it can be while he is up
+    let site = null;
+    for (const def of defs.values()) {
+      if (site || !['Production', 'Altar'].includes(def.cls)) continue;
+      for (let y = bd.y - 12; y <= bd.y + 12 && !site; y++) for (let x = bd.x - 12; x <= bd.x + 12 && !site; x++) if (bw.inside(x, y) && bw.view().canBuild({ player: NS.ME, type: def.id, x, y }) === null) site = { type: def.id, x, y };
+    }
+    if (!site) fail('nowhere for the Priest to build');
+    if (cmd({ t: 'enterDungeon' }).length || !bw.below.has(own.id)) fail('the Priest at his Altar, beside the portal, did not go down');
+    const held = foe.runeTimer;
+    for (let i = 0; i < 20; i++) bw.step([]);
+    if (foe.runeTimer !== held || foe.runes !== 0) fail(`the Sacrifice went on from below: ${held} to ${foe.runeTimer}`);
+    if (!cmd({ t: 'movePriest', x: own.x + 1, y: own.y }).includes('priest unavailable') || own.path.length) fail('a Priest below took an order to walk on the islands');
+    if (bw.view().canBuild({ player: NS.ME, ...site }) !== 'priest unavailable') fail(`what the Priest builds (${site.type}) could be laid while he is below: ${bw.view().canBuild({ player: NS.ME, ...site })}`);
+    if (cmd({ t: 'leaveDungeon' }).length || bw.below.has(own.id) || !bw.adjacentTo(own.x, own.y, altar)) fail('the Priest did not come up by the stairs to where he went down');
+    for (let i = 0; i < 5; i++) bw.step([]);
+    if (!(foe.runeTimer > held)) fail('the Sacrifice did not go on when the Priest was up again');
+
+    // A charge under the Altar: an air ship sets none (it does not go down a stair), a Golem does;
+    // and it is given up when the captive goes free another way (it used to stay, and went off at
+    // once the next time).
+    const air = [...defs.values()].find((u) => u.cls === 'Aerial Transport'), walker = [...defs.values()].find((u) => u.cls === 'Ground Transport');
+    const spots = ring.filter(([x, y]) => x !== own.x || y !== own.y);
+    const ship = bw.spawnTransport(air.id, 2, ...spots[0]);
+    for (let i = 0; i < 30; i++) bw.step([]);
+    if (bw.saps.size) fail(`an air ship (${air.name}) set a charge under the Altar`);
+    bw.entities.delete(ship.id);
+    bw.spawnTransport(walker.id, 2, ...spots[1]);
+    for (let i = 0; i < 3; i++) bw.step([]);
+    if (!bw.saps.has(altar.id)) fail(`a carrier on foot (${walker.name}) by the portal set no charge under the Altar`);
+    Object.assign(own, { state: 'down', hp: 1 }); // the rite is broken: the captive escapes
+    bw.step([]);
+    if (foe.state !== 'normal' || foe.chainedAt !== null || bw.saps.size) fail(`the captive freed, the charge was still being set: ${JSON.stringify({ state: foe.state, saps: [...bw.saps] })}`);
+  }
+  // The ground he went down from falls away: he is not held below for good (he used to hang there,
+  // never coming up); he walks on, and comes up onto ground he can stand on.
+  {
+    const gw = skirmish(3), gd = NS.digDungeon(gw, NS.ME, 3), gp = gw.priestOf(NS.ME);
+    const cmd = (c) => { gw.step([{ player: NS.ME, ...c }]); return gw.drainEvents().filter((e) => e.what === 'rejected').length; };
+    Object.assign(gp, { x: gd.x - 1, y: gd.y, path: [], goal: 'idle' });
+    cmd({ t: 'enterDungeon' });
+    const from = [gp.x, gp.y], gb = gw.below.get(gp.id), at = [gb.x, gb.y];
+    gw.terrain[gw.at(gp.x, gp.y)] = NS.Terrain.Sky;
+    cmd({ t: 'steerPriest', vx: (gd.arrive[0] - gd.stairs[0]) * 100, vy: (gd.arrive[1] - gd.stairs[1]) * 100, lead: 0 });
+    for (let i = 0; i < 5; i++) gw.step([]);
+    if (gb.x === at[0] && gb.y === at[1]) fail('a Priest below stood frozen when the ground he went down from fell');
+    cmd({ t: 'steerPriest', vx: 0, vy: 0, lead: 0 });
+    for (let i = 0; i < NS.DEEP_SECONDS * NS.TPS && gw.below.has(gp.id); i++) gw.step([]);
+    if (gw.below.has(gp.id) || (gp.x === from[0] && gp.y === from[1]) || !gw.walkable(NS.ME, gp.x, gp.y) || gw.treeAt(gp.x, gp.y)) fail(`up from below with his ground gone: ${JSON.stringify({ below: gw.below.has(gp.id), at: [gp.x, gp.y], from })}`);
+  }
+  // At a new moon the chests are filled again, each as its kind has it: the key in its chest again
+  // (it used to hold Storm Power, the vault locked for good), a Spell that there is in the Spell's.
+  // And a fall into a pit that leaves him more dead than alive is told as a fall, not as a bite.
+  {
+    const cw = skirmish(4), cd = NS.digDungeon(cw, NS.ME, 4), cp = cw.priestOf(NS.ME);
+    cw.nights = true;
+    cd.lurkers.length = 0;
+    for (const c of cd.chests) c.opened = true;
+    cw.tick = 4 * (NS.DAY_SECONDS + NS.NIGHT_SECONDS) * NS.TPS;
+    Object.assign(cp, { x: cd.x - 1, y: cd.y, path: [], goal: 'idle' });
+    cw.step([{ player: NS.ME, t: 'enterDungeon' }]);
+    const of = (role) => cd.chests.find((c) => c.role === role);
+    if (!cw.below.has(cp.id) || cd.chests.some((c) => c.opened) || of('key').holds[0] !== 'key' || of('vault').holds.some((h) => h.startsWith('relic')) || !defs.has(of('spell').holds[0])) {
+      fail(`the chests at a new moon: ${JSON.stringify(cd.chests.map((c) => [c.role, c.opened, c.holds]))}`);
+    }
+    const pit = cd.tiles.indexOf(NS.TILE.pit), cb = cw.below.get(cp.id);
+    Object.assign(cb, { x: ((pit % cd.w) + 0.5) * NS.WALK_SUB, y: (((pit / cd.w) | 0) + 0.5) * NS.WALK_SUB });
+    cp.hp = Math.floor(cp.hpMax / 2) + 5;
+    cw.drainEvents();
+    cw.step([]);
+    const out = cw.drainEvents().find((e) => e.what === 'dungeon' && !e.data.down);
+    if (cw.below.has(cp.id) || out?.data.why !== 'pit') fail(`a fall into a pit, more dead than alive: ${JSON.stringify(out)}`);
+  }
+  // The prayer for the Hover: asked for again, it goes on and does not start over; a prayer for a
+  // Spell breaks it off (one prayer at a time).
+  {
+    const hw = skirmish(3), pray = hw.priestOf(NS.ME), spell = [...defs.values()].find((u) => u.id.startsWith('bomb'))?.id;
+    hw.step([{ player: NS.ME, t: 'prayHover' }]);
+    for (let i = 0; i < 20; i++) hw.step([]);
+    const left = hw.hover.get(pray.id).pray;
+    hw.step([{ player: NS.ME, t: 'prayHover' }]);
+    if (!(left > 0) || hw.hover.get(pray.id).pray !== left - 1) fail(`the prayer for the Hover, asked for again: ${left} to ${hw.hover.get(pray.id).pray}`);
+    Object.assign(pray, { prayer: spell, praying: 50 });
+    hw.step([]);
+    if (hw.hover.get(pray.id).pray !== 0 || hw.hover.get(pray.id).charge !== 0) fail('a prayer for a Spell did not break the prayer for the Hover off');
+  }
+  console.log('dungeons, checked over: every thing in every dungeon; a Sacrifice waits while its Priest is below, who takes no order for the islands; no charge by air ship, none left over; up from below though his ground fell; the chests filled again by their kinds; a fall told as a fall; one prayer at a time');
+}
+
+// Every name of the engine that the client's code uses is one the engine has (one was not: the
+// shrine's ward, and its toast said "undefined").
+{
+  const lost = [];
+  const read = (dir) => {
+    for (const f of readdirSync(dir, { withFileTypes: true })) {
+      const path = `${dir}/${f.name}`;
+      if (f.isDirectory()) read(path);
+      else if (f.name.endsWith('.js')) for (const m of readFileSync(path, 'utf8').matchAll(/\bNS\.([A-Za-z_$][\w$]*)/g)) if (!(m[1] in NS)) lost.push(`NS.${m[1]} in ${path}`);
+    }
+  };
+  read('src');
+  if (lost.length) fail(`the client uses names the engine does not have: ${[...new Set(lost)].join(', ')}`);
+  if (NS.PRIEST_WARD_BOON !== 20 || NS.RELIC_HIT !== 1.25) fail(`the shrine's ward ${NS.PRIEST_WARD_BOON}, a relic's hit ${NS.RELIC_HIT}`);
+  console.log(`names: every name of the engine the client uses is there (${Object.keys(NS).length} in all)`);
 }
 
 console.log(`check passed: ${played}`);

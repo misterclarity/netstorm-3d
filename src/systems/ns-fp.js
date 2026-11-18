@@ -208,9 +208,9 @@ AFRAME.registerSystem('ns-fp', {
       // R turns a bridge piece in hand, as from above; else he prays
       r: () => (G.tool.kind === 'piece' ? this.game().rotate() : this.below() ? this.game().hud.toast('Down here he cannot pray: climb out first', 'bad') : e.shiftKey ? this.nextPrayer() : this.pray()),
       b: () => { if (p) this.game().bankCargo(p); },
-      // L shades his light below, or bares it
-      l: () => { if (p && this.below()) { const dim = !G.world.dim.has(p.id); submit({ t: 'lamp', dim }); this.game().hud.toast(dim ? 'Light shaded: what lurks finds you only close by, and you see little' : 'Light bared'); } },
-      h: () => { submit({ t: 'prayHover' }); this.game().hud.toast(`Praying for the Hover: ${NS.HOVER_PRAY_SECONDS} s, standing still`, 'good'); },
+      // L shades his light below, or bares it (on the islands it is the log's key, as from above)
+      l: p && this.below() ? () => { const dim = !G.world.dim.has(p.id); submit({ t: 'lamp', dim }); this.game().hud.toast(dim ? 'Light shaded: what lurks finds you only close by, and you see little' : 'Light bared'); } : null,
+      h: () => this.prayHover(),
       x: () => { if (p?.carrying !== null && p?.carrying !== undefined) submit({ t: 'dropCargo', transport: p.id }); },
       tab: () => this.cycleBuild(e.shiftKey ? -1 : 1),
     }[k];
@@ -341,6 +341,15 @@ AFRAME.registerSystem('ns-fp', {
     if (storm < def.cost) { this.game().hud.toast(`The ${def.name} costs ⚡${def.cost} to cast`, 'bad'); return; }
     submit({ t: 'castSpell', transport: p.id });
     this.game().hud.toast(`Casting the ${def.name}: everything within ${def.range} cells, in ${def.castTime} s`, 'good');
+  },
+
+  /** H: he prays for the Hover, if he can now (the rules ask the same: prayHover). */
+  prayHover() {
+    const p = this.priest(), hud = this.game().hud, left = p ? G.world.hover?.get(p.id)?.pray ?? 0 : 0;
+    if (!p || p.state !== 'normal' || p.casting > 0 || p.praying > 0) { hud.toast(p?.praying > 0 ? 'One prayer at a time: he is praying for a Spell' : 'He cannot pray for the Hover now', 'bad'); return; }
+    if (left > 0) { hud.toast(`He is praying for the Hover: ${Math.ceil(left / TPS)} s more, standing still`); return; }
+    submit({ t: 'prayHover' });
+    hud.toast(`Praying for the Hover: ${NS.HOVER_PRAY_SECONDS} s, standing still`, 'good');
   },
 
   prayers() { return G.view ? NS.prayable(G.view).filter((id) => id !== this.priest()?.spell) : []; },

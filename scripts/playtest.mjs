@@ -1768,9 +1768,10 @@ SCENARIOS.dungeon = async () => {
     document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(p.x + 0.5), window.NS3D.wz(p.y + 0.5), 18);
     // (the view takes a while to draw again after the dungeon: its lights gone, the islands' shaders
     // are made anew)
-    const el = window.NS3D.game.units().byId.get(p.id), end = performance.now() + 30000;
-    while (!(el.components['ns-unit'].halo?.intensity > 3) && performance.now() < end) await new Promise((r) => setTimeout(r, 250));
-    return { night: G.world.isNight(), light: el.components['ns-unit'].halo?.intensity ?? 0, state: p.state, below: G.world.below.has(p.id) };
+    // (the Priests' lights are two kept by ns-units for the page's life: the one that is his now)
+    const his = () => window.NS3D.game.units().halos.find((h) => h.id === p.id)?.light, end = performance.now() + 30000;
+    while (!(his()?.intensity > 3) && performance.now() < end) await new Promise((r) => setTimeout(r, 250));
+    return { night: G.world.isNight(), light: his()?.intensity ?? 0, state: p.state, below: G.world.below.has(p.id) };
   });
   if (!halo.night || !(halo.light > 3)) throw new Error(`no light about the Priest at night: ${JSON.stringify(halo)}`);
   await page.waitForTimeout(1500);

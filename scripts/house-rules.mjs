@@ -16,6 +16,7 @@
  * waits for orders instead of walking off to another (below).
  */
 import { readFile } from 'node:fs/promises';
+import { keepConnected, MEMO_FILE } from './ai-memo.mjs';
 
 const CHANGES = [
   {
@@ -344,8 +345,8 @@ function stage(
 
     for (let dy = -8; dy <= 8; dy++) {
       for (let dx = -8; dx <= 8; dx++) {
-        const x = foe.x + dx;
-        const y = foe.y + dy;
+        const x: number = foe.x + dx;
+        const y: number = foe.y + dy;
         const i = world.inside(x, y) ? world.at(x, y) : -1;
 
         if (i >= 0 && reached[i] === 1 && move.threat[i]! <= 0 && !world.takenBy(x, y) && Math.abs(dx) + Math.abs(dy) < best) {
@@ -1241,8 +1242,8 @@ function strikeRun(world: WorldView, move: Move, transports: View<Transport>[], 
 
       for (let dy = -def.range; dy <= def.range; dy += step) {
         for (let dx = -def.range; dx <= def.range; dx += step) {
-          const x = e.x + dx;
-          const y = e.y + dy;
+          const x: number = e.x + dx;
+          const y: number = e.y + dy;
           const i = world.inside(x, y) ? world.at(x, y) : -1;
 
           if (i < 0 || seen.has(i) || reached[i] !== 1 || world.occupant[i] || world.priestAt(x, y)) {
@@ -1781,6 +1782,8 @@ export const LIGHT_VS_BUILDINGS = 0.75;
 export const PRIEST_WARD = 35;
 /** (netstorm-3d) And with a dungeon shrine's boon. */
 export const PRIEST_WARD_BOON = 20;
+/** (netstorm-3d) What a relic from a dungeon's vault multiplies the hits of its Fury's guns by. */
+export const RELIC_HIT = 1.25;
 /* oxlint-enable no-magic-numbers */
 
 /** (netstorm-3d) A gun to the rules of reach and hits: a building, or one about to be laid. */
@@ -1904,7 +1907,7 @@ export function hitParts(
   const height = levels ? Math.max(LOW_HIT, 1 + HIGH_HIT * world.levelsAbove(gun as Entity, target)) : 1;
   // (a relic from a dungeon's vault strengthens its Fury's guns for its finder's side a while)
   const theme = world.def(gun.type).theme, relic = world.relics.get(gun.owner);
-  const blessed = relic && relic.theme === theme && world.tick < relic.until ? 1.25 : 1;
+  const blessed = relic && relic.theme === theme && world.tick < relic.until ? RELIC_HIT : 1;
   return { against, height, fury: world.furyStrength(theme) * blessed };
 }
 
@@ -2064,6 +2067,8 @@ export function cast(world: World, t: Caster): void {
   hitParts,
   hitFactor,
   PRIEST_WARD,
+  PRIEST_WARD_BOON,
+  RELIC_HIT,
   MOON_DARK,
   SUN_BLIND,
   HIGH_REACH,
@@ -2277,7 +2282,7 @@ export function cellHash(x: number, y: number, s: number): number {
   file: 'rules/priest.ts',
   why: 'walking by hand',
   was: `import { TPS, Terrain, type Priest } from '../state.js';`,
-  now: `import { TPS, Terrain, DIRS, isGround, type Priest } from '../state.js';`,
+  now: `import { TPS, Terrain, DIRS, type Priest } from '../state.js';`,
 }, {
   file: 'rules/priest.ts',
   why: 'walking by hand',
@@ -2894,26 +2899,22 @@ export const PORTAL_FOOT = 2;
   why: 'dungeons',
   was: `import { tickPrayer, breakPrayer } from './spells.js';`,
   now: `import { tickPrayer, breakPrayer, loseSpell } from './spells.js';
-import { PORTAL_FOOT, DAY_SECONDS, NIGHT_SECONDS, type Dungeon } from '../world.js';`,
+import { PORTAL_FOOT, DAY_SECONDS, NIGHT_SECONDS, type Dungeon } from '../world.js';
+import { flies } from '../defs.js';`,
 }, {
   file: 'rules/priest.ts',
   why: 'dungeons',
-  was: `  // (netstorm-3d) walked by hand, in first person
-  if (walkByHand(world, p)) {
-    return;
-  }`,
+  was: `  // With no ground under him he hangs in place until bridge is laid there again.`,
   now: `  // (netstorm-3d) his prayer for the Hover goes on while he stands
   hoverPray(world, p);
 
-  // (netstorm-3d) below, in a dungeon
+  // (netstorm-3d) below, in a dungeon: before the look at the ground under him, for he is not on
+  // it (were the cell he went down from to fall, he would hang there for good, never coming up)
   if (delve(world, p)) {
     return;
   }
 
-  // (netstorm-3d) walked by hand, in first person
-  if (walkByHand(world, p)) {
-    return;
-  }`,
+  // With no ground under him he hangs in place until bridge is laid there again.`,
 }, {
   file: 'rules/priest.ts',
   why: 'dungeons',
@@ -3264,7 +3265,14 @@ export function digDungeon(world: World, owner: number, seed: number): Dungeon |
   // of air; and the roots of the island's Generators, where a charge puts them out
   const things: Dungeon['things'] = [];
   const thing = (kind: string, r: Dungeon['rooms'][number] | undefined) => {
-    const at = stand(TILE.thing, r);
+    // (in its own kind of room; where that has no nook for it, in the first of the others that has)
+    let at = stand(TILE.thing, r);
+
+    for (const other of past) {
+      if (!at && other !== r) {
+        at = stand(TILE.thing, other);
+      }
+    }
 
     if (at) {
       things.push({ id: things.length + 1, kind, x: at[0], y: at[1], used: false, ready: 0 });
@@ -3398,10 +3406,14 @@ export function enterDungeon(world: World, c: { player: number; }): CommandError
   if (world.nights && d.cycle !== round) {
     d.cycle = round;
 
+    // (less than the first time: no second relic; the vault is locked again, its key in its chest again)
+    const spells = CHEST_SPELLS.filter((id) => world.defs.has(id));
+
     for (const k of d.chests) {
       if (k.opened) {
         k.opened = false;
-        k.holds = k.role === 'spell' ? [CHEST_SPELLS.filter((id) => world.defs.has(id))[(round + k.id) % CHEST_SPELLS.length] ?? 'storm:150'] : ['storm:150'];
+        k.holds = k.role === 'spell' ? [spells[(round + k.id) % Math.max(1, spells.length)] ?? 'storm:150']
+          : k.role === 'key' ? ['key'] : k.role === 'vault' ? ['storm:300'] : ['storm:150'];
       }
     }
   }
@@ -3419,17 +3431,21 @@ export function enterDungeon(world: World, c: { player: number; }): CommandError
   return null;
 }
 
-/** (netstorm-3d) A Priest below climbs out, onto the cell he went down from. */
+/** (netstorm-3d) A Priest below climbs out: onto the cell he went down from, if that is beside the
+ * portal of the dungeon he is in (he may have come through a tunnel) and he can still stand
+ * there; else onto the nearest ground about that portal that he can stand on. */
 function climbOut(world: World, p: Priest, why: string): void {
-  // beside the portal of the dungeon he is in (he may have come through a tunnel)
   const d = world.dungeons[world.below.get(p.id)!.dungeon]!;
   const by = (x: number, y: number) => x >= d.x - 1 && x <= d.x + PORTAL_FOOT && y >= d.y - 1 && y <= d.y + PORTAL_FOOT;
+  // ground to stand on: not sky, not the inside of a building, not a tree, a house or the portal itself
+  const open = (x: number, y: number) =>
+    world.walkable(p.owner, x, y) && !world.dungeonAt(x, y) && !world.treeAt(x, y) && !world.houseAt(x, y);
 
-  if (!by(p.x, p.y)) {
-    search: for (let ring = 1; ring <= 3; ring++) {
+  if (!by(p.x, p.y) || !open(p.x, p.y)) {
+    search: for (let ring = 1; ring <= 4; ring++) {
       for (let y = d.y - ring; y < d.y + PORTAL_FOOT + ring; y++) {
         for (let x = d.x - ring; x < d.x + PORTAL_FOOT + ring; x++) {
-          if (!world.dungeonAt(x, y) && world.inside(x, y) && isGround(world.terrain[world.at(x, y)]) && !world.takenBy(x, y) && !world.priestAt(x, y)) {
+          if (open(x, y) && !world.takenBy(x, y)) {
             p.x = x;
             p.y = y;
             break search;
@@ -3534,9 +3550,14 @@ export function prayHover(world: World, c: { player: number; }): CommandError | 
   }
 
   const h = world.hover.get(p.id) ?? { charge: 0, on: false, pray: 0 };
-  h.pray = HOVER_PRAY_SECONDS * TPS;
-  h.on = false;
-  world.hover.set(p.id, h);
+
+  // (asked for again while he prays for it, the prayer goes on: it does not start over)
+  if (h.pray <= 0) {
+    h.pray = HOVER_PRAY_SECONDS * TPS;
+    h.on = false;
+    world.hover.set(p.id, h);
+  }
+
   return null;
 }
 
@@ -3563,7 +3584,8 @@ function hoverPray(world: World, p: Priest): void {
   const s = world.below.get(p.id) ?? world.walking.get(p.id);
   const steered = s !== undefined && (s.vx !== 0 || s.vy !== 0 || (s.next !== null && (s.next.vx !== 0 || s.next.vy !== 0)));
 
-  if (p.path.length > 0 || steered || p.casting > 0) {
+  // (a step breaks it off, a casting, and a prayer for a Spell: one prayer at a time)
+  if (p.path.length > 0 || steered || p.casting > 0 || p.praying > 0) {
     h.pray = 0;
     world.emit({ what: 'hover', who: p.owner, data: { priest: p.id, broken: true } });
   } else if (--h.pray === 0) {
@@ -3599,7 +3621,6 @@ function hoverPace(world: World, p: Priest): number {
  * charge at the Generators' roots puts them out; how long a Golem at a portal takes to set a
  * charge under the Altar; what a lurker's bite and a fall into a pit take off a Priest. */
 export const RELIC_SECONDS = 180;
-export const RELIC_HIT = 1.25;
 export const VALVE_SECONDS = 120;
 export const ROOTS_SECONDS = 90;
 export const SAP_SECONDS = 20;
@@ -3725,9 +3746,11 @@ export function useThing(world: World, c: { player: number; thing: number; }): C
 
 /**
  * (netstorm-3d) A charge under the Altar. While a Priest is chained to an Altar, a Golem of his side
- * that stands SAP_SECONDS beside the portal of the dungeon under the Altar's island sets a charge
- * under it: the rite is broken, the Altar loses half its strength, and the captive is thrown
- * clear, free but knocked out. True when the charge went off. (From tickRitual, each tick.)
+ * (a carrier on foot: an air ship does not go down a stair) that stands SAP_SECONDS beside the
+ * portal of the dungeon under the Altar's island sets a charge under it: the rite is broken, the
+ * Altar loses half its strength, and the captive is thrown clear, free but knocked out. 'blast'
+ * when the charge went off. (From tickRitual, each tick; a release by any other way gives the
+ * charge up: releasePriest.)
  */
 export function sapAltar(world: World, captive: Priest, altar: { id: number; owner: number; hp: number; hpMax: number; x: number; y: number; }): 'blast' | null {
   const d = world.dungeons.find((k) => k.owner === altar.owner);
@@ -3740,7 +3763,8 @@ export function sapAltar(world: World, captive: Priest, altar: { id: number; own
 
   for (const e of world.entities.values()) {
     if (
-      e.kind === 'transport' && !world.hostile(e.owner, captive.owner) && world.hostile(e.owner, altar.owner) && !e.path.length
+      e.kind === 'transport' && !flies(world.def(e.type)) && !world.hostile(e.owner, captive.owner)
+      && world.hostile(e.owner, altar.owner) && !e.path.length
       && e.x >= d.x - 1 && e.x <= d.x + PORTAL_FOOT && e.y >= d.y - 1 && e.y <= d.y + PORTAL_FOOT
     ) {
       sapper = e;
@@ -3847,15 +3871,20 @@ function delve(world: World, p: Priest): boolean {
   b.y = Math.round(at.y);
 
   // the Hover spent over a pit: he falls, and is washed back to the stairs
-  if (d.tiles[Math.floor(b.y / WALK_SUB) * d.w + Math.floor(b.x / WALK_SUB)] === TILE.pit && hoverNow(world, p) === 1) {
+  const fell = d.tiles[Math.floor(b.y / WALK_SUB) * d.w + Math.floor(b.x / WALK_SUB)] === TILE.pit && hoverNow(world, p) === 1;
+
+  if (fell) {
     p.hp = Math.max(1, p.hp - PIT_FALL);
     b.x = d.arrive[0] * WALK_SUB + WALK_SUB / 2;
     b.y = d.arrive[1] * WALK_SUB + WALK_SUB / 2;
     world.emit({ what: 'pit', who: p.owner, data: { priest: p.id } });
   }
 
-  if (lurk(world, p, d, b) || p.hp < p.hpMax / 2) {
-    climbOut(world, p, 'lurker');
+  // more dead than alive, he is brought up: by what bit him, or out of the pit
+  const bitten = lurk(world, p, d, b);
+
+  if (bitten || p.hp < p.hpMax / 2) {
+    climbOut(world, p, fell && !bitten ? 'pit' : 'lurker');
   }
 
   return true;
@@ -3928,7 +3957,6 @@ export function movePriest(`,
   deepLimit,
   sapAltar,
   RELIC_SECONDS,
-  RELIC_HIT,
   VALVE_SECONDS,
   ROOTS_SECONDS,
   SAP_SECONDS,
@@ -4000,24 +4028,178 @@ import { damage as sapDamage } from './combat.js';
     const value = flow && this.tick < flow.until ? Math.round(mined * flow.k) : mined;`,
 });
 
-export function houseRules() {
+// A Priest down in a dungeon is out of the war above (netstorm-3d): no gun reaches him there, so
+// nothing of the islands goes on by him either. The Sacrifice he performs waits while he is below
+// (an Altar beside his own portal would else let him ward the runes from where nothing can stop
+// him); he takes no order for the islands (it used to be taken and then lost: he stood below with
+// a way to walk, and the site of a Workshop laid for him waited for a builder who never came); and
+// a charge being set under an Altar is given up when its captive goes free another way (it used
+// to stay, and went off at once the next time a Golem came by that portal).
+CHANGES.push({
+  file: 'rules/capture.ts',
+  why: 'the Sacrifice waits while the Priest performing it is below',
+  was: `  if (!world.adjacentTo(sacrificer.x, sacrificer.y, altar)) {
+    return;
+  }`,
+  now: `  // (netstorm-3d) nor from below, in a dungeon, where nothing can stop him
+  if (!world.adjacentTo(sacrificer.x, sacrificer.y, altar) || world.below.has(sacrificer.id)) {
+    return;
+  }`,
+}, {
+  file: 'rules/capture.ts',
+  why: 'a charge under the Altar is given up when its captive goes free',
+  was: `  p.carriedBy = null;
+  p.chainedAt = null;`,
+  now: `  // (netstorm-3d) a charge being set under the Altar he was chained to is given up
+  if (p.chainedAt !== null) {
+    world.saps.delete(p.chainedAt);
+  }
+
+  p.carriedBy = null;
+  p.chainedAt = null;`,
+}, {
+  file: 'world.ts',
+  why: 'a Priest below takes no orders for the islands',
+  was: `    switch (c.t) {
+      case 'dropPiece':`,
+  now: `    // (netstorm-3d) a Priest down in a dungeon takes no order for the islands: he climbs out first
+    const deep = c.t === 'movePriest' || c.t === 'pray' ? this.priestOf(c.player)?.id : 'transport' in c ? c.transport : undefined;
+
+    if (deep !== undefined && this.below.has(deep)) {
+      return 'priest unavailable';
+    }
+
+    switch (c.t) {
+      case 'dropPiece':`,
+}, {
+  file: 'rules/building.ts',
+  why: 'a Priest below builds nothing on the islands',
+  was: `  if (!p || p.state !== 'normal') {
+    return null;
+  }
+
+  const beside = (cx: number, cy: number) =>`,
+  now: `  // (netstorm-3d) nor from below, in a dungeon
+  if (!p || p.state !== 'normal' || world.below.has(p.id)) {
+    return null;
+  }
+
+  const beside = (cx: number, cy: number) =>`,
+});
+
+// The house rules, declared (netstorm-3d). esbuild takes the types off without reading them, so
+// the rules above were never type-checked: `npm run typecheck` (scripts/typecheck.mjs) writes
+// netstorm-web's simulation out with every change here applied and has TypeScript read it. For
+// that, what the rules add is said in netstorm-web's own declarations: their commands, their
+// events and what an event carries, and what the rules read of the world through a view. Nothing
+// here changes what runs.
+CHANGES.push({
+  file: 'commands.ts',
+  why: 'the house rules, declared: a bridge piece laid on a level of a tiered island',
+  was: `  | { t: 'dropPiece'; player: number; hand: number; x: number; y: number; rot: number; }`,
+  now: `  | { t: 'dropPiece'; player: number; hand: number; x: number; y: number; rot: number; level?: number; }`,
+}, {
+  file: 'commands.ts',
+  why: 'the house rules, declared: their commands',
+  was: `  | { t: 'upgradeWorkshop'; player: number; workshop: number; };`,
+  now: `  | { t: 'upgradeWorkshop'; player: number; workshop: number; }
+  // (netstorm-3d) the house rules' commands (scripts/house-rules.mjs): a carrier sent to a cell; the
+  // Priest walked by hand, and what he does in a dungeon and with the Hover
+  | { t: 'moveTransport'; player: number; transport: number; x: number; y: number; }
+  | { t: 'steerPriest'; player: number; vx: number; vy: number; lead?: number; }
+  | { t: 'enterDungeon'; player: number; }
+  | { t: 'leaveDungeon'; player: number; }
+  | { t: 'openChest'; player: number; chest: number; }
+  | { t: 'useThing'; player: number; thing: number; }
+  | { t: 'lamp'; player: number; dim?: boolean; }
+  | { t: 'prayHover'; player: number; }
+  | { t: 'hover'; player: number; on?: boolean; };`,
+}, {
+  file: 'events.ts',
+  why: 'the house rules, declared: their events',
+  was: `  'priest up': undefined;
+  'priest down': undefined;
+};`,
+  now: `  'priest up': undefined;
+  'priest down': undefined;
+  // (netstorm-3d) the house rules' events (scripts/house-rules.mjs)
+  /** A lift between cells (x, y) and (nx, ny) burst under the hits on its riders (\`by\`: whose). */
+  'lift destroyed': { x: number; y: number; nx: number; ny: number; by: number; };
+  /** A Priest went down into a dungeon, or came up (\`why\`: stairs, air, lurker, pit). */
+  dungeon: { priest: number; down: boolean; why?: string; };
+  chest: { priest: number; chest: number; holds: string[]; };
+  hover: { priest: number; ready?: boolean; spent?: boolean; broken?: boolean; };
+  boon: { priest: number; boon: string; };
+  thing: { priest: number; kind: string; foe: boolean; owner: number; };
+  /** A charge under an Altar: its setting begun, given up, or gone off (at the Altar's x, y). */
+  sap: { altar: number; start?: boolean; broken?: boolean; blast?: boolean; x?: number; y?: number; };
+  lurker: { priest: number; };
+  pit: { priest: number; };
+};`,
+}, {
+  file: 'view.ts',
+  why: 'the house rules, declared: what the rules read of the world through a view',
+  was: `export interface WorldView {
+  readonly tick: number;`,
+  now: `export interface WorldView {
+  // (netstorm-3d) of the house rules: night, a side's Generators put out from below until a tick,
+  // the Priests down in a dungeon
+  readonly isNight: () => boolean;
+  readonly blackout: ReadonlyMap<number, number>;
+  readonly below: ReadonlyMap<number, unknown>;
+  readonly tick: number;`,
+});
+
+/** The files of the sim's source that are changed, named from packages/sim/src as the changes name them. */
+export const changedFiles = (memo = null) => [...new Set([...CHANGES.map((c) => c.file), ...(memo ? [MEMO_FILE] : [])])];
+
+/**
+ * A file of the sim's source as the house rules have it: every change to it made, in order, each
+ * where netstorm-web's text (or an earlier change's) still reads as the change expects, and the
+ * computer opponent's cache laid in with `memo` (scripts/ai-memo.mjs). For the build's plugin
+ * below and for the type check (scripts/typecheck.mjs), which reads the same text.
+ */
+export function withHouseRules(file, source, { memo = null } = {}) {
+  let src = source;
+  for (const change of CHANGES.filter((c) => c.file === file)) {
+    if (src.split(change.was).length !== 2) {
+      throw new Error(`scripts/house-rules.mjs: netstorm-web's code has changed where ${change.why}; check the change still holds, then update it`);
+    }
+    src = src.replace(change.was, change.now);
+  }
+  return memo && file === MEMO_FILE ? keepConnected(src, memo === 'gated') : src;
+}
+
+/** The pattern of a file of the sim's source, named as the changes name it. */
+const fileFilter = (file) => new RegExp(`packages[\\\\/]sim[\\\\/]src[\\\\/]${file.replace('/', '[\\\\/]').replace('.', '\\.')}$`);
+
+/**
+ * The plugin. `memo` lays the computer opponent's cache in as well (scripts/ai-memo.mjs): 'kept'
+ * for the worker, whose world never changes; 'gated' for the checks, which switch it on for a move.
+ *
+ * A bundle that takes one of these files takes them all (they are the sim's own), so one that
+ * loaded some and not others has a file the changes no longer find: the build fails then, rather
+ * than play by half the rules.
+ */
+export function houseRules({ memo = null } = {}) {
   return {
     name: 'house-rules',
     setup(build) {
-      const files = [...new Set(CHANGES.map((c) => c.file))];
+      const files = changedFiles(memo);
+      const loaded = new Set();
       for (const file of files) {
-        const filter = new RegExp(`packages[\\\\/]sim[\\\\/]src[\\\\/]${file.replace('/', '[\\\\/]').replace('.', '\\.')}$`);
-        build.onLoad({ filter }, async (args) => {
-          let src = await readFile(args.path, 'utf8');
-          for (const change of CHANGES.filter((c) => c.file === file)) {
-            if (src.split(change.was).length !== 2) {
-              throw new Error(`scripts/house-rules.mjs: netstorm-web's code has changed where ${change.why}; check the change still holds, then update it`);
-            }
-            src = src.replace(change.was, change.now);
-          }
-          return { contents: src, loader: 'ts' };
+        build.onLoad({ filter: fileFilter(file) }, async (args) => {
+          const contents = withHouseRules(file, await readFile(args.path, 'utf8'), { memo });
+          loaded.add(file);
+          return { contents, loader: 'ts' };
         });
       }
+      build.onEnd(() => {
+        const missing = files.filter((file) => !loaded.has(file));
+        if (loaded.size && missing.length) {
+          throw new Error(`scripts/house-rules.mjs: the bundle never loaded ${missing.join(', ')}: netstorm-web's files have moved; update the changes' file names`);
+        }
+      });
     },
   };
 }

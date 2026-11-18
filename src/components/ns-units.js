@@ -47,6 +47,8 @@ function cameraLook(scene, t) {
 }
 
 const PUFF = new THREE.Object3D(), FADE = new THREE.Color();
+/** The rite's working vectors (ritual): the rune from the Priest, his staff's head, the beam's way. */
+const RITE = { rune: new THREE.Vector3(), from: new THREE.Vector3(), way: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0) };
 /**
  * An Aerial Transport's sprite in the air: the original draws one aloft 44 pixels up (an altitude
  * of 4 cells at 11 rows a cell), here 44 / PX; landed, it still hovers a little, clear of what
@@ -99,13 +101,34 @@ AFRAME.registerComponent('ns-units', {
   init() {
     this.byId = new Map();
     this.residences = [];
+    // The Priests' lights at night: two, here for as long as the page is, dark when not in use. A
+    // shader program is made for the lights there are, so a light that came and went with its
+    // Priest (as these did, each new battle) had the programs of all in sight compiled over.
+    this.halos = [0, 1].map(() => {
+      const light = new THREE.PointLight('#ffd9a8', 0, 9, 1.4);
+      this.el.object3D.add(light);
+      return { light, id: null };
+    });
     this.el.sceneEl.addEventListener('ns-new-game', () => this.reset());
   },
 
   reset() {
     for (const el of [...this.byId.values(), ...this.residences]) el.parentNode?.removeChild(el);
     this.byId.clear();
+    for (const h of this.halos) this.dim(h);
     this.residences = G.view.residences.map(([x, y]) => this.add('ns-residence', { x, y }));
+  },
+
+  /** The light at night of the Priest `id`: one of the two, his while he is here; null if both are taken. */
+  halo(id) {
+    const h = this.halos.find((x) => x.id === id) ?? this.halos.find((x) => x.id === null);
+    if (h) h.id = id;
+    return h?.light ?? null;
+  },
+
+  dim(h) {
+    h.id = null;
+    h.light.intensity = 0;
   },
 
   add(component, data) {
@@ -127,6 +150,7 @@ AFRAME.registerComponent('ns-units', {
       if (game.destroyed.has(id) && rep) game.effects()?.explode(rep, el.object3D.position);
       el.parentNode?.removeChild(el);
       this.byId.delete(id);
+      for (const h of this.halos) if (h.id === id) this.dim(h);
     }
     game.destroyed.clear();
   },
@@ -173,6 +197,11 @@ AFRAME.registerComponent('ns-unit', {
   remove() {
     for (const m of this.rep.own) m.dispose();
     this.animMesh?.material.dispose();
+    // a Priest's runes and the beam of his rite
+    for (const o of [this.runes?.children[0], this.beam]) {
+      o?.geometry.dispose();
+      o?.material.dispose();
+    }
   },
 
   /** Where the entity stands now, in world cells, a mover part-way to its next cell. */
@@ -252,13 +281,12 @@ AFRAME.registerComponent('ns-unit', {
       if (rep.body) rep.body.visible = !own;
       visible = e.state !== 'carried' && !below && !(own && this.art.mode !== 'models');
       // a light of his own about him at night (and below, in a dungeon: ns-dungeon.js has it there)
-      if (!this.halo) {
-        this.halo = new THREE.PointLight('#ffd9a8', 0, 9, 1.4);
-        this.halo.position.set(0, 2.3, 0);
-        this.el.object3D.add(this.halo);
+      const halo = this.el.parentEl?.components['ns-units']?.halo(e.id);
+      if (halo) {
+        const night = G.world.nights ? nightness(G.world.tick / TPS) : 0;
+        halo.position.set(this.pos.x, this.pos.y + 2.3, this.pos.z);
+        halo.intensity = !below && e.state !== 'carried' ? night * 30 : 0;
       }
-      const night = G.world.nights ? nightness(G.world.tick / TPS) : 0;
-      this.halo.intensity = !below && e.state !== 'carried' ? night * 30 : 0;
       this.ritual(e, s, dt);
       rep.body.rotation.x = e.state === 'down' ? -Math.PI / 2 * 0.95 : 0;
       // hovering (the Hover he prayed for), he floats a hand above the ground
@@ -376,11 +404,12 @@ AFRAME.registerComponent('ns-unit', {
         m.position.y = UP + Math.sin(s * 1.5 + i) * 0.06;
       });
     } else if (this.runes) this.runes.visible = false;
-    // performing it: by his Altar, by day, a captive chained there
+    // performing it: by his Altar, by day, up on the islands, a captive chained there
     let captive = null;
-    if (e.state === 'normal' && !G.world.isNight()) {
-      for (const c of G.view.entities.values()) {
-        if (c.kind !== 'priest' || c.state !== 'chained' || c.chainedAt === null) continue;
+    if (e.state === 'normal' && !G.world.isNight() && !G.world.below?.has(e.id)) {
+      for (const side of G.view.players.keys()) {
+        const c = side === e.owner ? null : G.view.priestOf(side);
+        if (c?.state !== 'chained' || c.chainedAt === null) continue;
         const altar = G.view.entities.get(c.chainedAt);
         if (altar?.owner === e.owner && altar.hp > 0 && G.world.adjacentTo(e.x, e.y, altar)) captive = c;
       }
@@ -392,7 +421,7 @@ AFRAME.registerComponent('ns-unit', {
     const there = this.el.sceneEl.systems['ns-game'].units()?.byId.get(captive.id)?.object3D.position;
     if (!there) return;
     const a = ring(Math.min(captive.runes, RUNES - 1)), me = this.el.object3D.position;
-    const rune = new THREE.Vector3(there.x + Math.cos(a) * R - me.x, there.y + UP - me.y, there.z + Math.sin(a) * R - me.z);
+    const rune = RITE.rune.set(there.x + Math.cos(a) * R - me.x, there.y + UP - me.y, there.z + Math.sin(a) * R - me.z);
     // he turns to the rune
     let turn = Math.atan2(rune.x, rune.z) - rep.yaw;
     turn = Math.atan2(Math.sin(turn), Math.cos(turn));
@@ -404,11 +433,11 @@ AFRAME.registerComponent('ns-unit', {
       this.beam.renderOrder = 19;
       this.el.object3D.add(this.beam);
     }
-    const from = new THREE.Vector3(0, 1.7, 0), len = from.distanceTo(rune);
+    const from = RITE.from.set(0, 1.7, 0), len = from.distanceTo(rune);
     this.beam.visible = captive.runeTimer > 0;
     this.beam.position.copy(from).add(rune).multiplyScalar(0.5);
     this.beam.scale.set(1 + Math.sin(s * 20) * 0.3, len, 1 + Math.sin(s * 20) * 0.3);
-    this.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), rune.clone().sub(from).normalize());
+    this.beam.quaternion.setFromUnitVectors(RITE.up, RITE.way.copy(rune).sub(from).normalize());
   },
 
   /** How high an air ship's sprite is drawn, gently bobbing; its shadow shown on the ground. */

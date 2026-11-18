@@ -221,6 +221,9 @@ AFRAME.registerComponent('ns-dungeon', {
     this.lamp.shadow.camera.far = REVEAL;
     this.root.add(this.lamp);
     this.fade = document.getElementById('fade');
+    // a frame's working values (tick), and where his light stood when its shadows were last drawn
+    this.work = { me: new THREE.Vector3(), at: new THREE.Vector3(), hand: new THREE.Vector3(), turn: new THREE.Quaternion(), sky: new THREE.Color(), moon: new THREE.Color('#8fa6ff') };
+    this.shadowAt = new THREE.Vector3(Infinity, 0, 0);
     this.el.sceneEl.addEventListener('ns-new-game', () => this.build());
   },
 
@@ -239,15 +242,46 @@ AFRAME.registerComponent('ns-dungeon', {
       this.portal(d);
       return { d, group, ...inside };
     });
+    this.warmed = false;
   },
 
+  /** What a battle's dungeons held on the GPU, given back: all that is not shared between battles
+   * (the shapes of this.geo and the materials of this.mats are; sprites share one shape). */
   clear() {
+    const shared = new Set(Object.values(this.geo ?? {}));
+    const free = (o) => {
+      if (o.isInstancedMesh) o.dispose();
+      if (o.geometry && !o.isSprite && !shared.has(o.geometry)) o.geometry.dispose();
+      if (o.material?.userData?.own) o.material.dispose();
+    };
     for (const b of this.built ?? []) {
       b.group.removeFromParent();
-      b.group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.material?.userData?.own) o.material.dispose(); });
+      b.group.traverse(free);
     }
     this.built = null;
-    for (const c of [...this.portals.children]) c.removeFromParent();
+    for (const c of [...this.portals.children]) {
+      c.removeFromParent();
+      c.traverse(free);
+    }
+  },
+
+  /**
+   * The dungeons' shader programs, compiled as the battle begins and not as he first goes down
+   * (when every one of them would be waited for in his first frame below). Below, other lights
+   * shine than above (his own and the stairs', not the sun and the Priests' lights at night), and
+   * a program is made for the lights there are: so the deep's are compiled with the scene as it is
+   * below, the islands, the sky and the clouds out of it and one dungeon shown; and the portals',
+   * which stand on the islands, with the scene as it is above. True once done.
+   */
+  warm() {
+    const game = this.el.sceneEl.systems['ns-game'];
+    if (!this.built?.length || !game?.compile([this.el.object3D])) return false;
+    const shown = [this.root, ...this.built.map((b) => b.group)].map((o) => [o, o.visible]);
+    this.root.visible = true;
+    this.built.forEach((b, n) => { b.group.visible = n === 0; });
+    game.compile([document.getElementById('table'), document.querySelector('a-sky'), document.getElementById('clouds')].map((el) => el?.object3D));
+    for (const [o, was] of shown) o.visible = was;
+    return true;
   },
 
   /** Plain, matte and few: one stone for everything of rock, and a handful for what glows. */
@@ -303,6 +337,7 @@ AFRAME.registerComponent('ns-dungeon', {
     kind[d.stairs[1] * N + d.stairs[0]] = 'stairs';
     const kindAt = (x, y) => (x < 0 || y < 0 || x >= N || y >= d.h ? 'passage' : kind[y * N + x]);
     const local = (x, y, h = 0) => new THREE.Vector3((x - N / 2) * T, h, (y - d.h / 2) * T);
+    const localTo = (v, x, y, h = 0) => v.set((x - N / 2) * T, h, (y - d.h / 2) * T);
     const rand = seeded(d.seed * 131 + 7);
     const vault = new Float32Array(N * d.h);
     for (let i = 0; i < N * d.h; i++) vault[i] = HEIGHT[kind[i]] + (kind[i] === 'stairs' ? 0 : (rand() - 0.5) * 0.7);
@@ -639,12 +674,14 @@ AFRAME.registerComponent('ns-dungeon', {
         });
         im.castShadow = lot === 'wall' || lot === 'lump';
         im.receiveShadow = true;
-        im.frustumCulled = false;
+        // (its bounds are those of all its stones: what is behind him, or behind a face of his
+        // light's shadow, is not drawn)
+        im.computeBoundingSphere();
         c.g.add(im);
       }
       c.lots = null;
     }
-    return { anim, glows, shafts, chests, local, chunks: [...chunks.values()], eyes, glyphs, wisps, sky, kindAt, things, lurkers };
+    return { anim, glows, shafts, chests, local, localTo, chunks: [...chunks.values()], eyes, glyphs, wisps, sky, kindAt, things, lurkers };
   },
 
   /** Dust or fireflies or embers drifting in a room: `rise` is how they go (up for embers). */
@@ -691,6 +728,7 @@ AFRAME.registerComponent('ns-dungeon', {
     g.scale.setScalar(1.15);
     const mesh = (geo, mat, px, py, pz) => { const o = new THREE.Mesh(geo, mat); o.position.set(px, py, pz); o.castShadow = o.receiveShadow = true; g.add(o); return o; };
     const stone = new THREE.MeshLambertMaterial({ map: M.stone.map, color: '#b3aca0' });
+    stone.userData.own = true;
     mesh(new THREE.BoxGeometry(2.1, 0.18, 2.1), stone, 0, 0.09, 0);
     mesh(new THREE.BoxGeometry(0.4, 1.9, 1.8), stone, -0.8, 1.05, 0);
     mesh(new THREE.BoxGeometry(0.4, 1.9, 1.8), stone, 0.8, 1.05, 0);
@@ -745,6 +783,9 @@ AFRAME.registerComponent('ns-dungeon', {
       // the sun puts its light and fog back as the hour has them
       const sun = document.getElementById('sun')?.components['ns-sun'];
       if (sun) sun.dark = -1;
+      // (the sun's shadows are drawn again as ever)
+      G.shadowsStill = false;
+      this.shadowAt.x = Infinity;
     }
     // a moment of dark between the two
     if (this.fade) {
@@ -756,6 +797,7 @@ AFRAME.registerComponent('ns-dungeon', {
 
   tick(t, dt) {
     if (!this.built && G.world?.dungeons?.length) this.build();
+    if (this.built && !this.warmed) this.warmed = this.warm();
     const fp = G.fp?.active ? G.world?.priestOf(ME) : null;
     const b = fp ? G.world.below?.get(fp.id) : null;
     this.setInside(!!b);
@@ -766,12 +808,12 @@ AFRAME.registerComponent('ns-dungeon', {
     const here = this.built[b.dungeon];
     for (const x of this.built) x.group.visible = x === here;
     // where he is, in the dungeon's own space: only the chunks his light reaches are drawn
-    const tx = b.x / NS.WALK_SUB, ty = b.y / NS.WALK_SUB, me = here.local(tx, ty, 1.4);
+    const W = this.work, tx = b.x / NS.WALK_SUB, ty = b.y / NS.WALK_SUB, me = here.localTo(W.me, tx, ty, 1.4);
     const reach = REVEAL + CHUNK * TILE_SIZE * 0.71;
     for (const c of here.chunks) c.g.visible = Math.hypot(c.mid.x - me.x, c.mid.z - me.z) < reach;
     const near = (v) => Math.hypot(v.x - me.x, v.z - me.z);
     // daylight down the stairs, or moonlight at night
-    const sky = new THREE.Color('#fff1d6').lerp(new THREE.Color('#8fa6ff'), dark);
+    const sky = W.sky.set('#fff1d6').lerp(W.moon, dark);
     here.sky.color.copy(sky);
     here.sky.intensity = 60 * (1 - dark * 0.55) * LUX;
     for (const sh of here.shafts) {
@@ -804,7 +846,7 @@ AFRAME.registerComponent('ns-dungeon', {
     for (const th of here.things) th.glow.material.opacity *= (th.thing.used && (th.thing.kind === 'air' || th.thing.kind === 'shrine')) || G.world.tick < th.thing.ready ? 0.12 : 1;
     // what comes for his light
     for (const lu of here.lurkers) {
-      const at = here.local(lu.l.x / NS.WALK_SUB, lu.l.y / NS.WALK_SUB, 0.45);
+      const at = here.localTo(W.at, lu.l.x / NS.WALK_SUB, lu.l.y / NS.WALK_SUB, 0.45);
       lu.g.visible = G.world.tick >= lu.l.sleep && near(at) < REVEAL;
       lu.g.position.copy(at).setY(0.45 + Math.sin(s * 5 + at.x) * 0.04);
       lu.g.rotation.y = Math.atan2(me.x - at.x, me.z - at.z);
@@ -832,15 +874,20 @@ AFRAME.registerComponent('ns-dungeon', {
         c.orb.position.y = 0.7 + c.orbAge * 0.9;
         c.orb.scale.setScalar(0.6 + c.orbAge * 0.5);
         c.orb.material.opacity = Math.max(0, 1 - c.orbAge / 1.6);
-        if (c.orbAge > 1.6) { c.orb.removeFromParent(); c.orb = null; }
+        if (c.orbAge > 1.6) { c.orb.removeFromParent(); c.orb.material.dispose(); c.orb = null; }
       }
     }
     this.boost *= Math.exp(-dt / 400);
     // the Priest's light, held at his staff, in the tone of the cave he is in
     const cam = this.el.sceneEl.camera;
     if (cam) {
-      const o = new THREE.Vector3(0.18, 0.62, 0.12).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion())).add(cam.getWorldPosition(new THREE.Vector3()));
+      const o = W.hand.set(0.18, 0.62, 0.12).applyQuaternion(cam.getWorldQuaternion(W.turn)).add(cam.getWorldPosition(W.at));
       this.lamp.position.copy(this.root.worldToLocal(o));
+      // The only shadows down here are his light's: they are drawn anew when it has moved (he
+      // walks, or turns his head), or a chest's lid has, and stand while he stands.
+      const moved = this.lamp.position.distanceToSquared(this.shadowAt) > 1e-6 || here.chests.some((c) => Math.abs((c.chest.opened ? 1 : 0) - c.open) > 0.002);
+      if (moved) this.shadowAt.copy(this.lamp.position);
+      G.shadowsStill = !moved;
       this.lamp.color.lerp(this.tone.set(TONE[here.kindAt(Math.floor(tx), Math.floor(ty))] ?? TONE.passage), Math.min(1, dt / 600));
       // (shaded, it shows little, and less finds him)
       this.lamp.intensity = 9 * LUX * (0.96 + 0.04 * Math.sin(s * 7)) * (1 + this.boost * 1.5) * (G.world.dim?.has(fp.id) ? 0.22 : 1);

@@ -52,6 +52,8 @@ export const G = {
   group: [], // the selected carriers when more than one is (G.selected is the first of them)
   hoverPick: null, // an Aerial Transport under the cursor, picked by its body above the ground
   holdEnd: 0, // performance.now() before which the battle's end is not shown (a Sacrifice being heard out)
+  below: false, // the view is down in a dungeon, through the eyes of the Priest (ns-dungeon.js)
+  shadowsStill: false, // nothing that casts a shadow has moved since the shadows were drawn (below: his light stands)
 };
 
 /**

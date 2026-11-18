@@ -435,9 +435,10 @@ export class Hud {
         lines.push(`He holds a storm crystal (⚡${held.value}): it is banked when he reaches your Temple.`);
         acts.push('<button data-sel="bank">Bank it at the Temple</button>', '<button data-sel="drop">Drop it</button>');
       }
-      if (e.owner === ME && e.state === 'normal') lines.push('Click ground to walk, a geyser to collect, or your Altar to perform a sacrifice. “Priest builds” below has Workshops and the Altar.');
+      if (e.owner === ME && e.state === 'normal' && !G.world.below?.has(e.id)) lines.push('Click ground to walk, a geyser to collect, or your Altar to perform a sacrifice. “Priest builds” below has Workshops and the Altar.');
       if (e.owner !== ME && e.state !== 'down') lines.push('Knock him out (below half health) with cannons, then send a Golem.');
-      lines.push(`His ward: no single hit of a gun or flyer takes more than ${NS.PRIEST_WARD} off him${G.world.nights ? '; he heals half as fast again by day, and prays slower at night' : ''}.`);
+      const blessed = G.world.boons?.get(e.id)?.has('ward');
+      lines.push(`His ward${blessed ? ', stronger by a shrine’s boon' : ''}: no single hit of a gun or flyer takes more than ${blessed ? NS.PRIEST_WARD_BOON : NS.PRIEST_WARD} off him${G.world.nights ? '; he heals half as fast again by day, and prays slower at night' : ''}.`);
       if (e.state === 'normal') this.spellCard(e, lines, acts);
     }
     const hp = e.hp !== undefined && e.hpMax ? `<div class="hp"><i style="width:${Math.max(0, 100 * e.hp / e.hpMax)}%"></i></div>` : '';

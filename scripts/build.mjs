@@ -14,7 +14,6 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { aiMemo } from './ai-memo.mjs';
 import { houseRules } from './house-rules.mjs';
 
 const VENDOR = resolve('vendor/netstorm-web');
@@ -24,6 +23,13 @@ if (!existsSync(`${VENDOR}/packages/sim/src/index.ts`)) {
   console.error('vendor/netstorm-web is empty: run `git submodule update --init` first.');
   process.exit(1);
 }
+
+const messages = {
+  name: 'messages',
+  setup(b) {
+    b.onResolve({ filter: /paraglide\/messages\.js$/ }, () => ({ path: resolve('src/messages.js') }));
+  },
+};
 
 const common = {
   bundle: true,
@@ -35,12 +41,7 @@ const common = {
     'ns-client': `${VENDOR}/packages/client/src`,
     'ns-messages': `${VENDOR}/packages/client/messages`,
   },
-  plugins: [{
-    name: 'messages',
-    setup(b) {
-      b.onResolve({ filter: /paraglide\/messages\.js$/ }, () => ({ path: resolve('src/messages.js') }));
-    },
-  }, houseRules()],
+  plugins: [messages, houseRules()],
 };
 
 /** Run a script that imports netstorm-web's TypeScript, bundled for Node first. */
@@ -62,8 +63,9 @@ if (args.has('--check')) {
 const minify = !args.has('--watch');
 const app = { ...common, entryPoints: ['src/main.js'], outfile: 'build/app.js', format: 'iife', platform: 'browser', minify };
 // the computer opponent's worker: its world is a copy that never changes, so it may keep answers
+// (scripts/ai-memo.mjs; laid in by the house rules' plugin, which loads the file it changes)
 const worker = { ...common, entryPoints: ['src/ai-worker.js'], outfile: 'build/ai-worker.js', format: 'iife', platform: 'browser', minify,
-  plugins: [...common.plugins, aiMemo()] };
+  plugins: [messages, houseRules({ memo: 'kept' })] };
 
 /**
  * Which build this is: the package version and the commit, marked when the tree has changes, and

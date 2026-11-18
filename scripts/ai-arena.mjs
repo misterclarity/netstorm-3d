@@ -13,6 +13,7 @@
  *   … TRACE=1 ECON=1                                       # each side's income every five minutes
  *   SPELLS=obelisks npm run ai:arena                       # the skirmish's Spells setting (none, obelisks, prayer)
  *   NIGHTS=off npm run ai:arena                            # no nights (on, at -25%, as the Settings' defaults)
+ *   MEMO=off npm run ai:arena                              # without the worker's cache, to measure what it saves
  *
  * A side is a level (easy, normal, hard, and any added to the table) or idle. Side 1 plays Wind,
  * side 2 Rain, on four islands with 2000 Storm Power, as the menu's defaults. Each move is worked
@@ -23,7 +24,6 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mkdirSync } from 'node:fs';
 import { execFile } from 'node:child_process';
-import { aiMemo } from './ai-memo.mjs';
 import { houseRules } from './house-rules.mjs';
 
 const VENDOR = resolve('vendor/netstorm-web');
@@ -224,7 +224,7 @@ await esbuild.build({
     'ns-client': `${VENDOR}/packages/client/src`,
     'ns-messages': `${VENDOR}/packages/client/messages`,
   },
-  plugins: [messages, houseRules(), aiMemo({ gated: true })],
+  plugins: [messages, houseRules({ memo: process.env.MEMO === 'off' ? null : 'gated' })],
 });
 
 if (process.env.TRACE === '1') {

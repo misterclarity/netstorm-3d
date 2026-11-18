@@ -1,8 +1,8 @@
 /**
  * The computer opponent with and without the worker's cache (scripts/ai-memo.mjs): a skirmish of
  * some minutes at each level, the computer's moves worked out as the worker does (on a copy of the
- * world made for the move). Fails unless both play exactly the same moves; prints the time a move
- * takes each way.
+ * world made for the move). Fails unless both play exactly the same moves, and unless the cache is
+ * really in the one bundle and not in the other; prints the time a move takes each way.
  *
  *   node scripts/ai-check.mjs [minutes]     (8 by default)
  */
@@ -10,7 +10,6 @@ import * as esbuild from 'esbuild';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mkdirSync } from 'node:fs';
-import { aiMemo } from './ai-memo.mjs';
 import { houseRules } from './house-rules.mjs';
 
 const VENDOR = resolve('vendor/netstorm-web');
@@ -43,6 +42,15 @@ export function play(difficulty, ticks) {
     world.drainEvents();
   }
   return { digest, average: ms / moves, worst, moves, entities: world.view().entities.size };
+}
+export function keeps() {
+  const defs = NS.loadDefs(DATA.units);
+  const options = { ...NS.DEFAULT_OPTIONS, lang: 'en', mode: 'skirmish', opponent: 'ai', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, seed: 42 };
+  const world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known: [], altarLevel: 1 });
+  globalThis.__nsAiMove = true;
+  const same = NS.connectedToTemple(world.view(), 2) === NS.connectedToTemple(world.view(), 2);
+  globalThis.__nsAiMove = false;
+  return same && NS.connectedToTemple(world.view(), 2) !== NS.connectedToTemple(world.view(), 2);
 }`;
 
 const common = {
@@ -57,15 +65,22 @@ const common = {
 const messages = { name: 'messages', setup(b) { b.onResolve({ filter: /paraglide\/messages\.js$/ }, () => ({ path: resolve('src/messages.js') })); } };
 
 mkdirSync('build', { recursive: true });
-const load = async (name, plugins) => {
+const load = async (name, memo) => {
   const out = resolve(`build/ai-check-${name}.mjs`);
-  await esbuild.build({ ...common, outfile: out, plugins: [messages, houseRules(), ...plugins] });
+  await esbuild.build({ ...common, outfile: out, plugins: [messages, houseRules({ memo })] });
   return import(`${pathToFileURL(out).href}?${Date.now()}`);
 };
-const plain = await load('plain', []);
-const kept = await load('kept', [aiMemo({ gated: true })]);
+const plain = await load('plain', null);
+const kept = await load('kept', 'gated');
 
 let failed = false;
+// the cache is really there: asked twice during a move, the kept bundle gives the same answer
+// back, the plain one works it out again (a cache that is quietly left out compares as equal)
+for (const [name, bundle, want] of [['plain', plain, false], ['kept', kept, true]]) {
+  const got = bundle.keeps();
+  if (got !== want) failed = true;
+  console.log(`${got === want ? '✓' : '✗'} the ${name} bundle ${got ? 'keeps' : 'does not keep'} connectedToTemple's answer for a move`);
+}
 for (const level of ['normal', 'hard']) {
   const ticks = Math.round(minutes * 60 * 10);
   const a = plain.play(level, ticks), b = kept.play(level, ticks);

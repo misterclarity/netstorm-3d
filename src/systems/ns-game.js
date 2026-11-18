@@ -49,7 +49,9 @@ AFRAME.registerSystem('ns-game', {
    * screen would draw twice as many for no gain), and 15 while nothing calls for more: the battle
    * paused or not started, or a dialog open, with the camera still. A headset gets every frame.
    * The sun's shadow map is drawn every other frame (it does not change with the camera, only with
-   * what moves on the islands), which halves the cost of the shadow pass.
+   * what moves on the islands), which halves the cost of the shadow pass; and not at all while
+   * nothing that casts a shadow moves (G.shadowsStill: below, where the Priest's light casts them
+   * all, while he stands).
    */
   pace() {
     const scene = this.el, renderer = scene.renderer, render = scene.render;
@@ -63,7 +65,7 @@ AFRAME.registerSystem('ns-game', {
         if (time < next - 1) return;
         next = time - next > interval ? time + interval : next + interval;
       }
-      renderer.shadowMap.needsUpdate = n++ % 2 === 0 || this.shadowsNow;
+      renderer.shadowMap.needsUpdate = (n++ % 2 === 0 && !G.shadowsStill) || this.shadowsNow;
       this.shadowsNow = false;
       render(time, frame);
     });
@@ -74,9 +76,9 @@ AFRAME.registerSystem('ns-game', {
    * Compile every shader program the battle will need now, while the menu is up, instead of the
    * first time each kind of thing appears: a shell in flight, an explosion's puff, a sprite card,
    * a unit type, a placement ring. A program is compiled per kind of material, not per thing, so
-   * a sample of each kind is enough: everything in the scene, the hidden pools too (made visible
-   * for the moment the materials are gathered), a model of every unit, and the effects' and
-   * cards' materials. The samples are kept, so that their programs stay in the renderer's cache.
+   * a sample of each kind is enough: everything in the scene, the hidden pools too, a model of
+   * every unit, and the effects' and cards' materials. The samples are kept, so that their
+   * programs stay in the renderer's cache.
    */
   warmUp() {
     const scene = this.el, renderer = scene.renderer, camera = scene.camera;
@@ -110,15 +112,34 @@ AFRAME.registerSystem('ns-game', {
       new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide }), // a sprite card or frame
     ]) extra.add(new THREE.Mesh(box, material));
     scene.object3D.add(extra);
-    const hidden = [];
-    scene.object3D.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
-    // the materials are gathered now; where the browser can, the compiling goes on in the
-    // background, else it is done at once (a moment's pause at the menu, not in battle)
-    if (renderer.extensions.has('KHR_parallel_shader_compile')) renderer.compileAsync(scene.object3D, camera).catch(() => {});
-    else renderer.compile(scene.object3D, camera);
-    for (const o of hidden) o.visible = false;
+    // the dungeons are left out: they are seen under other lights, and warm their own programs
+    // (ns-dungeon.js)
+    this.compile([document.getElementById('dungeon')?.object3D]);
     scene.object3D.remove(extra);
     this.warm = extra;
+  },
+
+  /**
+   * Compile the programs of every material in the scene, for the lights that shine now. A program
+   * is made for a material under one set of lights (how many of each kind, which of them cast
+   * shadows) and is of no use under another. three.js gathers the materials of everything in the
+   * scene, shown or hidden, but the lights only of what is shown: so nothing is shown or hidden
+   * for this, or the programs would be made for lights that never shine together (they were, once
+   * the dungeons had lights of their own: every program was compiled twice, the second time in
+   * battle). Where the browser can, the compiling goes on in the background; else it is done at
+   * once (a moment's pause at the menu or as a battle begins, not in the middle of one). What is
+   * in `without` is taken out of the scene for it: what is never seen under these lights. False if
+   * the renderer is not there yet.
+   */
+  compile(without = []) {
+    const scene = this.el, renderer = scene.renderer, camera = scene.camera;
+    if (!renderer?.compile || !camera) return false;
+    const out = without.filter((o) => o?.parent).map((o) => [o, o.parent]);
+    for (const [o] of out) o.removeFromParent();
+    if (renderer.extensions.has('KHR_parallel_shader_compile')) renderer.compileAsync(scene.object3D, camera).catch(() => {});
+    else renderer.compile(scene.object3D, camera);
+    for (const [o, parent] of out) parent.add(o);
+    return true;
   },
 
   /** Whether the scene has to move smoothly now. */
@@ -274,6 +295,7 @@ AFRAME.registerSystem('ns-game', {
           if (!mine) break;
           if (ev.data.down) hud.log('Your Priest went down into the dungeon', 'good');
           else if (ev.data.why === 'lurker') { hud.toast('Your Priest was dragged out of the dungeon, more dead than alive', 'bad'); hud.log('Your Priest was driven out of the dungeon', 'bad'); }
+          else if (ev.data.why === 'pit') { hud.toast('Your Priest was hauled out of the pit and up the stairs, more dead than alive', 'bad'); hud.log('Your Priest fell into a pit and was brought up', 'bad'); }
           else if (ev.data.why === 'air') { hud.toast('The deep air drove your Priest back up: he may go down again in a while', 'bad'); hud.log('Your Priest climbed out of the dungeon, short of air'); }
           else hud.log('Your Priest climbed out of the dungeon');
           break;
@@ -644,6 +666,8 @@ AFRAME.registerSystem('ns-game', {
     const sel = G.selected === null ? undefined : G.view.entities.get(G.selected);
     const own = (e) => !!e && e.owner === ME;
     if (!sel || !own(sel)) return false;
+    // down in a dungeon he takes no order for the islands (the rules refuse it)
+    if (sel.kind === 'priest' && G.world.below?.has(sel.id)) { this.hud.toast('Your Priest is down in the dungeon: look through his eyes (V) to bring him up', 'bad'); return 'refused'; }
     // your Priest sent to your Altar (or to the captive chained on it) performs the sacrifice
     const altar = target?.kind === 'building' && target.owner === ME && defs.get(target.type)?.cls === 'Altar' ? target
       : target?.kind === 'priest' && target.state === 'chained' ? G.view.entities.get(target.chainedAt) : null;
