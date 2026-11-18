@@ -3,6 +3,7 @@
  * the card of the selected thing, the next-step card, toasts and the dialogs.
  */
 import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, facingText, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml, PLAY, setPlay } from './state.js';
+import * as RAID from './raid-hud.js';
 import { needOf, needText, iconsHtml, iconName, sourceOf } from './energy.js';
 import { submit, SKIRMISH_DEFAULTS } from './game.js';
 import { modelKind } from './models.js';
@@ -116,6 +117,7 @@ export class Hud {
   updateTop() {
     const me = G.world?.players.get(ME);
     $('storm').innerHTML = `⚡ <b>${me ? Math.floor(me.storm) : 0}</b>`;
+    $('storm').hidden = !!G.raid; // the raid is fought with what its boats carry
     const secs = Math.floor((G.world?.tick ?? 0) / TPS);
     $('clock').innerHTML = `⏱ <b>${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}</b>`;
     // day and night (a setting): which it is, and how long until it turns
@@ -123,8 +125,9 @@ export class Hud {
     if (day) {
       day.hidden = !w?.nights;
       if (w?.nights) {
-        const cycle = NS.DAY_SECONDS + NS.NIGHT_SECONDS, into = (w.tick / TPS) % cycle, night = into >= NS.DAY_SECONDS;
-        const left = Math.ceil((night ? cycle : NS.DAY_SECONDS) - into), clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+        // (in seconds of play: the raid's hours pass at a pace of their own, w.raid.rate)
+        const cycle = NS.DAY_SECONDS + NS.NIGHT_SECONDS, into = w.clockSeconds() % cycle, night = into >= NS.DAY_SECONDS;
+        const left = Math.ceil(((night ? cycle : NS.DAY_SECONDS) - into) / (w.raid?.rate ?? 1)), clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
         const fury = furyText(w);
         day.innerHTML = `${night ? MOON_ICON[w.moonPhase()] : '☀'} <b>${clock}</b>`;
         day.classList.toggle('night', night);
@@ -216,6 +219,7 @@ export class Hud {
   }
   /** "Use your High Priest to build Temples, Workshops, and Altars"; the Outpost where a side has it. */
   priestCards() {
+    if (G.raid) return []; // in the raid she builds nothing
     const ids = [`${playerTheme(ME)}factory`, 'sunfactory', 'altar'];
     if (G.world.players.get(ME).tech.has('outpost')) ids.push('outpost');
     return [...new Set(ids)].map((id) => defs.get(id)).filter(Boolean);
@@ -353,14 +357,16 @@ export class Hud {
       return;
     }
     const d = e.type ? defs.get(e.type) : null, owner = e.owner ? G.world.players.get(e.owner) : null;
-    const name = e.kind === 'priest' ? 'High Priest' : e.kind === 'geyser' ? 'Geyser' : e.kind === 'crystal' ? 'Storm crystal' : e.kind === 'obelisk' ? 'Obelisk' : d?.name ?? e.kind;
+    const name = RAID.cardName(e) ?? (e.kind === 'priest' ? 'High Priest' : e.kind === 'geyser' ? 'Geyser' : e.kind === 'crystal' ? 'Storm crystal' : e.kind === 'obelisk' ? 'Obelisk' : d?.name ?? e.kind);
     const lines = [], acts = [];
-    if (e.kind === 'obelisk') {
+    // the raid's own cards (raid-hud.js): Harriet Tubman, the boats, the Confederates' buildings
+    const raided = RAID.card(e, lines, acts);
+    if (raided) { /* said */ } else if (e.kind === 'obelisk') {
       lines.push(`Holds the ${spellName(e.spell)}: it ${spellText(e.spell)}.`);
       lines.push('Select one of your carriers, then click the Obelisk: it walks there and takes the Spell.');
     }
     if (e.kind === 'geyser') lines.push(e.stock > 0 ? `${e.stock} Storm Power left` : 'Spent');
-    if (e.kind === 'building') {
+    if (!raided && e.kind === 'building') {
       if (e.rising > 0) lines.push(`Under construction: ${Math.ceil(e.rising / TPS)} s`);
       const source = sourceOf(e), need = needOf(d);
       if (source) {
@@ -398,7 +404,7 @@ export class Hud {
       }
       if (e.owner === ME && d.cls !== 'Energy') acts.push('<button data-sel="salvage" title="Delete">Salvage</button>');
     }
-    if (e.kind === 'transport') {
+    if (!raided && e.kind === 'transport') {
       const captive = G.view.entities.get(e.carrying)?.kind === 'priest' ? G.view.entities.get(e.carrying) : null;
       lines.push(captive && e.goal === 'idle' ? 'Holding the enemy Priest'
         : { idle: 'Waiting for orders', collect: 'Collecting Storm Power', pickup: 'Fetching a crystal', home: 'Carrying Storm Power home', capture: 'Going for the enemy Priest', altar: 'Carrying the captive to the Altar', obelisk: 'Fetching a spell' }[e.goal] ?? e.goal);
@@ -413,7 +419,7 @@ export class Hud {
       this.spellCard(e, lines, acts);
       if (e.owner === ME) acts.push('<button data-sel="salvage">Salvage</button>');
     }
-    if (e.kind === 'priest') {
+    if (!raided && e.kind === 'priest') {
       const doing = { build: 'Building', collect: 'Collecting Storm Power', home: 'Carrying Storm Power home', pickup: 'Fetching a crystal' }[e.goal] ?? 'Standing';
       lines.push({ normal: doing, down: 'Knocked out', carried: 'Being carried off', chained: `Chained to an Altar: ${e.runes}/5 runes` }[e.state] ?? e.state);
       // the Hover (the house rules): prayed for, then floating faster until it is spent
@@ -454,6 +460,7 @@ export class Hud {
     const b = ev.target.closest('[data-sel]');
     if (!b || b.disabled || G.selected === null) return;
     const id = G.selected;
+    if (RAID.cardClick(b.dataset.sel, id)) { this.dirty = true; return; }
     if (b.dataset.sel === 'produce') submit({ t: 'produce', workshop: id, type: b.dataset.type });
     if (b.dataset.sel === 'upgrade') submit({ t: 'upgradeWorkshop', workshop: id });
     if (b.dataset.sel === 'drop') submit({ t: 'dropCargo', transport: id });
@@ -526,6 +533,7 @@ export class Hud {
 
   /* ------------------------ the next step, read off the battle --------------------------- */
   renderGoal() {
+    if (G.raid) { RAID.goal(); return; }
     const v = G.view, w = G.world, me = w.players.get(ME);
     const all = [...v.entities.values()], mine = all.filter((e) => e.owner === ME);
     const has = (f) => mine.some(f);
@@ -658,6 +666,7 @@ export class Hud {
           </div>
           <p class="level" id="skLevelNote"></p>
           <button class="main" data-start="skirmish">Start skirmish</button></section>
+        ${RAID.menuSection()}
       </div>`, [{ label: 'Settings', act: () => this.settings(() => this.menu()) }, { label: 'How to play', act: () => this.howToPlay(() => this.menu()) }]);
     const box = $('modalBox');
     box.querySelector('#skDice').onclick = () => { box.querySelector('#skSeed').value = String(Math.floor(Math.random() * 100000)); };
@@ -668,6 +677,7 @@ export class Hud {
       select.onchange = show;
       show();
     }
+    RAID.wireMenu(box, this.game);
     box.querySelector('[data-start="mission"]').onclick = () => {
       const difficulty = box.querySelector('#msLevel').value;
       try { localStorage.setItem('netstorm-3d:mission-level', difficulty); } catch { /* no storage */ }
@@ -723,6 +733,7 @@ export class Hud {
   }
 
   briefing() {
+    if (G.raid) return RAID.briefing(this);
     if (!G.mission) return this.skirmishBriefing();
     const mission = G.mission;
     const text = (mission.pages['a.']?.text ?? mission.briefing).replace(/^The War Begins!\s*/, '');

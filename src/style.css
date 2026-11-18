@@ -199,3 +199,16 @@ body.fp #right, body.fp #sel { display: none !important; }
 #fade { position: fixed; inset: 0; z-index: 8; background: #000; opacity: 0; pointer-events: none; }
 body.below #bar, body.below #mini, body.below #right, body.below #sel { display: none !important; }
 body.below #fpInfo { bottom: 24px; }
+
+/* The Combahee River Raid (raid-hud.js): its part of the menu, a row of its own; in its battles no
+   building cards, and in the scouting no bar at all */
+.modes .campaign { grid-column: 1 / -1; }
+.campaign .raids { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.campaign .raids button { flex: 1 1 180px; }
+.campaign .raids button[disabled] { opacity: 0.5; cursor: not-allowed; }
+body.raid #bar .group:nth-child(n + 2) { display: none; }
+body.scouting #bar { display: none; }
+#modal .when { color: var(--muted); margin-top: -6px; }
+#modal .credit a, #modal .level a, #modal .credits a { color: var(--accent, #f2c14e); }
+#modal ul.credits { padding-left: 18px; font-size: 0.9em; color: var(--muted); }
+#goal .home { display: block; margin-top: 8px; padding: 4px 12px; font: inherit; cursor: pointer; }

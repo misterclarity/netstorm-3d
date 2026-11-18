@@ -23,6 +23,7 @@ import { NS, THREE, G, ME, defs, TPS, wx, wz } from '../state.js';
 import { submit } from '../game.js';
 import { groundCell, toScene } from '../space.js';
 import { spellName } from '../spells.js';
+import * as RAID from '../raid-hud.js';
 import { groundAt } from '../heights.js';
 
 /** His eyes above the ground he stands on, in cells; lying knocked out, near it. */
@@ -346,6 +347,7 @@ AFRAME.registerSystem('ns-fp', {
   /** H: he prays for the Hover, if he can now (the rules ask the same: prayHover). */
   prayHover() {
     const p = this.priest(), hud = this.game().hud, left = p ? G.world.hover?.get(p.id)?.pray ?? 0 : 0;
+    if (G.raid) { hud.toast('No Hover on the Combahee: her disguise (C) is her way past the pickets', 'bad'); return; }
     if (!p || p.state !== 'normal' || p.casting > 0 || p.praying > 0) { hud.toast(p?.praying > 0 ? 'One prayer at a time: he is praying for a Spell' : 'He cannot pray for the Hover now', 'bad'); return; }
     if (left > 0) { hud.toast(`He is praying for the Hover: ${Math.ceil(left / TPS)} s more, standing still`); return; }
     submit({ t: 'prayHover' });
@@ -367,6 +369,7 @@ AFRAME.registerSystem('ns-fp', {
   /** The wheel or Tab: the next (or the last) of his Priest builds to lay, or none. */
   cycleBuild(step) {
     const game = this.game(), list = game.hud.priestCards().map((d) => d.id);
+    if (G.raid) return;
     if (!list.length) return;
     const at = G.tool.kind === 'build' ? list.indexOf(G.tool.type) : -1;
     const next = at < 0 && step < 0 ? list.length - 1 : at + step;
@@ -477,6 +480,18 @@ AFRAME.registerSystem('ns-fp', {
       lines.push(document.pointerLockElement === this.el.canvas
         ? '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · mouse look · <kbd>E</kbd> use · <kbd>L</kbd> shade the light · <kbd>Esc</kbd> free the mouse · <kbd>V</kbd> view the battle from above'
         : '<b>Click the view to look about with the mouse</b> · <kbd>V</kbd> view the battle from above');
+      const html = lines.map((l) => `<div>${l}</div>`).join('');
+      const info = document.getElementById('fpInfo');
+      if (info && info.dataset.html !== html) { info.innerHTML = html; info.dataset.html = html; }
+      return;
+    }
+    if (p && G.raid) {
+      // Harriet Tubman: her health, her disguise, the keys she has
+      const out = p.state === 'down' ? ' · knocked out' : '';
+      lines.push(`<b>Harriet Tubman</b> ${Math.ceil(p.hp)}/${p.hpMax}${out}`, RAID.disguiseLine());
+      lines.push(document.pointerLockElement === this.el.canvas
+        ? '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · mouse look · click to walk there · <kbd>Esc</kbd> free the mouse · <kbd>V</kbd> view from above'
+        : '<b>Click the view to look about with the mouse</b> · <kbd>V</kbd> view from above');
       const html = lines.map((l) => `<div>${l}</div>`).join('');
       const info = document.getElementById('fpInfo');
       if (info && info.dataset.html !== html) { info.innerHTML = html; info.dataset.html = html; }

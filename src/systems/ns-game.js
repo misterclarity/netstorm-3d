@@ -16,6 +16,7 @@ import { spellName } from '../spells.js';
 import { MOON_ICON, moonName, reachText, furyText, hitText } from '../moon.js';
 import { reachOf } from '../reach.js';
 import * as models from '../models.js';
+import * as RAID from '../raid-hud.js';
 
 const AIR_BOX = new THREE.Box3(), AIR_HIT = new THREE.Vector3();
 
@@ -160,6 +161,9 @@ AFRAME.registerSystem('ns-game', {
     this.priestGoal = null;
     this.priestGeyser = null;
     this.el.emit('ns-new-game');
+    // the raid's battles show no building; the scouting no bridge either
+    document.body.classList.toggle('raid', !!G.raid);
+    document.body.classList.toggle('scouting', G.raid === 'scout');
     this.shadowsNow = true;
     this.frameView();
     this.hud.reset();
@@ -175,7 +179,10 @@ AFRAME.registerSystem('ns-game', {
     const rig = document.getElementById('camera')?.components['orbit-rig'];
     if (!rig || this.xr().mode) return;
     const temple = G.world.templeOf(ME);
-    if (G.mission || !temple) rig.setHome(new THREE.Vector3(-7, 0, 7), 82);
+    // the raid: from above Field's Point, where Harriet Tubman stands at the start, up the river
+    const her = G.raid ? G.world.priestOf(ME) : null;
+    if (her) rig.setHome(new THREE.Vector3(wx(her.x - 8), groundAt(her.x + 0.5, her.y + 0.5), wz(her.y - 6)), 78);
+    else if (G.mission || !temple) rig.setHome(new THREE.Vector3(-7, 0, 7), 82);
     else rig.setHome(new THREE.Vector3(wx(temple.x + temple.fx / 2), groundAt(temple.x + 0.5, temple.y + 0.5), wz(temple.y + temple.fy / 2) + 6), 70);
   },
 
@@ -238,6 +245,7 @@ AFRAME.registerSystem('ns-game', {
   },
 
   effects() { return this.el.querySelector('[ns-effects]')?.components['ns-effects']; },
+  raidScene() { return this.el.querySelector('[ns-raid]')?.components['ns-raid']; },
   units() { return this.el.querySelector('[ns-units]')?.components['ns-units']; },
   sound() { return this.el.systems['ns-sound']; },
   xr() { return this.el.systems['ns-xr']; },
@@ -326,6 +334,7 @@ AFRAME.registerSystem('ns-game', {
           break;
         case 'lurker': if (mine) hud.toast('Something bit your Priest in the dark! Shade the light (L) or outrun it (the Hover)', 'bad'); break;
         case 'pit': if (mine) hud.toast('The Hover gave out over the pit: your Priest fell, and was washed back to the stairs', 'bad'); break;
+        case 'raid': RAID.hear(this, ev); break;
         case 'sap':
           if (ev.data.start) hud.toast(mine ? `Your Golem is setting a charge under the Altar: ${NS.SAP_SECONDS} s by the portal` : 'An enemy Golem at your dungeon’s portal is setting a charge under your Altar!', mine ? 'good' : 'bad');
           else if (ev.data.broken) hud.toast(mine ? 'The charge was not set: your Golem left the portal' : 'The charge under your Altar was not set');
@@ -380,7 +389,12 @@ AFRAME.registerSystem('ns-game', {
       }
     }
     if (G.ended || performance.now() < G.holdEnd) return;
-    // a skirmish ends on the simulation's verdict; a mission on its script's pages
+    // a battle of the raid ends on its own verdict (sim/raid.ts); a skirmish on the simulation's;
+    // a mission on its script's pages
+    if (G.raid) {
+      if (G.world.raid?.verdict) RAID.end(hud, G.world.raid.verdict);
+      return;
+    }
     if (!G.mission) {
       const result = NS.outcome(G.world, ME);
       if (result) hud.result(result === 'won');
@@ -672,6 +686,13 @@ AFRAME.registerSystem('ns-game', {
     const altar = target?.kind === 'building' && target.owner === ME && defs.get(target.type)?.cls === 'Altar' ? target
       : target?.kind === 'priest' && target.state === 'chained' ? G.view.entities.get(target.chainedAt) : null;
     if (sel.kind === 'priest' && altar?.owner === ME) { G.afterDelivery.delete(sel.id); this.priestToAltar(altar); return true; }
+    // a boat of the raid goes wherever it is sent on the river: to the deep water nearest the place
+    if (sel.kind === 'transport' && G.world.raid?.boats.has(sel.id)) {
+      const cmd = { t: 'moveTransport', transport: sel.id, x, y };
+      if (this.refuse(sel, cmd)) return 'refused';
+      submit(cmd);
+      return true;
+    }
     if (own(target)) return false;
     G.afterDelivery.delete(sel.id); // a new order replaces one that waited
     if ((sel.kind === 'transport' || sel.kind === 'priest') && target) {
@@ -754,6 +775,8 @@ AFRAME.registerSystem('ns-game', {
   refuse(sel, cmd) {
     const w = G.world, t = w.entities.get(sel.id);
     if (!t) return false;
+    // a boat of the raid finds its own way by the river's deep water (sim/raid.ts, steerBoat)
+    if (w.raid?.boats.has(t.id)) return false;
     const name = t.kind === 'priest' ? 'Your Priest' : `The ${defs.get(t.type)?.name ?? 'carrier'}`;
     const flies = t.kind === 'transport' && NS.flies(defs.get(t.type));
     const near = (e, d) => (c) => Math.abs(c[0] - e.x) + Math.abs(c[1] - e.y) <= d;
@@ -903,6 +926,8 @@ AFRAME.registerSystem('ns-game', {
       '-': () => this.hud.setSpeed(-1),
       delete: () => { if (G.selected !== null) this.hud.salvage(); },
       l: () => this.hud.toggleLog(),
+      // the raid: Harriet's disguise
+      c: () => { if (G.raid) submit({ t: 'disguise' }); },
       g: () => this.placement().toggleEnemyReach(),
       h: () => this.minimap.toTemple(),
       p: () => this.minimap.toPriest(),

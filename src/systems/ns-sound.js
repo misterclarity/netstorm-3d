@@ -156,6 +156,67 @@ AFRAME.registerSystem('ns-sound', {
     return source;
   },
 
+  /**
+   * The raid's sounds (raid-hud.js): the original's where it has one (a cannon, a blast, a bridge
+   * falling), and three made here, for it has none: a steamboat's whistle, a flock's wings, and a
+   * soft chord as Harriet sings to the crowd (no voice: the game does not put words in her mouth).
+   * `boat`, the boat it comes from.
+   */
+  raid(kind, boat) {
+    const at = boat === undefined ? null : this.el.systems['ns-game']?.units()?.byId.get(boat)?.object3D.position ?? null;
+    if (kind === 'shell') { this.play('suncannonfire', at); return; }
+    if (kind === 'torpedo') { this.play('explosion', at); return; }
+    if (kind === 'burned') { this.play('bridgefall'); return; }
+    if (kind === 'battery') { this.play('suncannonfire'); this.later('thunderquietdistant', 0.6); return; }
+    const ctx = this.audio();
+    if (!ctx || !this.settings.sound || ctx.state !== 'running') return;
+    this.played.push(`raid:${kind}`);
+    if (this.played.length > 50) this.played.shift();
+    const { volume, pan } = this.where(at), t0 = ctx.currentTime, out = ctx.createGain(), panner = ctx.createStereoPanner();
+    panner.pan.value = pan;
+    out.connect(panner).connect(this.sfx);
+    const tone = (freq, from, to, peak, type = 'sine') => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type;
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0, t0 + from);
+      g.gain.linearRampToValueAtTime(peak, t0 + from + Math.min(0.25, (to - from) / 3));
+      g.gain.setValueAtTime(peak, t0 + to - 0.3);
+      g.gain.linearRampToValueAtTime(0, t0 + to);
+      o.connect(g).connect(out);
+      o.start(t0 + from);
+      o.stop(t0 + to + 0.05);
+      return o;
+    };
+    if (kind === 'whistle') {
+      // a steam whistle: a chord of two pipes, a little out of tune, rising as the steam comes
+      out.gain.value = 0.18 * volume;
+      for (const [f, d] of [[392, 0], [466, 3], [587, -4]]) {
+        const o = tone(f, 0, 1.9, 0.33, 'triangle');
+        o.detune.setValueAtTime(-60 + d, t0);
+        o.detune.linearRampToValueAtTime(d, t0 + 0.35);
+      }
+    } else if (kind === 'song') {
+      // a soft chord, slow to swell and slow to fade
+      out.gain.value = 0.1 * volume;
+      for (const f of [220, 277.2, 329.6, 440]) tone(f, 0, 3.2, 0.25);
+    } else if (kind === 'birds') {
+      // wings: short bursts of noise, many and fast
+      out.gain.value = 0.22 * volume;
+      const len = Math.floor(ctx.sampleRate * 1.4), buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        const beat = Math.abs(Math.sin((i / ctx.sampleRate) * 2 * Math.PI * 11)) ** 6;
+        d[i] = (Math.random() * 2 - 1) * beat * (1 - i / len);
+      }
+      const src = ctx.createBufferSource(), band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 1800;
+      src.buffer = buf;
+      src.connect(band).connect(out);
+      src.start(t0);
+    }
+  },
+
   /** A unit's own sound for what it does (sounds.json `units`), if it has one. */
   unit(type, what, at) {
     this.play(SOUNDS.units[type]?.[what], at);

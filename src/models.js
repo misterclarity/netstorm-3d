@@ -1674,6 +1674,113 @@ export const MODELS = {
     // a crystal he carries, over his head
     rep.cargo = holder(g, 0, 2.4, 0);
   },
+  /**
+   * Harriet Tubman, in the Combahee River Raid (src/campaign.js): a woman of the 1860s in a dark
+   * full skirt and a linen apron, a jacket and a wool shawl, her hair wrapped in a cloth, a walking
+   * stick in one hand and a lantern in the other. The game's own figure, with no face: not a
+   * portrait. In disguise she stoops under a wide bonnet and a grey cloak; at a landing she sings,
+   * lantern raised. (`rep.body` and `rep.figure` as the Priest's, for the unit component.)
+   */
+  tubman(rep, g) {
+    const body = holder(g), figure = holder(body), skin = mat('#5a3826');
+    const skirt = mat('#33303a'), linen = mat('#d9d1bf'), jacket = mat('#4a3528'), shawl = mat('#8a3b2a'), wrap = mat('#cfc3a6');
+    part(figure, lathe('tubman-skirt', [[0.4, 0], [0.36, 0.2], [0.27, 0.52], [0.17, 0.66]], 12), skirt);
+    part(figure, box(0.3, 0.46, 0.05), linen, 0, 0.36, 0.25).rotation.x = -0.2;
+    part(figure, cyl(0.15, 0.18, 0.34, 8), jacket, 0, 0.8, 0);
+    part(figure, cone(0.27, 0.3, 8), shawl, 0, 0.9, 0).scale.set(1, 1, 0.8);
+    part(figure, cyl(0.06, 0.07, 0.08, 6), skin, 0, 1.0, 0);
+    part(figure, sph(0.13, 8, 6), skin, 0, 1.13, 0.01);
+    const cloth = holder(figure, 0, 1.17, -0.01);
+    part(cloth, dome(0.145), wrap).scale.set(1, 1.1, 1.05);
+    part(cloth, sph(0.05, 5, 4), wrap, 0.02, 0.08, -0.12);
+    // the disguise: a wide bonnet and a long grey cloak, put on and off
+    const guise = holder(figure);
+    part(guise, cone(0.36, 0.7, 8), mat('#5d5a57'), 0, 0.72, -0.02).scale.set(1, 1, 0.85);
+    part(guise, cyl(0.22, 0.2, 0.06, 10), mat('#4b463f'), 0, 1.18, 0.05).rotation.x = 0.35;
+    part(guise, dome(0.16), mat('#4b463f'), 0, 1.16, 0);
+    guise.visible = false;
+    const arm = (side) => {
+      const a = holder(figure, side * 0.19, 0.93, 0);
+      part(a, cone(0.07, 0.38, 6), jacket, 0, -0.18, 0).rotation.x = Math.PI;
+      part(a, sph(0.045, 5, 4), skin, 0, -0.38, 0);
+      return a;
+    };
+    const right = arm(1), left = arm(-1);
+    const stick = holder(right, 0, -0.38, 0.02);
+    part(stick, cyl(0.02, 0.022, 1.0, 5), mat('#5c4430'), 0, -0.1, 0.04);
+    const lantern = holder(left, 0, -0.42, 0.02);
+    part(lantern, box(0.1, 0.12, 0.1), metal('#3a3530'), 0, -0.07, 0);
+    const wick = lit(moving(part(lantern, box(0.07, 0.08, 0.07), glow('#ffe6a8', '#ffb347', 1.4), 0, -0.07, 0)));
+    if (rep.id != null) {
+      wick.material = wick.material.clone();
+      rep.own.push(wick.material);
+    }
+    rep.anim.push((s, e) => {
+      const r = G.world?.raid, disguised = e && r && G.world.tick < r.disguise.until;
+      const sings = e && r && r.singing >= 0 && !e.path?.length && e.state === 'normal';
+      guise.visible = !!disguised;
+      cloth.visible = !disguised;
+      figure.rotation.x = disguised ? 0.28 : 0;
+      left.rotation.set(sings ? -1.9 : -0.25, 0, sings ? 0.25 : 0.05);
+      right.rotation.set(sings ? -0.6 : -0.12, 0, -0.05);
+      figure.rotation.z = sings ? Math.sin(s * 2.2) * 0.05 : 0;
+      wick.material.emissiveIntensity = 1.2 + Math.sin(s * 9 + rep.id) * 0.25 + Math.sin(s * 23) * 0.1;
+      figure.position.y = Math.abs(Math.sin((rep.phase ?? 0) * 1.0)) * 0.04;
+    });
+    body.scale.setScalar(1.3);
+    rep.body = body;
+  },
+  /**
+   * A side-wheel steamer of the raid, a gunboat (the John Adams, the Harriet A. Weed, the
+   * Sentinel): a dark hull with a pointed bow (to +z, the way it goes), a deckhouse, a tall stack
+   * that smokes, a paddle wheel each side that turns as it goes, a gun on the foredeck and a pennant
+   * in its side's colour. Scaled to its footprint.
+   */
+  gunboat(rep, g, e) {
+    const d = defs.get(e.type), size = Math.max(1, d?.footX ?? 1), k = 0.45 + size * 0.22;
+    const hull = holder(g, 0, 0.15, 0);
+    hull.scale.setScalar(k);
+    const dark = mat('#2c2724'), deck = mat('#8a6a48'), white = mat('#d8d2c4'), iron = metal('#3c3b3a');
+    part(hull, box(1.3, 0.45, 3.0), dark, 0, 0.1, -0.2);
+    const bow = part(hull, cone(0.66, 1.0, 4), dark, 0, 0.1, 1.75);
+    bow.rotation.set(Math.PI / 2, Math.PI / 4, 0);
+    bow.scale.set(1, 1, 0.48);
+    part(hull, box(1.2, 0.06, 3.1), deck, 0, 0.36, -0.1);
+    part(hull, box(0.9, 0.55, 1.4), white, 0, 0.66, -0.6);
+    for (const x of [-0.46, 0.46]) for (const z of [-1.0, -0.6, -0.2]) part(hull, box(0.02, 0.12, 0.16), glow('#ffe2a0', '#ffb347', 0.6), x, 0.72, z);
+    part(hull, box(1.0, 0.06, 1.5), deck, 0, 0.96, -0.6);
+    part(hull, cyl(0.13, 0.15, 1.3, 8), iron, 0, 1.6, -0.25);
+    part(hull, cyl(0.16, 0.16, 0.1, 8), mat('#8a2f24'), 0, 2.2, -0.25);
+    part(hull, cyl(0.06, 0.08, 0.7, 6), iron, 0, 0.5, 1.15).rotation.x = Math.PI / 2 - 0.15;
+    const flag = holder(hull, 0, 0.36, -1.7);
+    part(flag, cyl(0.02, 0.02, 0.9, 4), mat('#d8d2c4'), 0, 0.45, 0);
+    part(flag, box(0.02, 0.18, 0.36), team(rep), 0, 0.8, -0.18);
+    const wheels = [];
+    for (const side of [-1, 1]) {
+      part(hull, cyl(0.42, 0.42, 0.22, 10), white, side * 0.76, 0.42, 0.15).rotation.z = Math.PI / 2;
+      const wheel = moving(holder(hull, side * 0.8, 0.38, 0.15));
+      for (let i = 0; i < 6; i++) part(wheel, box(0.16, 0.7, 0.06), deck, 0, 0, 0).rotation.x = (i / 6) * Math.PI;
+      wheels.push(wheel);
+    }
+    // smoke from the stack while it goes
+    const puffs = [];
+    for (let i = 0; i < 4; i++) {
+      const p = moving(part(hull, ico(0.18, 0), see('#55504c', 0.5), 0, 2.4, -0.25));
+      p.castShadow = false;
+      puffs.push(p);
+    }
+    rep.anim.push((s, unit) => {
+      const going = !!unit?.path?.length;
+      for (const w of wheels) w.rotation.x -= going ? 0.12 : 0.004;
+      puffs.forEach((p, i) => {
+        const f = (s * (going ? 0.6 : 0.25) + i / puffs.length) % 1;
+        p.position.set(Math.sin(s + i) * 0.1, 2.4 + f * 1.6, -0.25 - f * (going ? 1.2 : 0.3));
+        p.scale.setScalar(0.6 + f * 1.8);
+        p.visible = f < 0.95;
+      });
+      hull.rotation.z = Math.sin(s * 1.3 + rep.id) * 0.025;
+    });
+  },
   crystal(rep, g) {
     const c = moving(part(g, octa(0.28), glow('#bff4ff', '#39c6ff', 1.1), 0, 0.45, 0));
     c.scale.y = 1.5;
@@ -1755,6 +1862,10 @@ export const MODELS = {
 
 /** Which model a world entity gets: one builder per role, which draws each Fury's own. */
 export function modelKind(e) {
+  // the Combahee River Raid: Harriet Tubman, and the boats (sim/raid.ts)
+  const raid = G.world?.raid;
+  if (raid && e.kind === 'priest' && e.id === raid.tubman) return 'tubman';
+  if (raid && e.kind === 'transport' && raid.boats.has(e.id)) return 'gunboat';
   if (['priest', 'crystal', 'geyser', 'obelisk', 'flyer'].includes(e.kind)) return e.kind;
   const d = defs.get(e.type);
   if (e.kind === 'transport') return d?.cls === 'Aerial Transport' || d?.group === 'balloon' ? 'balloon' : 'walker';
@@ -1781,6 +1892,8 @@ export function heightOf(model) {
  */
 export function spriteKey(e, look = 0) {
   const has = (k) => k in ART.sprites;
+  // the raid's Harriet Tubman and boats are models in every mode: the original has no picture of them
+  if (raidOwn(e)) return null;
   if (e.kind === 'priest') return e.state === 'down' ? 'priest:down' : 'priest';
   if (e.kind === 'crystal' || e.kind === 'geyser') return e.kind;
   if (e.kind === 'transport' || e.kind === 'flyer') return has(e.type) ? e.type : null;
@@ -1790,6 +1903,12 @@ export function spriteKey(e, look = 0) {
     return has(e.type) ? e.type : null;
   }
   return null;
+}
+
+/** Whether an entity is the raid's own: Harriet Tubman or a boat (drawn as models, always). */
+export function raidOwn(e) {
+  const raid = G.world?.raid;
+  return !!raid && !!e && (e.id === raid.tubman || raid.boats.has(e.id));
 }
 
 /** A small model of a captive or crystal carried over a Golem's head. */

@@ -6,6 +6,7 @@ import { NS, DATA, G, MISSION, TPS, ME, WORLD, defs, origin } from './state.js';
 import { settleResidences } from './residences.js';
 import { resetHeights } from './heights.js';
 import { applySettings } from './settings.js';
+import { progress } from './campaign.js';
 
 /** Skirmish settings the menu starts from. */
 export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, spells: 'none', tiers: 'level', seed: 42 };
@@ -23,32 +24,41 @@ export function furyKnowledge(theme) {
 }
 
 /**
- * Start a match afresh: the mission, or a skirmish on a map generated from its seed, set up as
- * netstorm-web's setup.ts sets them up.
+ * Start a match afresh: the mission, a battle of the Combahee River Raid (src/campaign.js), or a
+ * skirmish on a map generated from its seed, set up as netstorm-web's setup.ts sets them up.
  */
 export function newGame(setup = G.setup) {
   G.setup = setup;
   G.mission = setup.mode === 'mission' ? MISSION : null;
+  // the raid's battle: 'scout' or 'raid' (the map and the rules are sim/raid-map.ts, sim/raid.ts)
+  G.raid = setup.mode === 'raid' ? setup.mission : null;
   const base = { ...NS.DEFAULT_OPTIONS, lang: 'en', difficulty: 'normal' };
   const options = G.mission
     ? { ...base, mode: 'mission', mission: MISSION.id, storm: MISSION.storm, difficulty: setup.difficulty ?? 'normal' }
-    : {
-      ...base, mode: 'skirmish', opponent: 'ai', theme: setup.theme, enemyTheme: setup.enemyTheme, islands: setup.islands,
-      difficulty: setup.difficulty, storm: setup.storm, seed: setup.seed, spells: setup.spells ?? 'none',
-    };
+    : G.raid
+      ? { ...base, mode: 'skirmish', opponent: 'ai', difficulty: setup.difficulty ?? 'normal', seed: NS.RAID_SEED, storm: 0 }
+      : {
+        ...base, mode: 'skirmish', opponent: 'ai', theme: setup.theme, enemyTheme: setup.enemyTheme, islands: setup.islands,
+        difficulty: setup.difficulty, storm: setup.storm, seed: setup.seed, spells: setup.spells ?? 'none',
+      };
   G.options = options;
-  const known = G.mission ? [] : furyKnowledge(setup.theme);
-  G.world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known, altarLevel: 1 });
+  if (G.raid) {
+    // the torpedoes she found at the scouting are known at the raid
+    G.world = NS.createRaid(defs, G.raid, options.difficulty, G.raid === 'raid' ? progress().known : []);
+  } else {
+    const known = G.mission ? [] : furyKnowledge(setup.theme);
+    G.world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known, altarLevel: 1 });
+  }
   // a random map's islands get the Residences a mission's map has (src/residences.js)
-  if (!G.mission) settleResidences(G.world, options.seed);
+  if (!G.mission && !G.raid) settleResidences(G.world, options.seed);
   // and a dungeon under the player's starting island (the house rules' digDungeon)
   // (each side's island has one; tunnels join them)
-  if (!G.mission) for (const id of [...G.world.players.keys()].sort((a, b) => a - b)) NS.digDungeon(G.world, id, options.seed + id - ME);
+  if (!G.mission && !G.raid) for (const id of [...G.world.players.keys()].sort((a, b) => a - b)) NS.digDungeon(G.world, id, options.seed + id - ME);
   G.view = G.world.view();
-  // the player's settings that are rules: day and night (src/settings.js)
-  applySettings(G.world);
+  // the player's settings that are rules: day and night (src/settings.js); the raid keeps its own
+  if (!G.raid) applySettings(G.world);
   // islands on three levels, if the skirmish was set up so (src/heights.js)
-  resetHeights(!G.mission && setup.tiers === 'tiered', setup.seed, setup.difficulty);
+  resetHeights(!G.mission && !G.raid && setup.tiers === 'tiered', setup.seed, setup.difficulty);
   G.schedule = new NS.AiSchedule(TPS);
   G.pending.clear();
   G.memories.clear();

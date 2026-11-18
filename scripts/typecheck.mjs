@@ -6,7 +6,8 @@
  * The build takes the types off without reading them (esbuild), so a slip in a house rule (a
  * misspelt member, a command or an event the declarations do not know, a value that may be
  * undefined) would show only when it runs, if then. This writes the simulation's sources out as
- * the build reads them (every change of scripts/house-rules.mjs made, the worker's cache laid in)
+ * the build reads them (every change of scripts/house-rules.mjs made, its own files laid in, the
+ * worker's cache too)
  * and has TypeScript check them as netstorm-web checks its own: strict, every indexed access
  * taken as possibly undefined. An error names a line of the file as written out, under
  * build/typecheck/src.
@@ -15,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { changedFiles, withHouseRules } from './house-rules.mjs';
+import { changedFiles, EXTRA_FILES, withHouseRules } from './house-rules.mjs';
 
 const SRC = resolve('vendor/netstorm-web/packages/sim/src');
 const OUT = resolve('build/typecheck');
@@ -44,6 +45,14 @@ async function copy(dir) {
   }
 }
 await copy(SRC);
+
+// and the house rules' own files, where the build lays them in (the raid's: sim/)
+for (const [name, file] of Object.entries(EXTRA_FILES)) {
+  const to = join(OUT, 'src', name);
+  await mkdir(dirname(to), { recursive: true });
+  await writeFile(to, await readFile(resolve(file), 'utf8'));
+  files++;
+}
 
 const lost = [...changed].filter((name) => !written.has(name));
 if (lost.length) {

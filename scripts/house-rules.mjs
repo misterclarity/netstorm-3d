@@ -16,7 +16,13 @@
  * waits for orders instead of walking off to another (below).
  */
 import { readFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { keepConnected, MEMO_FILE } from './ai-memo.mjs';
+
+/** The repository, and netstorm-web's simulation source in it. */
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const SIM_SRC = resolve(ROOT, 'vendor/netstorm-web/packages/sim/src');
 
 const CHANGES = [
   {
@@ -4150,6 +4156,293 @@ CHANGES.push({
   readonly tick: number;`,
 });
 
+// The Combahee River Raid (netstorm-3d): a campaign of two battles on a map of its own, whose
+// rules are a module of their own, sim/raid.ts, laid into the simulation as rules/raid.ts, and
+// whose map and setting out are sim/raid-map.ts, laid in as raid-map.ts (EXTRA_FILES, below). Here
+// they are hooked in: the clock of a battle that begins at night and keeps its own moon; a step of
+// the raid's rules after the world's own; the raid's commands, and none of a Priest's prayers,
+// buildings or captures in it; the boats, which go on the river only, along its deep water, are hit
+// as what is on the water is (not as aircraft), and are never sunk; and the landings, which a bridge
+// may be laid from (the raid's side has no Temple and no Outpost).
+CHANGES.push({
+  file: 'world.ts',
+  why: 'the raid: its rules',
+  was: `import { tickTransport, collect, pickupCrystal, unload, stepShare } from './rules/movement.js';`,
+  now: `import { tickTransport, collect, pickupCrystal, unload, stepShare } from './rules/movement.js';
+import { onRiver, raidCommand, steerBoat, tickRaid, type Raid } from './rules/raid.js';`,
+}, {
+  file: 'world.ts',
+  why: 'the raid: its state',
+  was: `  /** (netstorm-3d) How much shorter a gun's reach is at night, 0 to 1; a setting. */
+  nightShare = 0.25;`,
+  now: `  /** (netstorm-3d) How much shorter a gun's reach is at night, 0 to 1; a setting. */
+  nightShare = 0.25;
+  /** (netstorm-3d) A battle of the Combahee River Raid (rules/raid.ts), or null. */
+  raid: Raid | null = null;`,
+}, {
+  file: 'world.ts',
+  why: 'the raid: a clock of its own and its own moon',
+  was: `  isNight(): boolean {
+    return this.nights && (this.tick / TPS) % (DAY_SECONDS + NIGHT_SECONDS) >= DAY_SECONDS;
+  }
+
+  /** (netstorm-3d) Tonight's moon, or by day the coming night's, as an index into MOON_PHASES. */
+  moonPhase(): number {
+    return Math.floor(this.tick / TPS / (DAY_SECONDS + NIGHT_SECONDS)) % MOON_PHASES.length;
+  }`,
+  now: `  isNight(): boolean {
+    return this.nights && this.clockSeconds() % (DAY_SECONDS + NIGHT_SECONDS) >= DAY_SECONDS;
+  }
+
+  /** (netstorm-3d) Seconds of the days and nights since the battle began, as if it had begun at a
+   * morning: the seconds of play, but for a battle of the raid, which begins at a time of night of
+   * its own and whose hours pass at a pace of their own. */
+  clockSeconds(): number {
+    return this.raid ? this.raid.clock0 + (this.tick / TPS) * this.raid.rate : this.tick / TPS;
+  }
+
+  /** (netstorm-3d) Tonight's moon, or by day the coming night's, as an index into MOON_PHASES. */
+  moonPhase(): number {
+    return this.raid ? this.raid.moon : Math.floor(this.clockSeconds() / (DAY_SECONDS + NIGHT_SECONDS)) % MOON_PHASES.length;
+  }`,
+}, {
+  file: 'world.ts',
+  why: 'the raid: a step of its rules',
+  was: `      } else if (e.kind === 'flyer') {
+        tickFlyer(this, e);
+      }
+    }
+  }`,
+  now: `      } else if (e.kind === 'flyer') {
+        tickFlyer(this, e);
+      }
+    }
+
+    // (netstorm-3d) the raid's rules, after the world's own
+    if (this.raid) {
+      tickRaid(this);
+    }
+  }`,
+}, {
+  file: 'world.ts',
+  why: 'the raid: no prayer (for a Spell or the Hover), building or capture in it',
+  was: `    switch (c.t) {
+      case 'dropPiece':`,
+  now: `    // (netstorm-3d) in the raid she prays for no Spell and no Hover and builds nothing, and nobody
+    // is captured: she is quick by her own wits (her disguise), not by a Priest's gifts
+    if (this.raid && (c.t === 'pray' || c.t === 'prayHover' || c.t === 'hover' || c.t === 'build' || c.t === 'capturePriest' || c.t === 'castSpell')) {
+      return 'not here';
+    }
+
+    switch (c.t) {
+      case 'dropPiece':`,
+}, {
+  file: 'world.ts',
+  why: 'the raid: its commands',
+  was: `      case 'hover':
+        return setHover(this, c);`,
+  now: `      case 'hover':
+        return setHover(this, c);
+      case 'disguise':
+      case 'whistle':
+      case 'burnBridge':
+      case 'raidHome':
+        return raidCommand(this, c);`,
+}, {
+  file: 'world.ts',
+  why: 'the raid: a boat goes along the river',
+  was: `  if (!world.walkable(c.player, c.x, c.y)) {
+    return 'no path';
+  }
+
+  const path = world.wayOf(t,`,
+  now: `  // (netstorm-3d) a boat of the raid: along the river's deep water, wherever it is sent
+  if (world.raid?.boats.has(t.id)) {
+    return steerBoat(world, t, c.x, c.y);
+  }
+
+  if (!world.walkable(c.player, c.x, c.y)) {
+    return 'no path';
+  }
+
+  const path = world.wayOf(t,`,
+}, {
+  file: 'world.ts',
+  why: 'the raid: a boat is hit as what is on the water is',
+  was: `          && this.entities.has(transport.id)
+          && !flies(this.def(transport.type))`,
+  now: `          && this.entities.has(transport.id)
+          && (!flies(this.def(transport.type)) || onRiver(this, transport.id))`,
+}, {
+  file: 'rules/movement.ts',
+  why: 'the raid: a boat neither rises nor lands',
+  was: `  if (flies(world.def(t.type)) && climb(t, speed)) {`,
+  now: `  if (flies(world.def(t.type)) && !onRiver(world, t.id) && climb(t, speed)) {`,
+}, {
+  file: 'rules/movement.ts',
+  why: 'the raid: a boat neither rises nor lands',
+  was: `import { flies } from '../defs.js';`,
+  now: `import { flies } from '../defs.js';
+import { onRiver } from './raid.js';`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the raid: a boat is hit as what is on the water is',
+  was: `function airborne(world: World, e: Entity): boolean {
+  return 'type' in e && flies(world.def(e.type));
+}`,
+  now: `function airborne(world: World, e: Entity): boolean {
+  // (netstorm-3d) the raid's boats are on the river, not in the air
+  return 'type' in e && flies(world.def(e.type)) && !onRiver(world, e.id);
+}`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the raid: a boat is never sunk',
+  was: `    amount = Math.min(amount, world.boons.get(entity.id)?.has('ward') ? PRIEST_WARD_BOON : PRIEST_WARD);
+  }
+
+  const before = entity.hp;`,
+  now: `    amount = Math.min(amount, world.boons.get(entity.id)?.has('ward') ? PRIEST_WARD_BOON : PRIEST_WARD);
+  }
+
+  // (netstorm-3d) the raid's boats are holed, never sunk: there are people aboard
+  amount = boatFloor(world, entity, amount);
+
+  const before = entity.hp;`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'the raid: a boat is hit as what is on the water is',
+  was: `import { flies, type UnitDef } from '../defs.js';`,
+  now: `import { flies, type UnitDef } from '../defs.js';
+import { boatFloor, onRiver } from './raid.js';`,
+}, {
+  file: 'rules/bridges.ts',
+  why: 'the raid: bridge is laid from the landings',
+  was: `  const depots = world.depotsOf(player);
+
+  if (!depots.length) {`,
+  now: `  // (netstorm-3d) and, in the raid, from its landings
+  const depots: { x: number; y: number; fx: number; fy: number; }[] = [...world.depotsOf(player), ...docksOf(world, player)];
+
+  if (!depots.length) {`,
+}, {
+  file: 'rules/bridges.ts',
+  why: 'the raid: bridge is laid from the landings',
+  was: `import type { WorldView } from '../view.js';`,
+  now: `import type { WorldView } from '../view.js';
+import { docksOf } from './raid.js';`,
+}, {
+  file: 'commands.ts',
+  why: 'the raid, declared: its commands',
+  was: `  | { t: 'hover'; player: number; on?: boolean; };`,
+  now: `  | { t: 'hover'; player: number; on?: boolean; }
+  // (netstorm-3d) the raid's (rules/raid.ts): her disguise; a boat's whistle at a landing; the
+  // pontoon bridge fired; the boats home
+  | { t: 'disguise'; player: number; }
+  | { t: 'whistle'; player: number; transport: number; }
+  | { t: 'burnBridge'; player: number; transport: number; }
+  | { t: 'raidHome'; player: number; };`,
+}, {
+  file: 'commands.ts',
+  why: 'the raid, declared: why a command of it is refused',
+  was: `  | 'target not incapacitated';`,
+  now: `  | 'target not incapacitated'
+  // (netstorm-3d) the raid's: not in this battle; a boat aground, not tied up at a landing; nobody
+  // left in the quarters a whistle would call; the boats not yet home
+  | 'not here'
+  | 'aground'
+  | 'not moored'
+  | 'nobody to call'
+  | 'too far';`,
+}, {
+  file: 'events.ts',
+  why: 'the raid, declared: its event',
+  was: `  lurker: { priest: number; };
+  pit: { priest: number; };
+};`,
+  now: `  lurker: { priest: number; };
+  pit: { priest: number; };
+  /** Of the raid (rules/raid.ts): what happened (\`kind\`), and where, to what, how many. */
+  raid: { kind: string; id?: number; n?: number; x?: number; y?: number; boat?: number; won?: boolean; why?: string; };
+};`,
+}, {
+  file: 'view.ts',
+  why: 'the raid, declared: what the rules read of it through a view',
+  was: `  readonly below: ReadonlyMap<number, unknown>;
+  readonly tick: number;`,
+  now: `  readonly below: ReadonlyMap<number, unknown>;
+  readonly raid: Raid | null;
+  readonly clockSeconds: () => number;
+  readonly tick: number;`,
+}, {
+  file: 'view.ts',
+  why: 'the raid, declared: what the rules read of it through a view',
+  was: `import type { CommandError } from './commands.js';`,
+  now: `import type { CommandError } from './commands.js';
+import type { Raid } from './rules/raid.js';`,
+}, {
+  file: 'index.ts',
+  why: 'the raid: what the client starts it with and reads of it',
+  was: `export { prayable } from './rules/spells.js';`,
+  now: `export { prayable } from './rules/spells.js';
+export * from './raid-map.js';
+export {
+  RIVER,
+  DEEP,
+  STEP,
+  DISGUISE_SECONDS,
+  DISGUISE_EVERY,
+  VISIT_REACH,
+  MOOR_REACH,
+  SONG_REACH,
+  BOARD_PER_SECOND,
+  SONG_BOARDING,
+  FAMILY_PACE,
+  TORPEDO_HIT,
+  BOAT_FLOOR,
+  SHELL_REACH,
+  BURN_SECONDS,
+  HOME_REACH,
+  mooredAt,
+  freed,
+  type Raid,
+  type RaidMission,
+  type Quarters,
+  type Landing,
+  type Family,
+  type Torpedo,
+  type Boat,
+} from './rules/raid.js';`,
+});
+
+// (netstorm-3d) In the raid the side's landings stand for the Temple that bridge pieces are dealt
+// to (its side has no Temple).
+CHANGES.push({
+  file: 'rules/economy.ts',
+  why: 'the raid: bridge pieces are dealt for the landings',
+  was: `  if (
+    world.templeOf(player.id)
+    && --player.pieceTimer <= 0
+  ) {`,
+  now: `  if (
+    (world.templeOf(player.id) || docksOf(world, player.id).length > 0)
+    && --player.pieceTimer <= 0
+  ) {`,
+}, {
+  file: 'rules/economy.ts',
+  why: 'the raid: bridge pieces are dealt for the landings',
+  was: `import type { World } from '../world.js';`,
+  now: `import type { World } from '../world.js';
+import { docksOf } from './raid.js';`,
+});
+
+/** The house rules' own files, laid into the sim's source as if they were netstorm-web's (named as
+ * the changes name files): they are TypeScript of the simulation, and import its modules as its own
+ * modules do. */
+export const EXTRA_FILES = {
+  'rules/raid.ts': 'sim/raid.ts',
+  'raid-map.ts': 'sim/raid-map.ts',
+};
+
 /** The files of the sim's source that are changed, named from packages/sim/src as the changes name them. */
 export const changedFiles = (memo = null) => [...new Set([...CHANGES.map((c) => c.file), ...(memo ? [MEMO_FILE] : [])])];
 
@@ -4193,6 +4486,24 @@ export function houseRules({ memo = null } = {}) {
           loaded.add(file);
           return { contents, loader: 'ts' };
         });
+      }
+      // the house rules' own files: an import of one from the sim's source finds it as if it were there
+      const extra = Object.entries(EXTRA_FILES).map(([name, file]) => ({
+        name,
+        file: resolve(ROOT, file),
+        as: resolve(SIM_SRC, name.replace(/\.ts$/, '.js')),
+      }));
+      build.onResolve({ filter: /\.js$/ }, (args) => {
+        const wanted = resolve(args.resolveDir, args.path);
+        const hit = extra.find((x) => x.as === wanted);
+        return hit ? { path: hit.file } : undefined;
+      });
+      for (const x of extra) {
+        build.onLoad({ filter: new RegExp(`${x.file.replace(/[\\/.]/g, '\\$&')}$`) }, async () => ({
+          contents: await readFile(x.file, 'utf8'),
+          loader: 'ts',
+          resolveDir: dirname(x.as),
+        }));
       }
       build.onEnd(() => {
         const missing = files.filter((file) => !loaded.has(file));

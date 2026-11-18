@@ -801,7 +801,7 @@ AFRAME.registerComponent('ns-dungeon', {
     const fp = G.fp?.active ? G.world?.priestOf(ME) : null;
     const b = fp ? G.world.below?.get(fp.id) : null;
     this.setInside(!!b);
-    const s = t / 1000, dark = G.world?.nights ? nightness(G.world.tick / NS.TPS) : 0;
+    const s = t / 1000, dark = G.world?.nights ? nightness(G.world.clockSeconds()) : 0;
     // the portals' braziers breathe
     for (const g of this.portals.children) for (const f of g.children) if (f.isSprite) f.scale.setScalar(1.1 * (0.88 + 0.12 * Math.sin(s * 9 + f.position.x)));
     if (!this.inside || !this.built) return;

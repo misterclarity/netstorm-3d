@@ -18,3 +18,4 @@ import './components/ns-units.js';
 import './components/ns-effects.js';
 import './components/ns-placement.js';
 import './components/ns-dungeon.js';
+import './components/ns-raid.js';

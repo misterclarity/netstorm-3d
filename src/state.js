@@ -18,6 +18,8 @@ export const G = {
   setup: { mode: 'mission', difficulty: 'normal' },
   /** The mission being played, or null in a skirmish. */
   mission: MISSION,
+  /** The battle of the Combahee River Raid being played ('scout' or 'raid'), or null. */
+  raid: null,
   world: null,
   view: null,
   options: null,
@@ -104,7 +106,17 @@ export function hash(x, y, s) {
 }
 
 /** A command error of the simulation, in words. */
+/** Why the raid refuses an order (sim/raid.ts): its own refusals, which netstorm-web has no words for. */
+const RAID_ERRORS = {
+  'not here': 'Not in this battle',
+  aground: 'She is aground for good',
+  'not moored': 'Tie the boat up at a landing first: send it beside one',
+  'nobody to call': 'Nobody is left there to call',
+  'too far': 'Every boat that is not aground must be at Field’s Point first',
+};
+
 export function errorText(err) {
+  if (RAID_ERRORS[err]) return RAID_ERRORS[err];
   const f = NS.m[`rejected_${String(err).replace(/ /g, '_')}`];
   const text = f ? f() : String(err);
   return text.charAt(0).toUpperCase() + text.slice(1);

@@ -163,7 +163,7 @@ AFRAME.registerComponent('ns-unit', {
     const e = G.view.entities.get(this.data.id);
     const kind = e ? modelKind(e) : 'generic';
     this.rep = {
-      id: this.data.id, kind: e?.kind, type: e?.type, owner: e?.owner ?? 0, anim: [], yaw: 0, phase: 0,
+      id: this.data.id, kind: e?.kind, type: e?.type, model: kind, owner: e?.owner ?? 0, anim: [], yaw: 0, phase: 0,
       foot: e?.kind === 'building' ? [e.fx, e.fy] : null, height: 1.6,
       own: [], // what this unit alone holds on the GPU, freed with it
     };
@@ -172,8 +172,8 @@ AFRAME.registerComponent('ns-unit', {
       (MODELS[kind] ?? MODELS.generic)(this.rep, this.model, e);
       bake(this.model, `${kind}|${e.type ?? ''}|${e.owner ?? 0}`);
       this.rep.height = heightOf(this.model);
-      // an Aerial Transport's ring under it spans the ship
-      if (e.kind === 'transport' && NS.flies(defs.get(e.type))) {
+      // an Aerial Transport's ring under it spans the ship (the raid's boats are on the river)
+      if (e.kind === 'transport' && NS.flies(defs.get(e.type)) && kind !== 'gunboat') {
         const b = new THREE.Box3().setFromObject(this.model);
         this.rep.span = Math.max(b.max.x - b.min.x, b.max.z - b.min.z) / 2;
         this.rep.flies = true;
@@ -283,7 +283,7 @@ AFRAME.registerComponent('ns-unit', {
       // a light of his own about him at night (and below, in a dungeon: ns-dungeon.js has it there)
       const halo = this.el.parentEl?.components['ns-units']?.halo(e.id);
       if (halo) {
-        const night = G.world.nights ? nightness(G.world.tick / TPS) : 0;
+        const night = G.world.nights ? nightness(G.world.clockSeconds()) : 0;
         halo.position.set(this.pos.x, this.pos.y + 2.3, this.pos.z);
         halo.intensity = !below && e.state !== 'carried' ? night * 30 : 0;
       }
