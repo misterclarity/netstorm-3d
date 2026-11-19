@@ -1,10 +1,15 @@
 /**
  * The Combahee Raid in the scene (sim/raid.ts has its rules): a wooden dock at each landing; the
- * families on their way to the airships and the crowds waiting on the landings; the sky mines the
- * Wayfinder found, floating in the wind; the flocks of birds that warn him of a sentry; the
- * airships' shells; the bridge at the ferry burning; his veil while he is in disguise and a glow
- * about him while he sings; a marker over each quarters and over his scouts' cove; and the North
- * Star in the night sky. The Combahee itself is sky: nothing is drawn for it.
+ * families on their way to the airships, with what they carry (bundles, baskets, steaming pots of
+ * rice, sacks) and their animals (chickens, and two pigs), and the crowds waiting on the landings;
+ * the skiffs that row them out to a ship, and a crowd clinging to them; the wardens at the quarters
+ * and the volunteers sent up to drive them off; the sentries' riders off with the alarm; the sky
+ * mines the Wayfinder found, floating in the wind, and the stakes across it beyond the ferry; the
+ * flocks of birds that warn him of a sentry; the airships' shells, and the mills they set burning;
+ * the bridge at the ferry burning; his veil while he is in disguise and a glow about him while he
+ * sings; a marker over each objective's place; and the North Star in the night sky. The Combahee
+ * itself is sky: nothing is drawn for it. (Many of these come from the raid of June 1863, as the
+ * article "Raid on Combahee Ferry" tells it.)
  *
  * The people are drawn as small figures of the game's own, many to an instanced mesh: as many as
  * walk, and of a crowd on a landing up to CROWD_SHOWN. Nothing aims at them and nothing carries
@@ -23,6 +28,8 @@ const CLOTHES = ['#6d5a48', '#7b6a55', '#56606b', '#8a7458', '#5b4b3f', '#8c8273
 const SKIN = ['#4a2c1e', '#5a3826', '#6b4430', '#3f2619', '#7a5038', '#c9a27e', '#e0b994', '#8d5a3b'];
 
 const tmp = { m: new THREE.Matrix4(), q: new THREE.Quaternion(), p: new THREE.Vector3(), s: new THREE.Vector3(), c: new THREE.Color(), e: new THREE.Euler() };
+/** A matrix that draws nothing: for what a figure does not carry. */
+const NONE = new THREE.Matrix4().makeScale(0, 0, 0);
 
 /** A small, even hash of two numbers: 0 to 1. */
 const h01 = (a, b) => {
@@ -63,6 +70,14 @@ AFRAME.registerComponent('ns-raid', {
     this.northStar();
     this.flames = this.flameSprites(r);
     this.aura();
+    this.skiffs = this.skiffBoats(r);
+    this.wardens = this.wardenFigures(r);
+    this.parties = new Map();
+    this.riders = this.riderFigures();
+    this.stakes(r);
+    this.millFires = [];
+    this.pigsSeen = false;
+    this.pigFamilies = new Set();
   },
 
   /** A wooden dock where each landing meets the wind: planks out over the sky on a beam, a post each
@@ -117,6 +132,31 @@ AFRAME.registerComponent('ns-raid', {
     this.bodies = make(body, new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }));
     this.heads = make(head, new THREE.MeshStandardMaterial({ roughness: 0.8, flatShading: true }));
     this.bundles = make(bundle, new THREE.MeshStandardMaterial({ color: '#cbbf9f', roughness: 0.9, flatShading: true }));
+    // what else they carry: baskets, pots of rice still steaming, sacks; and their animals
+    const basket = new THREE.CylinderGeometry(0.15, 0.11, 0.14, 8, 1, true);
+    basket.translate(0, 0.85, 0);
+    const pot = new THREE.CylinderGeometry(0.11, 0.09, 0.15, 8);
+    pot.translate(0, 0.86, 0);
+    const sack = new THREE.SphereGeometry(0.13, 6, 4);
+    sack.scale(0.9, 1.25, 0.8);
+    sack.translate(0, 0.5, -0.17);
+    this.baskets = make(basket, new THREE.MeshStandardMaterial({ color: '#a8834f', roughness: 0.95, flatShading: true, side: THREE.DoubleSide }));
+    this.pots = make(pot, new THREE.MeshStandardMaterial({ color: '#3d3833', roughness: 0.6, metalness: 0.3, flatShading: true }));
+    this.sacks = make(sack, new THREE.MeshStandardMaterial({ color: '#b9a57d', roughness: 1, flatShading: true }));
+    const steam = new THREE.SphereGeometry(0.06, 5, 4);
+    this.steam = make(steam, new THREE.MeshBasicMaterial({ color: '#f2f2f2', transparent: true, opacity: 0.45, depthWrite: false }));
+    this.steam.castShadow = false;
+    const pig = new THREE.BoxGeometry(0.34, 0.2, 0.2);
+    pig.translate(0, 0.16, 0);
+    const snout = new THREE.BoxGeometry(0.1, 0.12, 0.13);
+    snout.translate(0.21, 0.2, 0);
+    const chicken = new THREE.SphereGeometry(0.075, 6, 5);
+    chicken.scale(1.15, 1, 0.9);
+    chicken.translate(0, 0.1, 0);
+    const pink = new THREE.MeshStandardMaterial({ color: '#d99a95', roughness: 0.8, flatShading: true });
+    this.pigs = make(pig, pink);
+    this.snouts = make(snout, pink);
+    this.chickens = make(chicken, new THREE.MeshStandardMaterial({ color: '#f1ece0', roughness: 0.8, flatShading: true }));
     for (let i = 0; i < FIGURES; i++) {
       this.bodies.setColorAt(i, tmp.c.set(CLOTHES[Math.floor(h01(i, 1) * CLOTHES.length)]));
       this.heads.setColorAt(i, tmp.c.set(SKIN[Math.floor(h01(i, 2) * SKIN.length)]));
@@ -369,6 +409,7 @@ AFRAME.registerComponent('ns-raid', {
     for (const st of this.sky.children) st.material.opacity = (st === this.sky.children[0] ? 1 : 0.55) * dark;
     this.burn(r, s);
     this.about(r, s);
+    this.people2(r, s);
     // the passing effects
     for (const f of [...this.fx]) {
       f.age += sec;
@@ -404,9 +445,11 @@ AFRAME.registerComponent('ns-raid', {
     }
   },
 
-  /** The figures where they are: the families on their way, a little apart, and the crowds. */
+  /** The figures where they are: the families on their way, a little apart, with what they carry
+   * and their animals; and the crowds on the landings, jostling while they cling to the skiffs. */
   figures(r, s) {
-    let n = 0;
+    let n = 0, steam = 0, pigs = 0, hens = 0;
+    const none = NONE;
     const put = (x, z, scale, lean, seed) => {
       if (n >= FIGURES) return;
       tmp.p.set(x, Math.abs(Math.sin(s * 7 + seed)) * 0.04 * lean, z);
@@ -415,10 +458,31 @@ AFRAME.registerComponent('ns-raid', {
       tmp.m.compose(tmp.p, tmp.q, tmp.s);
       this.bodies.setMatrixAt(n, tmp.m);
       this.heads.setMatrixAt(n, tmp.m);
-      // some carry a bundle on the head, the children none
-      if (scale < 0.8 || h01(seed * 1000 | 0, 4) > 0.45) tmp.m.makeScale(0, 0, 0);
-      this.bundles.setMatrixAt(n, tmp.m);
+      // what each carries: a bundle, a basket or a pot on the head, a sack on the back; the children
+      // nothing
+      const what = scale < 0.8 ? 9 : Math.floor(h01(seed * 1000 | 0, 4) * 7);
+      this.bundles.setMatrixAt(n, what <= 1 ? tmp.m : none);
+      this.baskets.setMatrixAt(n, what === 2 ? tmp.m : none);
+      this.pots.setMatrixAt(n, what === 3 ? tmp.m : none);
+      this.sacks.setMatrixAt(n, what === 4 ? tmp.m : none);
+      // the rice in a pot still steaming
+      if (what === 3 && steam < FIGURES - 1) {
+        for (let k = 0; k < 2; k++) {
+          const rise = (s * 0.6 + k * 0.5 + h01(seed, k)) % 1;
+          tmp.p.set(x + Math.sin(s * 2 + seed + k) * 0.05, (0.95 + rise * 0.45) * scale, z);
+          tmp.s.setScalar(0.6 + rise * 1.2);
+          tmp.m.compose(tmp.p, tmp.q, tmp.s);
+          this.steam.setMatrixAt(steam++, tmp.m);
+        }
+      }
       n++;
+    };
+    const animal = (mesh, at, x, z, turn, seed) => {
+      tmp.p.set(x, Math.abs(Math.sin(s * 9 + seed)) * 0.03, z);
+      tmp.q.setFromEuler(tmp.e.set(0, turn, 0));
+      tmp.s.setScalar(1);
+      tmp.m.compose(tmp.p, tmp.q, tmp.s);
+      mesh.setMatrixAt(at, tmp.m);
     };
     for (const f of r.families) {
       const k = f.waiting ? 0 : f.along / NS.STEP;
@@ -427,17 +491,308 @@ AFRAME.registerComponent('ns-raid', {
         const a = h01(f.id, i) * Math.PI * 2, d = i === 0 ? 0 : 0.25 + h01(i, f.id) * 0.45;
         put(wx(cx + Math.cos(a) * d), wz(cy + Math.sin(a) * d), i >= f.size - f.children ? 0.62 : 0.95 + h01(i, 9) * 0.12, f.waiting ? 0 : 1, f.id * 13 + i);
       }
-    }
-    for (const l of r.landings) {
-      const shown = Math.min(l.crowd, CROWD_SHOWN);
-      for (let i = 0; i < shown; i++) {
-        const u = h01(l.id * 97 + i, 5), v = h01(l.id * 89 + i, 6);
-        put(wx(l.x + 0.2 + u * (l.w - 0.4)), wz(l.y + 0.2 + v * (l.h - 0.4)), i % 5 === 4 ? 0.62 : 1, 0.3, l.id * 1000 + i);
+      // the way they go, for the animals trotting along behind
+      const turn = Math.atan2(-(f.y - f.fromY), f.x - f.fromX);
+      if (pigFamily(f.id) && pigs < 8) {
+        for (let i = 0; i < 2; i++) {
+          const back = 0.55 + i * 0.35, side = (i - 0.5) * 0.3;
+          const px = wx(cx) - Math.cos(turn) * back, pz = wz(cy) + Math.sin(turn) * back + side;
+          animal(this.pigs, pigs, px, pz, turn, f.id + i);
+          animal(this.snouts, pigs++, px, pz, turn, f.id + i);
+        }
+      }
+      if (h01(f.id, 78) < 0.22) {
+        const many = 1 + Math.floor(h01(f.id, 79) * 3);
+        for (let i = 0; i < many && hens < 60; i++) {
+          const a = s * 2.5 + i * 2.1 + f.id;
+          animal(this.chickens, hens++, wx(cx) + Math.cos(a) * 0.55, wz(cy) + Math.sin(a * 1.3) * 0.5, a, f.id * 7 + i);
+        }
       }
     }
-    for (const m of [this.bodies, this.heads, this.bundles]) {
+    for (const l of r.landings) {
+      // (clinging to the skiffs, the crowd presses and sways toward the dock)
+      const shown = Math.min(l.crowd, CROWD_SHOWN), shove = l.clinging ? 3 : 0.3;
+      for (let i = 0; i < shown; i++) {
+        const u = h01(l.id * 97 + i, 5), v = h01(l.id * 89 + i, 6);
+        const jx = l.clinging ? Math.sin(s * 6 + i) * 0.06 : 0;
+        put(wx(l.x + 0.2 + u * (l.w - 0.4)) + jx, wz(l.y + 0.2 + v * (l.h - 0.4)), i % 5 === 4 ? 0.62 : 1, shove, l.id * 1000 + i);
+      }
+      if (shown > 12 && hens < 60) animal(this.chickens, hens++, wx(l.x + 0.4 + h01(l.id, 3) * (l.w - 0.8)), wz(l.y + 0.5), s * 1.5, l.id);
+    }
+    for (const m of [this.bodies, this.heads, this.bundles, this.baskets, this.pots, this.sacks]) {
       m.count = n;
       m.instanceMatrix.needsUpdate = true;
+    }
+    for (const [m, c] of [[this.steam, steam], [this.pigs, pigs], [this.snouts, pigs], [this.chickens, hens]]) {
+      m.count = c;
+      m.instanceMatrix.needsUpdate = true;
+    }
+  },
+
+  /* ------------------------- the skiffs, wardens, volunteers, riders ------------------------- */
+
+  /** Two skiffs at each landing, to row the people out to a ship tied up there; a lantern at each bow. */
+  skiffBoats(r) {
+    const hull = new THREE.BoxGeometry(0.6, 0.2, 1.1);
+    hull.translate(0, 0.1, -0.1);
+    const bow = new THREE.ConeGeometry(0.42, 0.5, 4);
+    bow.rotateX(Math.PI / 2);
+    bow.rotateZ(Math.PI / 4);
+    bow.scale(1, 0.34, 1);
+    bow.translate(0, 0.1, 0.68);
+    const oar = new THREE.BoxGeometry(1.2, 0.04, 0.07);
+    const lantern = new THREE.BoxGeometry(0.1, 0.14, 0.1);
+    lantern.translate(0, 0.3, 0.7);
+    const glow = new THREE.MeshStandardMaterial({ color: '#ffd27a', emissive: '#ffb347', emissiveIntensity: 2.4 });
+    const wood = new THREE.MeshStandardMaterial({ color: '#a07a4c', roughness: 0.9, flatShading: true });
+    const sitter = new THREE.ConeGeometry(0.11, 0.34, 5);
+    sitter.translate(0, 0.3, 0);
+    const cloth = new THREE.MeshStandardMaterial({ color: '#7b6a55', roughness: 0.9, flatShading: true });
+    const all = [];
+    for (const l of r.landings) {
+      for (let k = 0; k < 2; k++) {
+        const g = new THREE.Group();
+        g.add(new THREE.Mesh(hull, wood));
+        const o = new THREE.Mesh(oar, wood);
+        o.position.y = 0.2;
+        g.add(o, new THREE.Mesh(bow, wood), new THREE.Mesh(lantern, glow));
+        for (let i = 0; i < 3; i++) {
+          const m = new THREE.Mesh(sitter, cloth);
+          m.position.set((i - 1) * 0.14, 0.08, (i - 1) * 0.36);
+          m.name = 'aboard';
+          g.add(m);
+        }
+        g.visible = false;
+        g.userData = { landing: l.id, k };
+        this.root.add(g);
+        all.push(g);
+      }
+    }
+    return all;
+  },
+
+  /** A warden by each estate's quarters: a dark coat, a wide hat, a lantern. */
+  wardenFigures(r) {
+    const coat = new THREE.MeshStandardMaterial({ color: '#2b2a33', roughness: 0.8, flatShading: true });
+    const skin = new THREE.MeshStandardMaterial({ color: '#c9a27e', roughness: 0.8, flatShading: true });
+    const lamp = new THREE.MeshStandardMaterial({ color: '#ffcf70', emissive: '#ffb347', emissiveIntensity: 2 });
+    const map = new Map();
+    for (const q of r.quarters) {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.7, 6), coat);
+      body.position.y = 0.35;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5), skin);
+      head.position.y = 0.8;
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.04, 10), coat);
+      brim.position.y = 0.88;
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.12, 8), coat);
+      crown.position.y = 0.95;
+      const light = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.09), lamp);
+      light.position.set(0.22, 0.45, 0.05);
+      g.add(body, head, brim, crown, light);
+      g.position.set(wx(q.door[0] + 1.5), 0, wz(q.door[1] + 0.5));
+      g.visible = r.mission === 'raid';
+      this.root.add(g);
+      map.set(q.id, { g, fled: null });
+    }
+    return map;
+  },
+
+  /** The volunteers a horn sends up from a landing to its quarters: five in a file. */
+  partyFor(q) {
+    if (this.parties.has(q.id)) return this.parties.get(q.id);
+    const blue = new THREE.MeshStandardMaterial({ color: '#2c3e66', roughness: 0.8, flatShading: true });
+    const skin = new THREE.MeshStandardMaterial({ color: '#5a3826', roughness: 0.8, flatShading: true });
+    const stock = new THREE.MeshStandardMaterial({ color: '#3b2b1f', roughness: 0.9 });
+    const g = new THREE.Group();
+    for (let i = 0; i < 5; i++) {
+      const m = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.62, 6), blue);
+      body.position.y = 0.31;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.085, 6, 5), skin);
+      head.position.y = 0.7;
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.07, 8), blue);
+      cap.position.y = 0.79;
+      const gun = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.6, 0.03), stock);
+      gun.position.set(0.14, 0.55, 0);
+      gun.rotation.z = 0.2;
+      m.add(body, head, cap, gun);
+      g.add(m);
+    }
+    this.root.add(g);
+    const p = { g, set: G.world.tick };
+    this.parties.set(q.id, p);
+    return p;
+  },
+
+  /** The sentries' riders: a runner with a torch, off inland through the trees with the alarm. */
+  riderFigures() {
+    const tunic = new THREE.MeshStandardMaterial({ color: '#8a2e22', roughness: 0.8, flatShading: true });
+    const stick = new THREE.MeshStandardMaterial({ color: '#3b2b1f', roughness: 0.9 });
+    const pool = [];
+    for (let i = 0; i < 4; i++) {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.72, 6), tunic);
+      body.position.y = 0.36;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5), tunic);
+      head.position.y = 0.82;
+      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.45, 0.03), stick);
+      pole.position.set(0.22, 0.7, 0);
+      const torch = new THREE.Sprite(new THREE.SpriteMaterial({ map: flameTexture(), color: '#ffc46b', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      torch.center.set(0.5, 0.05);
+      torch.position.set(0.22, 0.92, 0);
+      torch.scale.set(0.4, 0.7, 1);
+      g.add(body, head, pole, torch);
+      g.visible = false;
+      this.root.add(g);
+      pool.push(g);
+    }
+    return pool;
+  },
+
+  /** The Sun-lords' stakes across the wind beyond the ferry, each driven into a floating rock. */
+  stakes(r) {
+    const wood = new THREE.MeshStandardMaterial({ color: '#8a6a45', roughness: 0.95, flatShading: true });
+    const stone = new THREE.MeshStandardMaterial({ color: '#8a847c', roughness: 1, flatShading: true });
+    const post = new THREE.CylinderGeometry(0.12, 0.15, 2, 6);
+    const point = new THREE.ConeGeometry(0.15, 0.35, 6);
+    const rock = new THREE.IcosahedronGeometry(0.5, 0);
+    const g = new THREE.Group();
+    const x = r.pilings;
+    const rows = [];
+    for (let y = 0; y < NS.H; y++) if (r.wind[y * NS.W + x]) rows.push(y);
+    for (const y of rows) {
+      const lean = (h01(x, y) - 0.5) * 0.25;
+      const p = new THREE.Mesh(post, wood);
+      p.position.set(wx(x + 0.5), 0.75, wz(y + 0.5));
+      p.rotation.z = lean;
+      const t = new THREE.Mesh(point, wood);
+      t.position.set(wx(x + 0.5) - Math.sin(lean) * 1.1, 1.9, wz(y + 0.5));
+      t.rotation.z = lean;
+      const b = new THREE.Mesh(rock, stone);
+      b.position.set(wx(x + 0.5), -0.3, wz(y + 0.5));
+      b.scale.set(1, 0.6, 1);
+      g.add(p, t, b);
+    }
+    if (rows.length > 1) {
+      for (const h of [0.5, 1.2]) {
+        const rope = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, rows.length - 1), wood);
+        rope.position.set(wx(x + 0.5), h, wz((rows[0] + rows[rows.length - 1]) / 2 + 0.5));
+        g.add(rope);
+      }
+    }
+    this.root.add(g);
+  },
+
+  /** A mill the airships' guns have set burning: flames and smoke on where it stood. */
+  burnMill(x, y) {
+    if (!this.built) return;
+    const tex = flameTexture(), g = new THREE.Group();
+    for (let i = 0; i < 7; i++) {
+      const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: ['#fff0b0', '#ffb04a', '#ff6a2a'][i % 3], transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      f.center.set(0.5, 0.05);
+      f.userData.at = [(h01(i, x) - 0.5) * 2.2, (h01(i, y) - 0.5) * 2.2];
+      g.add(f);
+    }
+    g.position.set(wx(x + 0.5), 0, wz(y + 0.5));
+    this.root.add(g);
+    this.millFires.push({ g, x, y, since: null });
+  },
+
+  /** The skiffs, the wardens, the volunteers, the riders and the burning mills, as the raid stands. */
+  people2(r, s) {
+    const w = G.world, units = this.el.sceneEl.systems['ns-game'].units();
+    // the skiffs: between a landing with people and the ship tied up there
+    const moored = new Map();
+    for (const b of r.ships.values()) {
+      const t = w.entities.get(b.id), at = t && !b.snagged ? NS.mooredAt(w, t) : null;
+      if (at && !moored.has(at.id)) moored.set(at.id, units?.byId.get(b.id));
+    }
+    for (const g of this.skiffs) {
+      const l = r.landings[g.userData.landing], ship = moored.get(l.id);
+      g.visible = r.mission === 'raid' && !!ship && l.crowd > 0;
+      if (!g.visible) continue;
+      const alt = ship.components['ns-unit']?.rep.alt ?? 1.3;
+      const b = ship.object3D.position.clone().setY(alt - 0.3);
+      const a = new THREE.Vector3(wx(l.x + l.w / 2), 0.1, wz(l.y + l.h / 2)).lerp(b, 0.25);
+      // out and back, the two by turns; clinging, they rock where they are with people on them
+      const phase = (s / 4 + g.userData.k * 0.5) % 1, out = phase < 0.5;
+      const k = l.clinging ? 0.05 + 0.04 * Math.sin(s * 7 + g.userData.k) : out ? phase * 2 : 2 - phase * 2;
+      g.position.lerpVectors(a, b, Math.max(0, k));
+      g.position.y += Math.sin(k * Math.PI) * 0.5;
+      const side = g.userData.k ? 0.7 : -0.7, dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+      g.position.x += (-dz / len) * side;
+      g.position.z += (dx / len) * side;
+      g.lookAt(b.x, g.position.y, b.z);
+      g.rotation.z = l.clinging ? Math.sin(s * 9 + g.userData.k) * 0.18 : Math.sin(s * 3) * 0.05;
+      g.children[1].rotation.y = Math.sin(s * 6 + g.userData.k) * 0.5;
+      for (const m of g.children) if (m.name === 'aboard') m.visible = l.clinging || out;
+    }
+    // the wardens: watching, or off at a run away from the landing and gone
+    for (const q of r.quarters) {
+      const wd = this.wardens.get(q.id);
+      if (q.warden === 'fled' && wd.fled === null) wd.fled = s;
+      if (wd.fled === null) {
+        wd.g.visible = r.mission === 'raid';
+        wd.g.rotation.y = Math.sin(s * 0.7 + q.id) * 0.8;
+        continue;
+      }
+      const t = s - wd.fled, l = r.landings[q.landing];
+      const dx = q.door[0] - (l.x + l.w / 2), dy = q.door[1] - (l.y + l.h / 2), len = Math.hypot(dx, dy) || 1;
+      wd.g.visible = t < 2.6;
+      wd.g.position.set(wx(q.door[0] + 1.5 + (dx / len) * t * 2.4), Math.abs(Math.sin(t * 12)) * 0.08, wz(q.door[1] + 0.5 + (dy / len) * t * 2.4));
+      wd.g.rotation.y = Math.atan2(dx, dy);
+    }
+    // the volunteers: up from the landing to the door, then standing by it till the quarters is empty
+    for (const q of r.quarters) {
+      if (!(q.party > 0) || r.mission !== 'raid') continue;
+      const p = this.partyFor(q), l = r.landings[q.landing];
+      const k = Math.min(1, Math.max(0, (w.tick - p.set) / Math.max(1, q.party - p.set)));
+      p.g.visible = q.left > 0 || r.families.some((f) => f.quarters === q.id);
+      const lx = l.x + l.w / 2, ly = l.y + l.h / 2;
+      const fx = lx + (q.door[0] - 0.5 - lx) * k, fy = ly + (q.door[1] + 0.5 - ly) * k;
+      const turn = Math.atan2(q.door[0] - lx, q.door[1] - ly);
+      p.g.children.forEach((m, i) => {
+        const back = k < 1 ? i * 0.45 : 0, side = k < 1 ? 0 : (i - 2) * 0.45;
+        m.position.set(wx(fx) - Math.sin(turn) * back + Math.cos(turn) * side, k < 1 ? Math.abs(Math.sin(s * 10 + i)) * 0.05 : 0, wz(fy) - Math.cos(turn) * back - Math.sin(turn) * side);
+        m.rotation.y = k < 1 ? turn : turn + Math.PI;
+      });
+    }
+    // the riders, running from their sentry inland, away from the wind, till the trees hide them
+    const riders = r.alarm?.riders ?? [];
+    this.riders.forEach((g, i) => {
+      const rd = riders[i], t = rd ? (w.tick - rd.set) / NS.TPS : 99;
+      g.visible = !!rd && t < 5;
+      if (!g.visible) return;
+      const inland = rd.y + 0.5 > NS.windY(rd.x + 0.5) ? 1 : -1;
+      g.position.set(wx(rd.x + 0.5 + Math.sin(t * 1.3) * 0.5), Math.abs(Math.sin(t * 14)) * 0.1, wz(rd.y + 0.5 + inland * (1.5 + t * 2.2)));
+      g.rotation.y = inland > 0 ? 0 : Math.PI;
+      g.scale.setScalar(t > 4 ? 5 - t : 1);
+    });
+    // the mills burning, fiercely at first, then smouldering
+    for (const f of this.millFires) {
+      f.since ??= s;
+      const t = s - f.since, strength = Math.max(0.35, 1 - t / 90);
+      f.g.children.forEach((sp, i) => {
+        const flicker = 0.7 + Math.abs(Math.sin(s * (6 + i) + i * 2)) * 0.5;
+        sp.position.set(sp.userData.at[0], 0, sp.userData.at[1]);
+        sp.scale.set(0.9 * strength * flicker, 2.2 * strength * flicker, 1);
+      });
+      if (s - (f.smoked ?? 0) > 0.6) {
+        f.smoked = s;
+        this.smoke(new THREE.Vector3(wx(f.x + 0.5) + (h01(Math.floor(s), 2) - 0.5) * 2, 2, wz(f.y + 0.5)), 1.6 * strength + 0.4, 3);
+      }
+    }
+    // the two pigs: when their family reaches a landing, the word goes round
+    for (const f of r.families) if (pigFamily(f.id)) this.pigFamilies.add(f.id);
+    for (const id of this.pigFamilies) {
+      if (!r.families.some((f) => f.id === id)) {
+        this.pigFamilies.delete(id);
+        if (!this.pigsSeen && !r.verdict) {
+          this.pigsSeen = true;
+          this.el.sceneEl.systems['ns-game'].hud?.toast('Two pigs trot down to the landing with their family. They have named one after the Sun-lords’ general and the other after their high lord.', 'good');
+        }
+      }
     }
   },
 
@@ -463,6 +818,10 @@ AFRAME.registerComponent('ns-raid', {
     }
   },
 });
+
+/** Whether a family brings the pigs (two of them; in 1863 they were named after two Confederate
+ * generals): one family in twenty-five. */
+const pigFamily = (id) => h01(id, 77) < 0.04;
 
 /** A tongue of fire: white at its foot, yellow, then orange and red where it thins out. */
 let flameTex = null;

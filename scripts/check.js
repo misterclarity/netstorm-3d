@@ -1135,7 +1135,107 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     if (!refused(step(u, [{ player: NS.ME, t: 'pray', spell: 'bombexplodemedium' }])).includes('not here')) fail('a prayer for a Spell in the raid');
     if (!refused(step(u, [{ player: NS.ME, t: 'prayHover' }])).includes('not here')) fail('a prayer for the Hover in the raid');
   }
-  console.log('the Combahee Raid: the scouting (a new moon, the quarters tell him of the sky mines, the cove, dawn; birds before a sentry, a disguise, knocked out); the raid (the full moon, the wind\'s strong middle past known mines, the Sentinel snagged, horns, families on foot, singing, a parted landing and its bridge, pieces from the landings, the bridge at the ferry burned, the battery held or come, home won or lost, a mine not known, no ship brought down, no prayer)');
+
+  // After the raid of 1863 (the article "Raid on Combahee Ferry"): the first estate called is wary a
+  // while, the next not; a warden lets the families out half as often until the volunteers the horn
+  // sent ashore reach the door, or the Wayfinder comes near it; a crowd too large clings to the
+  // skiffs and goes aboard at half pace, and his song calms it; a sentry that sees a ship sends a
+  // rider, the first alarm is doubted and the second sends the battery out early; the mills the
+  // ships' guns burn are counted; no ship goes past the stakes west of the ferry.
+  {
+    const w = NS.createRaid(defs, 'raid', 'normal', [0, 1, 2, 3, 4, 5]);
+    const r = w.raid, him = w.priestOf(NS.ME);
+    const [swallow, rainbird] = [...r.ships.values()].filter((b) => !b.snagged).map((b) => w.entities.get(b.id));
+    const landing = (name) => r.landings.find((l) => l.name.startsWith(name));
+    const moor = (t, l) => { Object.assign(t, { x: l.dock[0], y: l.dock[1], path: [] }); };
+    // wary, then trusted
+    const amberfield = landing('Amberfield'), goldcrest = landing('Goldcrest');
+    moor(swallow, amberfield);
+    const horn1 = step(w, [{ player: NS.ME, t: 'horn', transport: swallow.id }]);
+    const qa = r.quarters.find((q) => q.landing === amberfield.id);
+    if (!raided(horn1, 'wary').length || qa.next < w.tick + (NS.WARY_SECONDS - 1) * NS.TPS) fail(`the first estate called is not wary: next ${qa.next} at ${w.tick}`);
+    moor(rainbird, goldcrest);
+    const horn2 = step(w, [{ player: NS.ME, t: 'horn', transport: rainbird.id }]);
+    const qg = r.quarters.find((q) => q.landing === goldcrest.id);
+    if (raided(horn2, 'wary').length || qg.left === qg.people) fail('the second estate called is wary too');
+    // the warden: he flees when the volunteers the horn sent up reach the door
+    Object.assign(him, { path: [] });
+    const party = [...raided(horn2, 'party'), ...raided(step(w, [], NS.TPS), 'party')].find((e) => e.data.id === qg.id);
+    if (!party || qg.party <= 0) fail(`no volunteers sent up to the Goldcrest quarters: ${JSON.stringify(party)} ${qg.party}`);
+    if (qg.warden !== 'watching' && w.tick < qg.party) fail('the warden fled before the volunteers came');
+    let byParty = false;
+    while (w.tick <= qg.party + 1) {
+      const fledNow = raided(step(w), 'warden').some((e) => e.data.id === qg.id && e.data.why === 'party');
+      byParty ||= fledNow;
+    }
+    if (qg.warden !== 'fled' || !byParty) fail('the warden did not flee when the volunteers reached the door');
+    // while he watches, the families slip out half as often; the Wayfinder near the door, he flees
+    // at once and they come as fast as they can (Highmere: behind its rift, the volunteers cannot
+    // get up to him)
+    const h = NS.createRaid(defs, 'raid', 'normal', [0, 1, 2, 3, 4, 5]);
+    const hr = h.raid, hs = h.entities.get([...hr.ships.values()].find((b) => !b.snagged).id), hg = h.priestOf(NS.ME);
+    const hl = hr.landings.find((l) => l.name.startsWith('Highmere')), qh = hr.quarters.find((q) => q.landing === hl.id);
+    hr.trusted = true;
+    Object.assign(hs, { x: hl.dock[0], y: hl.dock[1], path: [] });
+    step(h, [{ player: NS.ME, t: 'horn', transport: hs.id }]);
+    const families = (ticks) => { const was = hr.nextFamily; step(h, [], ticks); return hr.nextFamily - was; };
+    const watched = families(15 * NS.TPS);
+    if (qh.warden !== 'watching' || qh.party !== -1) fail(`the Highmere warden, the volunteers held at the rift: ${qh.warden} ${qh.party}`);
+    Object.assign(hg, { x: qh.door[0] + 1, y: qh.door[1], path: [] });
+    const fled = raided(step(h), 'warden');
+    if (!fled.some((e) => e.data.id === qh.id && e.data.why === 'him') || qh.warden !== 'fled') fail(`the Wayfinder at the Highmere door: ${JSON.stringify(fled)}`);
+    const unwatched = families(15 * NS.TPS);
+    if (watched < 2 || unwatched < watched * 1.6) fail(`families setting out in 15 s: ${watched} past the warden, ${unwatched} without him`);
+    // the crowd that clings, and his song: a crowd of CALM_CROWD goes aboard at the plain pace; a
+    // larger one with no song clings to the skiffs, slower; his song calms it, twice the plain pace
+    const c = NS.createRaid(defs, 'raid', 'normal', [0, 1, 2, 3, 4, 5]);
+    const cl = c.raid.landings.find((l) => l.name.startsWith('Amberfield')), cs = c.entities.get([...c.raid.ships.values()].find((b) => !b.snagged).id);
+    Object.assign(cs, { x: cl.dock[0], y: cl.dock[1], path: [] });
+    const cship = c.raid.ships.get(cs.id);
+    cl.crowd = NS.CALM_CROWD - 20;
+    step(c, [], 10 * NS.TPS);
+    const calmPace = cship.aboard;
+    cl.crowd = NS.CALM_CROWD + 80;
+    const clung = step(c, [], 10 * NS.TPS);
+    const clingPace = cship.aboard - calmPace;
+    if (!raided(clung, 'clinging').length || !cl.clinging || clingPace > calmPace * 0.6) fail(`a crowd clinging to the skiffs: ${clingPace} aboard in 10 s, ${calmPace} from a calm one`);
+    const cg = c.priestOf(NS.ME);
+    Object.assign(cg, { x: cl.x + 1, y: cl.y + 1, path: [] });
+    const was = cship.aboard;
+    const calm = step(c, [], 10 * NS.TPS);
+    if (!raided(calm, 'calmed').length || cl.clinging || cship.aboard - was < calmPace * 1.8) fail(`his song at a clinging landing: ${cship.aboard - was} aboard in 10 s, ${calmPace} from a calm crowd without it`);
+    // the alarm: riders from two sentries; the first doubted, the second believed
+    const a = NS.createRaid(defs, 'raid', 'normal', [0, 1, 2, 3, 4, 5]);
+    const ar = a.raid, at = a.entities.get([...ar.ships.values()].find((b) => !b.snagged).id);
+    const sentries = [...a.entities.values()].filter((e) => e.kind === 'building' && e.type === 'sunarcher');
+    const dueWas = ar.battery.due;
+    const riders = [];
+    for (const g of sentries.slice(0, 2)) {
+      Object.assign(at, { x: g.x + 1, y: g.y + (g.y < 130 ? 6 : -4), path: [] });
+      riders.push(...raided(step(a, [], 2), 'rider'));
+    }
+    if (riders.length < 2) fail(`riders from the sentries that saw a ship: ${riders.length}`);
+    Object.assign(at, { x: 190, y: 150, path: [] });
+    const alarms = raided(step(a, [], NS.RIDE_SECONDS * NS.TPS + 4), 'alarm');
+    if (alarms.length < 2 || ar.battery.due >= dueWas || ar.battery.due > a.tick + ar.battery.march * NS.TPS) fail(`two alarms heard: ${alarms.map((e) => e.data.n)}, battery due ${ar.battery.due} (was ${dueWas})`);
+    // the mills, counted as they burn
+    const m0 = ar.mills[0];
+    a.entities.get(m0.id).hp = 0;
+    const burnedMill = raided(step(a, [], 3), 'mill');
+    if (!burnedMill.length || !m0.burned) fail('a mill burned is not counted');
+    // the bridge at the ferry burned, the wind runs on where it stood: a ship sent on up it goes past
+    // the bridge, and stops short of the stakes
+    const p = NS.createRaid(defs, 'raid', 'normal', [0, 1, 2, 3, 4, 5]);
+    const pt = p.entities.get([...p.raid.ships.values()].find((b) => !b.snagged).id);
+    const pf = p.raid.landings.find((l) => l.ferry);
+    Object.assign(pt, { x: pf.dock[0], y: pf.dock[1], path: [] });
+    p.step([{ player: NS.ME, t: 'burnBridge', transport: pt.id }]);
+    for (let i = 0; i < NS.BURN_SECONDS * NS.TPS + 2; i++) p.step([]);
+    p.step([{ player: NS.ME, t: 'moveTransport', transport: pt.id, x: 58, y: 111 }]);
+    const west = Math.min(...pt.path.map(([x]) => x));
+    if (!p.raid.bridge.burned || !pt.path.length || west >= Math.min(...p.raid.bridge.cells.map(([x]) => x)) || west < p.raid.pilings) fail(`a ship sent up the wind past the burned bridge: as far west as ${west}, the stakes at ${p.raid.pilings}`);
+  }
+  console.log('the Combahee Raid: the scouting (a new moon, the quarters tell him of the sky mines, the cove, dawn; birds before a sentry, a disguise, knocked out); the raid (the full moon, the wind\'s strong middle past known mines, the Sentinel snagged, horns, families on foot, singing, a parted landing and its bridge, pieces from the landings, the bridge at the ferry burned, the battery held or come, home won or lost, a mine not known, no ship brought down, no prayer; the first estate wary, a warden fleeing from the volunteers and from him, a clinging crowd calmed by his song, two riders and the believed alarm, a mill counted, the stakes)');
 }
 
 // Every name of the engine that the client's code uses is one the engine has (one was not: the

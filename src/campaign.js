@@ -27,7 +27,17 @@ export const CAMPAIGN = {
     where: 'The Mountain Astrologer, June/July 2021, published on astro.com',
     url: 'https://www.astro.com/astrology/tma_article210706_e.htm',
   },
+  /** Where the raid's details come from: the skiffs and the crowd clinging to them, the overseers,
+   * the pickets' riders and the false alarm, the pilings, the mills, the pigs, the aftermath. */
+  history: {
+    title: 'Raid on Combahee Ferry',
+    where: 'Wikipedia',
+    url: 'https://en.wikipedia.org/wiki/Raid_on_Combahee_Ferry',
+  },
 };
+
+/** Who tells him what at each estate's quarters, on his scouting. */
+export const CONTACTS = { Amberfield: 'Old Sandor', Highmere: 'Mother Ayo', Goldcrest: 'Kesh the pilot', Sunhollow: 'Brother Tam' };
 
 /** The two battles, in order. */
 export const RAID_MISSIONS = [
@@ -50,14 +60,17 @@ export const RAID_MISSIONS = [
     title: 'The Combahee Wind',
     when: 'A night of the full moon',
     briefing: [
-      'The full moon is up. Two airships, the Swallow and the Rainbird, leave Windgate with three hundred volunteers aboard and the Wayfinder with them; a third, the Sentinel, is snagged on a crag by the gate and stays behind. Laden as they are, the ships cannot climb out of the Combahee: they ride its strong middle, low between the islands, in reach of the Sun-lords’ guns.',
+      'Three in the morning, under the full moon. Two airships, the Swallow and the Rainbird, old ferries fitted with guns that gunners of the Third Isle man, come to Windgate with three hundred volunteers and the Wayfinder aboard; a third, the Sentinel, snagged on a crag soon after setting out and stays behind. Laden as they are, the ships cannot climb out of the Combahee (the bondfolk call it the Combee): they ride its strong middle, low between the islands, in reach of the Sun-lords’ guns.',
+      'It is the fever season. The Sun-lords have pulled most of their guards back to the high islands, leaving a few sentries along the wind, and after a false alarm last week their keep is slow to believe any rider. Every estate has its warden, though, and the bondfolk have never seen a ship come for them.',
       'The astrologers of the free isles read tonight’s sky as his. Mercury, the messenger, has just stood still in Gemini beside Uranus, the planet of sudden change: knowledge that stuns and sets free. Venus and Mars meet in Cancer, the sign of home and family: families running to the ships.',
     ],
     how: [
       'Select a ship and click a landing to send her there: she rides the wind and steers round the mines he found by herself.',
-      'At a landing, select the ship and press <b>Sound the horn</b> on her card: the families of that estate walk down and go aboard. Highmere and Sunhollow are cut off by a rift: lay bridge pieces from the landing across it so they can come.',
-      'Walk the Wayfinder onto a landing where people wait: while he sings there, they board twice as fast.',
-      'Bonus: after dawn the Sun-lords’ battery comes to Ferry Isle over their bridge and fires along the wind there. Send a ship to Ferry Isle first and burn the bridge from her card. Sentries fire on him and on the ships; nothing aims at the families.',
+      'At a landing, select the ship and press <b>Sound the horn</b> on her card: the families of that estate walk down, and skiffs row them out to her. Highmere and Sunhollow are cut off by a rift: lay bridge pieces from the landing across it so they can come.',
+      'The horn also sends volunteers ashore, up to the quarters: until they get there the estate’s <b>warden</b> lets the families slip past him only slowly. He runs from them, and from the Wayfinder if he comes near.',
+      'When more than 40 wait at a landing they <b>cling to the skiffs</b>, which can hardly push off: boarding halves. Walk the Wayfinder onto the landing: his song calms them, and they board twice as fast.',
+      'A sentry that sees a ship sends a <b>rider</b> to the Sun-lords’ keep. The keep doubts the first alarm; after a second, their battery sets out for the ferry early. Sentries fire on him and on the ships; nothing aims at the families.',
+      'Bonus: burn the bridge at Ferry Isle from a ship’s card before the battery crosses it; and the ships’ guns set the Sun-lords’ mills burning when they come in reach.',
       'Once enough are aboard, send both ships home to Windgate and press <b>Fly home</b> on the objectives panel.',
     ],
   },
@@ -75,7 +88,7 @@ export function endText(mission, verdict, n, target, burned) {
       : ['A sentry’s shot has knocked him out. His scouts carry him back to their skiff, and the scouting must wait for another dark night.', 'Try again: watch for the birds, and wear a disguise past the sentries.'];
   }
   if (verdict.won) {
-    return [`The ships fly home with ${n} people aboard.`,
+    return [`The ships fly home with ${n} people aboard, with their baskets and pots, their chickens and their pigs. Not one volunteer was lost; the Wayfinder’s cloak was torn in the crush at the skiffs.`,
       burned ? 'Behind them the Sun-lords’ bridge, their mills and their barns are burning, and their battery came too late to stop the ships. Many of the men freed tonight will fly with the Wayfinder on the next raid.'
         : 'Behind them the Sun-lords’ mills and barns are burning; their bridge at the ferry still stands, but the ships are beyond their guns. Many of the men freed tonight will fly with the Wayfinder on the next raid.'];
   }
@@ -90,6 +103,8 @@ export const EPILOGUE = {
   title: 'Mercury Returns',
   text: [
     'Five weeks after the raid, Mercury came back, moving forward again, to the degree of Gemini where it had stood still on the night of the raid. On that day the free isles named the Wayfinder as the raid’s leader, and the bondfolk he had brought out built the first houses of their own.',
+    'The people brought out of bondage slept their first free nights in the great hall at Windgate, then settled on an island of their own; many of the men joined the volunteers.',
+    'Within weeks the free isles raided again the same way. The Sun-lords threw up new walls and batteries along their winds, but their estates were never rebuilt; their broadsheet raged against the vandals, and could not even spell the word.',
     'The astrologers say that is how a Mercurial life runs: swift and out of sight, and at its strongest when it carries a message or a people through. He would go back for others, as he always had.',
   ],
 };

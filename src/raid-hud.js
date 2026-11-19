@@ -5,7 +5,7 @@
  */
 import { G, NS, ME, TPS, escapeHtml } from './state.js';
 import { submit } from './game.js';
-import { CAMPAIGN, RAID_MISSIONS, EPILOGUE, CREDITS, HERO, Hero, endText, progress, remember, unlocked, raidName } from './campaign.js';
+import { CAMPAIGN, CONTACTS, RAID_MISSIONS, EPILOGUE, CREDITS, HERO, Hero, endText, progress, remember, unlocked, raidName } from './campaign.js';
 import { objectivesHtml, showObjectives } from './objectives.js';
 
 const LEVELS = ['easy', 'normal', 'hard'];
@@ -91,13 +91,18 @@ export function objectives(w = G.world, focus = nextStep(w)?.of) {
       items: r.quarters.map((q) => {
         const l = r.landings[q.landing], stuck = r.families.some((f) => f.quarters === q.id && f.waiting);
         const coming = q.left + r.families.filter((f) => f.quarters === q.id).reduce((n, f) => n + f.size, 0);
-        const meta = over ? '' : stuck ? 'stuck at the rift: lay bridge' : !q.called && l.parted ? 'behind a rift: lay bridge' : q.called && coming > 0 ? `${coming} on their way` : '';
+        const warden = q.called && q.warden === 'watching' && coming > 0 ? ', a warden slows them' : '';
+        const meta = over ? '' : stuck ? 'stuck at the rift: lay bridge' : l.clinging ? 'clinging to the skiffs: let him sing there'
+          : !q.called && l.parted ? 'behind a rift: lay bridge' : q.called && coming > 0 ? `${coming} on their way${warden}` : '';
         return { text: l.name, meta, state: q.called && !stuck ? 'done' : stuck && !over && aboard < r.target ? 'now' : '' };
       }),
     });
     list.push({ key: 'home', text: 'Fly the ships home to Windgate, then press Fly home', meta: !over && w.tick < r.noon ? `before midday: ${mmss(r.noon - w.tick)}` : '', state: r.verdict?.won ? 'done' : lost === 'few' ? 'fail' : '' });
-    const bridge = over || r.bridge.burned || r.battery.came ? '' : r.bridge.burning ? `burning, ${mmss(r.bridge.burning - w.tick)}` : `battery in ${mmss(r.battery.due - w.tick)}`;
+    const alarm = r.alarm.heard >= 2 ? ' · the alarm believed' : r.alarm.heard === 1 ? ' · an alarm doubted' : r.alarm.riders.length ? ' · a rider on his way' : '';
+    const bridge = over || r.bridge.burned || r.battery.came ? '' : r.bridge.burning ? `burning, ${mmss(r.bridge.burning - w.tick)}` : `battery in ${mmss(r.battery.due - w.tick)}${alarm}`;
     list.push({ key: 'bridge', text: 'Bonus: burn the bridge at Ferry Isle before the Sun-lords’ battery crosses it', meta: bridge, state: r.bridge.burned ? 'done' : r.battery.came ? 'fail' : '' });
+    const burned = r.mills.filter((m) => m.burned).length;
+    list.push({ key: 'mills', text: 'Bonus: let the ships’ guns burn the Sun-lords’ mills', meta: `${burned}/${r.mills.length}`, state: burned === r.mills.length ? 'done' : '' });
   }
   list.push({ key: 'hp', text: `Keep ${HERO} on his feet: below half he is knocked out`, meta: health, state: lost === 'down' ? 'fail' : 'rule' });
   if (!r.verdict) {
@@ -142,6 +147,9 @@ export function nextStep(w = G.world) {
     const at = NS.mooredAt(w, t), q = at && r.quarters.find((x) => x.landing === at.id && !x.called && x.left > 0);
     if (q) return { of: 'aboard', text: `Select the ${b.name} at ${at.name} and press Sound the horn on her card.${at.parted ? ' Then lay bridge across the rift for the families.' : ''}` };
   }
+  // a crowd clinging to the skiffs: his song calms them
+  const clinging = r.landings.find((l) => l.clinging);
+  if (clinging && up) return { of: 'aboard', text: `The crowd at ${clinging.name} clings to the skiffs, and they can hardly push off. Walk ${HERO} onto the landing: his song calms them.` };
   // a landing still to call: the nearest ship that is free of a crowd to it
   const uncalled = r.quarters.filter((q) => !q.called);
   const busy = (t) => { const at = NS.mooredAt(w, t); return !!at && (at.crowd > 0 || r.quarters.some((q) => q.landing === at.id && (q.left > 0 || r.families.some((f) => f.quarters === q.id)))); };
@@ -156,6 +164,9 @@ export function nextStep(w = G.world) {
     const l = landingOf(best.q);
     return { of: 'aboard', text: `Send the ${best.s.b.name} to ${l.name}: select her, then click the landing.${l.parted ? ' A rift parts it from its estate: lay bridge across it too.' : ''}` };
   }
+  // a warden holding families back that no volunteers can reach yet
+  const held = r.quarters.find((q) => q.called && q.warden === 'watching' && q.party <= 0 && q.left > 0);
+  if (held && up) return { of: 'aboard', text: `The warden at the ${held.name} quarters lets the families out only slowly, and the volunteers cannot get up to him: walk ${HERO} to the quarters' door and he will run.` };
   const crowd = r.landings.filter((l) => l.crowd > 0).sort((a, b) => b.crowd - a.crowd)[0];
   if (crowd && r.singing !== crowd.id && up) return { of: 'aboard', text: `Walk ${HERO} onto ${crowd.name}: while he sings there, the ${crowd.crowd} waiting board twice as fast.` };
   return { of: 'aboard', text: 'The families are on their way to the ships: wait while they board, or send a ship on to the next landing.' };
@@ -282,7 +293,7 @@ export function hear(match, ev) {
   switch (d.kind) {
     case 'visit': {
       const q = r.quarters[d.id];
-      hud.toast(`The bondfolk of the ${q.name} quarters tell him where ${d.n === 1 ? 'a sky mine floats' : `${d.n} sky mines float`} in the Combahee.`, 'good');
+      hud.toast(`${CONTACTS[q.name] ?? 'Someone'}, at the ${q.name} quarters, tells him where ${d.n === 1 ? 'a sky mine floats' : `${d.n} sky mines float`} in the Combahee.`, 'good');
       break;
     }
     case 'sign': hud.toast('Birds scatter over the trees ahead: a sentry is watching there.', 'bad'); scene?.birds(d.x, d.y); sound.raid('birds'); break;
@@ -290,6 +301,14 @@ export function hear(match, ev) {
     case 'horn': hud.toast(`The horn at ${r.landings[d.id].name}: the bondfolk of the estate come running to the landing.`, 'good'); sound.raid('horn', d.ship); break;
     case 'song': hud.toast(`${Hero} sings to the crowd at ${r.landings[d.id].name}: they go aboard twice as fast.`, 'good'); sound.raid('song'); break;
     case 'emptied': hud.log(`Everyone has left the ${r.quarters[d.id].name} quarters.`, 'good'); break;
+    case 'wary': hud.toast(`The bondfolk of ${r.landings[d.id].name.replace(' landing', '')} watch the strange ship from their doors: they have never seen one come for them. Soon the first family runs for it, and the word spreads.`, ''); break;
+    case 'party': hud.log(`Volunteers go ashore and up to the ${r.quarters[d.id].name} quarters.`, 'good'); break;
+    case 'warden': hud.toast(d.why === 'him' ? `The ${r.quarters[d.id].name} warden takes to his heels at the sight of ${HERO}.` : `The volunteers reach the ${r.quarters[d.id].name} quarters: the warden takes to his heels.`, 'good'); break;
+    case 'clinging': hud.toast(`The crowd at ${r.landings[d.id].name} clings to the skiffs: they can hardly push off, and boarding halves. Let ${HERO} sing there.`, 'bad'); break;
+    case 'calmed': hud.toast(`“Glory!” The crowd at ${r.landings[d.id].name} lets go of the skiffs as he sings.`, 'good'); break;
+    case 'rider': hud.toast('A sentry has seen a ship: a rider runs for the Sun-lords’ keep with the alarm.', 'bad'); sound.raid('rider'); break;
+    case 'alarm': hud.toast(d.n >= 2 ? `Another rider at the keep: the Sun-lords believe the alarm now. Their battery sets out for the ferry (${mmss(r.battery.due - G.world.tick)}).` : 'A rider reached the Sun-lords’ keep. After last week’s false alarm, they do not believe him yet.', d.n >= 2 ? 'bad' : ''); break;
+    case 'mill': hud.toast(`A Sun-lords’ mill is burning, and its stores of rice with it (${d.n} of ${r.mills.length}).`, 'good'); scene?.burnMill(d.x, d.y); break;
     case 'full': hud.toast(`The ${r.ships.get(d.ship).name} is full.`, 'good'); break;
     case 'mine': hud.toast(`A sky mine went off against the ${r.ships.get(d.ship).name}! She is torn, but still flying.`, 'bad'); scene?.burst(d.x, d.y); sound.raid('mine', d.ship); break;
     case 'shell': scene?.shell(d.ship, d.x, d.y); sound.raid('shell', d.ship); break;
@@ -326,6 +345,7 @@ export function end(hud, verdict) {
 /** The epilogue, and where the story comes from. */
 export function epilogue(hud) {
   hud.modal(`<h2>${escapeHtml(EPILOGUE.title)}</h2>${EPILOGUE.text.map((p) => `<p class="text">${escapeHtml(p)}</p>`).join('')}
-    <h3>Where it comes from</h3><ul class="credits"><li>A fantasy after the Combahee River Raid of June 1 to 2, 1863, and after ${escapeHtml(CAMPAIGN.source.author)}, ${source()}, ${escapeHtml(CAMPAIGN.source.where)}: its hero is drawn as the essay draws the raid’s guide, Mercury in a life.</li>${CREDITS.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>`,
+    <h3>Where it comes from</h3><ul class="credits"><li>A fantasy after the Combahee River Raid of June 1 to 2, 1863, and after ${escapeHtml(CAMPAIGN.source.author)}, ${source()}, ${escapeHtml(CAMPAIGN.source.where)}: its hero is drawn as the essay draws the raid’s guide, Mercury in a life.</li>
+    <li>The skiffs and the crowd clinging to them, the wardens, the riders and the false alarm, the stakes, the mills, the rice pots, the pigs and the chickens, and what came after follow the article <a href="${CAMPAIGN.history.url}" target="_blank" rel="noopener">${escapeHtml(CAMPAIGN.history.title)}</a> (${escapeHtml(CAMPAIGN.history.where)}).</li>${CREDITS.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>`,
   [{ label: 'Main menu', main: true, act: () => hud.game.start(G.setup, { menu: true }) }]);
 }

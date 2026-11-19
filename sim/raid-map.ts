@@ -16,6 +16,7 @@ import {
   STRONG,
   WIND,
   type Landing,
+  type Mill,
   type Mine,
   type Quarters,
   type Raid,
@@ -323,11 +324,11 @@ const MILLS: readonly [side: 1 | -1, x: number, d: number][] = [[1, 166, 4], [-1
 
 /** Of each level: the night of the scouting (minutes of play, and how much shorter the guns reach
  * in it); of the raid, the people to bring aboard, the minutes from dawn to the end, the seconds
- * from dawn to the battery's coming. */
-const LEVELS: Record<RaidLevel, { night: number; dark: number; target: number; morning: number; battery: number; }> = {
-  easy: { night: 10, dark: 0.5, target: 450, morning: 9, battery: 150 },
-  normal: { night: 8.5, dark: 0.4, target: 600, morning: 7.5, battery: 75 },
-  hard: { night: 7.5, dark: 0.3, target: 700, morning: 6.5, battery: 30 },
+ * from dawn to the battery's coming, and from a believed alarm to its coming. */
+const LEVELS: Record<RaidLevel, { night: number; dark: number; target: number; morning: number; battery: number; march: number; }> = {
+  easy: { night: 10, dark: 0.5, target: 450, morning: 9, battery: 150, march: 150 },
+  normal: { night: 8.5, dark: 0.4, target: 600, morning: 7.5, battery: 75, march: 110 },
+  hard: { night: 7.5, dark: 0.3, target: 700, morning: 6.5, battery: 30, march: 80 },
 };
 
 /** Minutes of play from the raid's start to dawn. */
@@ -336,8 +337,9 @@ const RAID_NIGHT = 4.5;
 const SCOUT_LATE = 3;
 const RAID_LATE = 60;
 
-/** A building of a side, standing on whatever ground is there (it makes ground where there is none). */
-function stand(w: World, type: string, owner: number, x: number, y: number): void {
+/** A building of a side, standing on whatever ground is there (it makes ground where there is none);
+ * its id. */
+function stand(w: World, type: string, owner: number, x: number, y: number): number {
   const def = w.def(type);
 
   for (let cy = y; cy < y + def.footY; cy++) {
@@ -352,6 +354,7 @@ function stand(w: World, type: string, owner: number, x: number, y: number): voi
   const b = w.spawnBuilding(type, owner, x, y, 0);
   b.rising = 0;
   b.hp = b.hpMax;
+  return b.id;
 }
 
 /** The cell of the wind's strong middle nearest (x, y). */
@@ -447,6 +450,7 @@ export function createRaid(defs: DefTable, mission: RaidMission, level: RaidLeve
         crowd: 0,
         boarding: 0,
         parted: spec.parted,
+        clinging: false,
         ferry: spec.ferry ?? false,
         home: spec.home ?? false,
       });
@@ -487,6 +491,8 @@ export function createRaid(defs: DefTable, mission: RaidMission, level: RaidLeve
       visited: false,
       landing: q.landing,
       next: 0,
+      warden: 'watching',
+      party: 0,
     };
   });
 
@@ -501,13 +507,16 @@ export function createRaid(defs: DefTable, mission: RaidMission, level: RaidLeve
   }));
 
   // the Sun-lords' guns, and at the raid their mills
+  const mills: Mill[] = [];
+
   if (raid) {
     for (const [side, x, d] of RAID_SENTRIES) {
       stand(w, 'sunarcher', RAID_ENEMY, x, side > 0 ? inland(x, 1, d) : inland(x, -1, d) - 2);
     }
 
     for (const [side, x, d] of MILLS) {
-      stand(w, 'sunbattery', RAID_ENEMY, x, side > 0 ? inland(x, 1, d) : inland(x, -1, d) - 2);
+      const y = side > 0 ? inland(x, 1, d) : inland(x, -1, d) - 2;
+      mills.push({ id: stand(w, 'sunbattery', RAID_ENEMY, x, y), x: x + 1, y: y + 1, burned: false });
     }
   } else {
     for (const [side, x, d, levels] of SENTRIES) {
@@ -590,7 +599,12 @@ export function createRaid(defs: DefTable, mission: RaidMission, level: RaidLeve
       came: false,
       held: false,
       guns: [],
+      march: L.march,
     },
+    alarm: { sent: [], riders: [], heard: 0 },
+    mills,
+    pilings: PILINGS_X,
+    trusted: false,
     target: L.target,
     freed: 0,
     verdict: null,
@@ -608,6 +622,9 @@ const NEW_MOON = 0;
 const FULL_MOON = 2;
 /** Where the Sun-lords' battery sets up its guns, on Ferry Isle's north half. */
 const BATTERY_X = 66;
+/** The column of the Sun-lords' stakes across the wind, west of the bridge at the ferry: no ship
+ * goes past them (in 1863 obstructions and pilings above the ferry turned the John Adams back). */
+const PILINGS_X = 66;
 
 /** The raid's world is always made from the same seed: one map. */
 export const RAID_SEED = 1863;

@@ -52,6 +52,11 @@ export interface Quarters {
   landing: number;
   /** The tick the next family sets out. */
   next: number;
+  /** The estate's warden (the raid): watching the quarters, the families slipping out past him half
+   * as often; or fled, from the Wayfinder or from the volunteers a horn sends up to the door. */
+  warden: 'watching' | 'fled';
+  /** The tick those volunteers reach the door: 0, none sent; -1, sent but no way there yet. */
+  party: number;
 }
 
 /** A landing: an islet of the player's at the wind's edge, where a ship ties up. */
@@ -70,6 +75,9 @@ export interface Landing {
   boarding: number;
   /** A rift two cells wide parts it from its estate: a bridge has to be laid for the people. */
   parted: boolean;
+  /** Its crowd clings to the skiffs that row them out to the ship (too many waiting, and no song to
+   * calm them): they go aboard at CLING_PACE. */
+  clinging: boolean;
   /** The landing by the bridge at the ferry, from which it can be burned. */
   ferry: boolean;
   /** The landing at the wind's mouth: where the ships set out from and come home to. */
@@ -101,6 +109,24 @@ export interface Mine {
   known: boolean;
   spent: boolean;
   quarters: number;
+}
+
+/** A sentry's rider, on his way to the Sun-lords' keep with the alarm. */
+export interface Rider {
+  /** The sentry that sent him, where it stands, the tick he set out and the tick he gets there. */
+  from: number;
+  x: number;
+  y: number;
+  set: number;
+  arrives: number;
+}
+
+/** A Sun-lords' mill: where it stood, and whether the airships' guns have burned it. */
+export interface Mill {
+  id: number;
+  x: number;
+  y: number;
+  burned: boolean;
 }
 
 /** An airship of the raid: a transport of the player's that rides the wind only. */
@@ -150,8 +176,20 @@ export interface Raid {
   /** The Sun-lords' bridge at the ferry: its cells, the tick it falls once fired, whether it fell. */
   bridge: { cells: [number, number][]; burning: number; burned: boolean; };
   /** The Sun-lords' battery: the tick it comes to the ferry, where it would set up its guns,
-   * whether it came or was held back by the burned bridge, and its guns. */
-  battery: { due: number; site: [number, number]; came: boolean; held: boolean; guns: number[]; };
+   * whether it came or was held back by the burned bridge, and its guns; the seconds it takes
+   * from the keep to the ferry once it sets out on a believed alarm. */
+  battery: { due: number; site: [number, number]; came: boolean; held: boolean; guns: number[]; march: number; };
+  /** The alarm: the sentries that have sent a rider, the riders on their way, and how many alarms
+   * the keep has had: the first is doubted (last week's was false), the second believed, and the
+   * battery sets out. */
+  alarm: { sent: number[]; riders: Rider[]; heard: number; };
+  /** The Sun-lords' mills. */
+  mills: Mill[];
+  /** West of this column the Sun-lords' stakes bar the wind: no ship goes past them. */
+  pilings: number;
+  /** Whether a horn has called yet: the first estate called is wary of the ships a while; after
+   * that the word has spread. */
+  trusted: boolean;
   /** How many must be brought aboard to win; how many were, counted at the end. */
   target: number;
   freed: number;
@@ -183,6 +221,18 @@ export const SONG_REACH = 3;
 /** People a ship takes aboard a second at a landing, and how many times that while he sings. */
 export const BOARD_PER_SECOND = 2;
 export const SONG_BOARDING = 2;
+/** A crowd of more than this at a landing, with no song, clings to the skiffs: they go aboard at
+ * this share of the pace. */
+export const CALM_CROWD = 40;
+export const CLING_PACE = 0.5;
+/** A warden lets the families out this many times less often; he flees from the Wayfinder this near
+ * the door, or when the volunteers sent up from the landing reach it, at this pace (cells a second). */
+export const WARDEN_SLOW = 2;
+export const WARDEN_REACH = 4;
+export const PARTY_PACE = 1.6;
+/** Seconds a sentry's rider takes to the keep; seconds the first estate called watches the ships. */
+export const RIDE_SECONDS = 40;
+export const WARY_SECONDS = 8;
 /** Seconds between two families setting out from the quarters, and cells a second they walk. */
 export const RELEASE_SECONDS = 1.5;
 export const FAMILY_PACE = 1.4;
@@ -266,9 +316,13 @@ export function docksOf(world: { readonly raid: Raid | null; }, player: number):
   return r.landings.map((l) => ({ x: l.x, y: l.y, fx: l.w, fy: l.h }));
 }
 
-/** The cells a ship must keep clear of: by a mine he knows of. */
+/** The cells a ship must keep clear of: by a mine he knows of, and past the Sun-lords' stakes. */
 function hazards(world: World, r: Raid): Uint8Array {
   const keep = new Uint8Array(W * H);
+
+  for (let y = 0; y < H; y++) {
+    keep.fill(1, y * W, y * W + Math.max(0, r.pilings));
+  }
 
   for (const t of r.mines) {
     if (t.known && !t.spent) {
@@ -430,12 +484,21 @@ export function raidCommand(world: World, c: RaidCommand): CommandError | null {
       return 'nobody to call';
     }
 
+    // the first estate called watches the strange ship a while; after that the word has spread. The
+    // volunteers go ashore and up to the quarters, once there is a way there.
     for (const q of called) {
       q.called = true;
-      q.next = world.tick;
+      q.next = world.tick + (r.trusted ? 0 : WARY_SECONDS * TPS);
+      q.party = q.warden === 'watching' ? -1 : 0;
     }
 
     world.emit({ what: 'raid', who: c.player, data: { kind: 'horn', id: l.id, ship: t.id } });
+
+    if (!r.trusted) {
+      r.trusted = true;
+      world.emit({ what: 'raid', who: c.player, data: { kind: 'wary', id: l.id, n: WARY_SECONDS } });
+    }
+
     return null;
   }
 
@@ -490,12 +553,15 @@ export function tickRaid(world: World): void {
 
   strike(world, r);
   shell(world, r);
+  alarm(world, r);
   setOut(world, r);
   walk(world, r);
+  wardens(world, r, him);
   sing(world, r, him);
   board(world, r);
   fire(world, r);
   battery(world, r);
+  mills(world, r);
 
   if (world.tick >= r.noon) {
     finish(world, r, 'noon');
@@ -625,7 +691,7 @@ function setOut(world: World, r: Raid): void {
     const size = Math.min(q.left, 3 + (hash(id, q.id) % 7));
     const children = size < 3 ? 0 : Math.min(size - 2, hash(q.id, id) % 4);
     q.left -= size;
-    q.next = world.tick + RELEASE_SECONDS * TPS;
+    q.next = world.tick + RELEASE_SECONDS * TPS * (q.warden === 'watching' ? WARDEN_SLOW : 1);
     r.families.push({
       id,
       x: q.door[0],
@@ -784,10 +850,22 @@ function board(world: World, r: Raid): void {
     }
 
     if (!ship) {
+      l.clinging = false;
       continue;
     }
 
-    l.boarding += (BOARD_PER_SECOND * (r.singing === l.id ? SONG_BOARDING : 1)) / TPS;
+    // too many waiting, and nobody to calm them: they cling to the skiffs, which cannot push off
+    // full; his song calms them
+    const clinging = l.crowd > CALM_CROWD && r.singing !== l.id;
+
+    if (clinging && !l.clinging) {
+      world.emit({ what: 'raid', who: r.me, data: { kind: 'clinging', id: l.id } });
+    } else if (!clinging && l.clinging && r.singing === l.id) {
+      world.emit({ what: 'raid', who: r.me, data: { kind: 'calmed', id: l.id } });
+    }
+
+    l.clinging = clinging;
+    l.boarding += (BOARD_PER_SECOND * (r.singing === l.id ? SONG_BOARDING : clinging ? CLING_PACE : 1)) / TPS;
     const n = Math.min(Math.floor(l.boarding), l.crowd, ship.capacity - ship.aboard);
 
     if (n > 0) {
@@ -798,6 +876,91 @@ function board(world: World, r: Raid): void {
       if (ship.aboard === ship.capacity) {
         world.emit({ what: 'raid', who: r.me, data: { kind: 'full', ship: ship.id } });
       }
+    }
+  }
+}
+
+/**
+ * The wardens: one flees from the Wayfinder coming near the quarters' door, or when the volunteers
+ * sent up from the landing reach it (they set out once there is a way from the landing to the door).
+ */
+function wardens(world: World, r: Raid, him: Priest): void {
+  for (const q of r.quarters) {
+    if (q.warden !== 'watching') {
+      continue;
+    }
+
+    if (q.party === -1 && r.ways.length) {
+      const steps = r.ways[q.landing]![world.at(q.door[0], q.door[1])]!;
+
+      if (steps >= 0) {
+        q.party = world.tick + Math.ceil((steps / PARTY_PACE) * TPS);
+        world.emit({ what: 'raid', who: r.me, data: { kind: 'party', id: q.id, n: steps } });
+      }
+    }
+
+    const near = chebyshev(him.x, him.y, q.door[0], q.door[1]) <= WARDEN_REACH;
+
+    if (near || (q.party > 0 && world.tick >= q.party)) {
+      q.warden = 'fled';
+      world.emit({ what: 'raid', who: r.me, data: { kind: 'warden', id: q.id, why: near ? 'him' : 'party' } });
+    }
+  }
+}
+
+/**
+ * The alarm: a sentry that sees an airship within its reach sends a rider to the Sun-lords' keep.
+ * The keep doubts the first alarm (last week's was false) and believes the second: then the battery
+ * sets out, and comes to the ferry the battery's march later, if that is sooner than it would at
+ * dawn.
+ */
+function alarm(world: World, r: Raid): void {
+  const a = r.alarm;
+
+  for (const e of world.entities.values()) {
+    const range = e.kind === 'building' ? world.def(e.type).range ?? 0 : 0;
+
+    if (e.kind !== 'building' || e.owner !== r.enemy || e.type !== 'sunarcher' || e.hp <= 0 || e.rising > 0 || !range || a.sent.includes(e.id)) {
+      continue;
+    }
+
+    const cx = e.x + (e.fx >> 1);
+    const cy = e.y + (e.fy >> 1);
+
+    for (const b of r.ships.values()) {
+      const t = shipOf(world, r, b.id);
+
+      if (t && !b.snagged && chebyshev(t.x, t.y, cx, cy) <= gunReach(world, e, range, t)) {
+        a.sent.push(e.id);
+        a.riders.push({ from: e.id, x: cx, y: cy, set: world.tick, arrives: world.tick + RIDE_SECONDS * TPS });
+        world.emit({ what: 'raid', who: r.me, data: { kind: 'rider', id: e.id, x: cx, y: cy } });
+        break;
+      }
+    }
+  }
+
+  for (const rider of [...a.riders]) {
+    if (world.tick < rider.arrives) {
+      continue;
+    }
+
+    a.riders.splice(a.riders.indexOf(rider), 1);
+    a.heard++;
+
+    if (a.heard === 2 && !r.battery.came && !r.battery.held) {
+      r.battery.due = Math.min(r.battery.due, world.tick + r.battery.march * TPS);
+    }
+
+    world.emit({ what: 'raid', who: r.me, data: { kind: 'alarm', n: a.heard } });
+  }
+}
+
+/** The Sun-lords' mills the airships' guns have burned. */
+function mills(world: World, r: Raid): void {
+  for (const m of r.mills) {
+    if (!m.burned && !world.entities.has(m.id)) {
+      m.burned = true;
+      world.emit({ what: 'raid', who: r.me, data: { kind: 'mill', id: m.id, x: m.x, y: m.y, n: r.mills.filter((x) => x.burned).length } });
     }
   }
 }
@@ -814,6 +977,14 @@ function fire(world: World, r: Raid): void {
     if (world.terrain[world.at(x, y)] !== 0) {
       collapse(world, x, y);
     }
+  }
+
+  // the wind runs on where the bridge stood, as it does east of it: a ship can go on up it, as far
+  // as the Sun-lords' stakes
+  const east = Math.max(...p.cells.map(([x]) => x)) + 1;
+
+  for (const [x, y] of p.cells) {
+    r.wind[world.at(x, y)] = r.wind[world.at(east, y)]!;
   }
 
   p.burned = true;

@@ -1926,6 +1926,16 @@ SCENARIOS.combahee = async () => {
   await page.waitForFunction(() => window.NS3D.G.world.raid.families.length > 0, null, { timeout: 20000 });
   await fastForward(page, 60);
   await page.waitForFunction(() => document.getElementById('raid').components['ns-raid'].bodies.count > 0, null, { timeout: 30000 });
+  // the first estate watched the strange ship warily at first; the volunteers went up, and the warden ran
+  await fastForward(page, 80);
+  const estate = await page.evaluate(() => {
+    const r = window.NS3D.G.world.raid, l = r.landings.find((x) => x.name.startsWith('Amberfield')), q = r.quarters.find((x) => x.landing === l.id);
+    return { trusted: r.trusted, warden: q.warden, crowd: l.crowd, log: [...document.querySelectorAll('#logList li')].map((li) => li.textContent).join(' | ') };
+  });
+  if (!estate.trusted || !/watch the strange ship/.test(estate.log)) throw new Error(`the first estate was not wary at first: ${JSON.stringify(estate)}`);
+  if (estate.warden !== 'fled' || !/the warden takes to his heels/.test(estate.log)) throw new Error(`the warden at Amberfield did not run: ${JSON.stringify(estate)}`);
+  // the skiffs, rowing the people from the landing out to the ship
+  await page.waitForFunction(() => document.getElementById('raid').components['ns-raid'].skiffs.some((g) => g.visible), null, { timeout: 20000 }).catch(() => { throw new Error('no skiffs between Amberfield landing and the Swallow'); });
   // the Wayfinder on the landing: he sings
   const song = await page.evaluate(() => {
     const { G, NS, stepWorld } = window.NS3D, r = G.world.raid, l = r.landings.find((x) => x.name.startsWith('Amberfield')), p = G.world.priestOf(NS.ME);
@@ -2000,15 +2010,19 @@ SCENARIOS.combahee = async () => {
   await page.click('#raidHome');
   await page.waitForFunction(() => document.querySelector('#modal button.main')?.textContent === 'Epilogue', null, { timeout: 20000 });
   const end = await page.evaluate(() => ({ verdict: window.NS3D.G.world.raid.verdict, text: document.getElementById('modal').innerText }));
-  if (!end.verdict?.won || !/people aboard/.test(end.text) || (await page.$$('#modal ol.objectives li.done')).length < 2) throw new Error(`the raid's end: ${JSON.stringify(end)}`);
+  if (!end.verdict?.won || !/people aboard/.test(end.text) || !/mills/.test(end.text) || (await page.$$('#modal ol.objectives li.done')).length < 2) throw new Error(`the raid's end: ${JSON.stringify(end)}`);
   await page.click('#modal button.main');
   await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Mercury Returns', null, { timeout: 20000 });
   if (!(await page.$('#modal ul.credits a[href*="astro.com"]'))) throw new Error('the epilogue does not link its source');
+  if (!(await page.$('#modal ul.credits a[href*="wikipedia.org/wiki/Raid_on_Combahee_Ferry"]'))) throw new Error('the epilogue does not link the history it was drawn from');
   const heard = await played();
   for (const s of ['raid:horn', 'raid:song', 'explosion', 'bridgefall']) if (!heard.includes(s)) throw new Error(`no ${s} sound: ${heard.join(' ')}`);
+  // a sentry who saw a ship sent a rider with the alarm, and the log says so
+  const riders = await page.evaluate(() => ({ n: window.NS3D.G.world.raid.alarm.sent.length, told: [...document.querySelectorAll('#logList li')].filter((li) => /a rider runs for/.test(li.textContent)).length }));
+  if (riders.n !== riders.told) throw new Error(`riders sent and told of: ${JSON.stringify(riders)}`);
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('netstorm-3d:combahee')));
   if (!saved.done.includes('scout') || !saved.done.includes('raid') || saved.known.length !== 6) throw new Error(`the campaign's progress: ${JSON.stringify(saved)}`);
-  console.log(`  objectives listed and ticked; scouted: birds over the sentry, disguised in a veil, four quarters, six mines, the cove; the raid: ${song.walking} families walking to Amberfield landing, his song, a shell at the mill, a mine struck, the bridge burned, home; the epilogue`);
+  console.log(`  objectives listed and ticked; scouted: birds over the sentry, disguised in a veil, four quarters, six mines, the cove; the raid: the first estate wary, the warden run off, the skiffs, ${song.walking} families walking to Amberfield landing, his song, a shell at the mill, a mine struck, the bridge burned, ${riders.n} rider(s), home; the epilogue and its sources`);
   return errors;
 };
 

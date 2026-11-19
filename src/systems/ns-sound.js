@@ -158,8 +158,8 @@ AFRAME.registerSystem('ns-sound', {
 
   /**
    * The raid's sounds (raid-hud.js): the original's where it has one (a cannon, a blast, a bridge
-   * falling), and three made here, for it has none: an airship's horn, a flock's wings, and a low,
-   * soft chord as the Wayfinder sings to the crowd (no voice: his own are the Priest's, and the
+   * falling), and four made here, for it has none: an airship's horn, a sentry's far horn as his
+   * rider sets out, a flock's wings, and a low, soft chord as the Wayfinder sings to the crowd (no voice: his own are the Priest's, and the
    * game puts no words in his mouth). `ship`, the airship it comes from.
    */
   raid(kind, ship) {
@@ -214,6 +214,10 @@ AFRAME.registerSystem('ns-sound', {
         o.start(t0 + from);
         o.stop(t0 + to + 0.05);
       }
+    } else if (kind === 'rider') {
+      // far off, a sentry's horn: three short, thin calls as the rider sets out
+      out.gain.value = 0.08 * volume;
+      for (let i = 0; i < 3; i++) for (const f of [294, 440]) tone(f, i * 0.32, i * 0.32 + 0.24, 0.3, 'triangle');
     } else if (kind === 'song') {
       // a low, soft chord, slow to swell and slow to fade
       out.gain.value = 0.11 * volume;
