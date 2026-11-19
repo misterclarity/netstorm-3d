@@ -24,7 +24,7 @@ export function furyKnowledge(theme) {
 }
 
 /**
- * Start a match afresh: the mission, a battle of the Combahee River Raid (src/campaign.js), or a
+ * Start a match afresh: the mission, a battle of the Combahee Raid (src/campaign.js), or a
  * skirmish on a map generated from its seed, set up as netstorm-web's setup.ts sets them up.
  */
 export function newGame(setup = G.setup) {
@@ -43,7 +43,7 @@ export function newGame(setup = G.setup) {
       };
   G.options = options;
   if (G.raid) {
-    // the torpedoes she found at the scouting are known at the raid
+    // the sky mines he found at the scouting are known at the raid
     G.world = NS.createRaid(defs, G.raid, options.difficulty, G.raid === 'raid' ? progress().known : []);
   } else {
     const known = G.mission ? [] : furyKnowledge(setup.theme);

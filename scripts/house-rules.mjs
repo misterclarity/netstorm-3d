@@ -4156,20 +4156,21 @@ CHANGES.push({
   readonly tick: number;`,
 });
 
-// The Combahee River Raid (netstorm-3d): a campaign of two battles on a map of its own, whose
-// rules are a module of their own, sim/raid.ts, laid into the simulation as rules/raid.ts, and
-// whose map and setting out are sim/raid-map.ts, laid in as raid-map.ts (EXTRA_FILES, below). Here
-// they are hooked in: the clock of a battle that begins at night and keeps its own moon; a step of
-// the raid's rules after the world's own; the raid's commands, and none of a Priest's prayers,
-// buildings or captures in it; the boats, which go on the river only, along its deep water, are hit
-// as what is on the water is (not as aircraft), and are never sunk; and the landings, which a bridge
-// may be laid from (the raid's side has no Temple and no Outpost).
+// The Combahee Raid (netstorm-3d): a campaign of two battles on a map of its own, whose rules are
+// a module of their own, sim/raid.ts, laid into the simulation as rules/raid.ts, and whose map and
+// setting out are sim/raid-map.ts, laid in as raid-map.ts (EXTRA_FILES, below). Here they are
+// hooked in: the clock of a battle that begins at night and keeps its own moon; a step of the
+// raid's rules after the world's own; the raid's commands, and none of a Priest's prayers,
+// buildings or captures in it; the airships, which ride the Combahee wind only, along its strong
+// middle, low between the islands, are hit as what stands on the ground is (not as aircraft high
+// above), and are never brought down; and the landings, which a bridge may be laid from (the
+// raid's side has no Temple and no Outpost).
 CHANGES.push({
   file: 'world.ts',
   why: 'the raid: its rules',
   was: `import { tickTransport, collect, pickupCrystal, unload, stepShare } from './rules/movement.js';`,
   now: `import { tickTransport, collect, pickupCrystal, unload, stepShare } from './rules/movement.js';
-import { onRiver, raidCommand, steerBoat, tickRaid, type Raid } from './rules/raid.js';`,
+import { inWind, raidCommand, steerShip, tickRaid, type Raid } from './rules/raid.js';`,
 }, {
   file: 'world.ts',
   why: 'the raid: its state',
@@ -4177,7 +4178,7 @@ import { onRiver, raidCommand, steerBoat, tickRaid, type Raid } from './rules/ra
   nightShare = 0.25;`,
   now: `  /** (netstorm-3d) How much shorter a gun's reach is at night, 0 to 1; a setting. */
   nightShare = 0.25;
-  /** (netstorm-3d) A battle of the Combahee River Raid (rules/raid.ts), or null. */
+  /** (netstorm-3d) A battle of the Combahee Raid (rules/raid.ts), or null. */
   raid: Raid | null = null;`,
 }, {
   file: 'world.ts',
@@ -4228,8 +4229,8 @@ import { onRiver, raidCommand, steerBoat, tickRaid, type Raid } from './rules/ra
   why: 'the raid: no prayer (for a Spell or the Hover), building or capture in it',
   was: `    switch (c.t) {
       case 'dropPiece':`,
-  now: `    // (netstorm-3d) in the raid she prays for no Spell and no Hover and builds nothing, and nobody
-    // is captured: she is quick by her own wits (her disguise), not by a Priest's gifts
+  now: `    // (netstorm-3d) in the raid he prays for no Spell and no Hover and builds nothing, and nobody
+    // is captured: he is quick by his own wits (his disguise), not by a Priest's gifts
     if (this.raid && (c.t === 'pray' || c.t === 'prayHover' || c.t === 'hover' || c.t === 'build' || c.t === 'capturePriest' || c.t === 'castSpell')) {
       return 'not here';
     }
@@ -4244,21 +4245,21 @@ import { onRiver, raidCommand, steerBoat, tickRaid, type Raid } from './rules/ra
   now: `      case 'hover':
         return setHover(this, c);
       case 'disguise':
-      case 'whistle':
+      case 'horn':
       case 'burnBridge':
       case 'raidHome':
         return raidCommand(this, c);`,
 }, {
   file: 'world.ts',
-  why: 'the raid: a boat goes along the river',
+  why: 'the raid: an airship rides the wind',
   was: `  if (!world.walkable(c.player, c.x, c.y)) {
     return 'no path';
   }
 
   const path = world.wayOf(t,`,
-  now: `  // (netstorm-3d) a boat of the raid: along the river's deep water, wherever it is sent
-  if (world.raid?.boats.has(t.id)) {
-    return steerBoat(world, t, c.x, c.y);
+  now: `  // (netstorm-3d) an airship of the raid: along the wind's strong middle, wherever it is sent
+  if (world.raid?.ships.has(t.id)) {
+    return steerShip(world, t, c.x, c.y);
   }
 
   if (!world.walkable(c.player, c.x, c.y)) {
@@ -4268,35 +4269,35 @@ import { onRiver, raidCommand, steerBoat, tickRaid, type Raid } from './rules/ra
   const path = world.wayOf(t,`,
 }, {
   file: 'world.ts',
-  why: 'the raid: a boat is hit as what is on the water is',
+  why: 'the raid: an airship low in the wind is hit as what stands on the ground is',
   was: `          && this.entities.has(transport.id)
           && !flies(this.def(transport.type))`,
   now: `          && this.entities.has(transport.id)
-          && (!flies(this.def(transport.type)) || onRiver(this, transport.id))`,
+          && (!flies(this.def(transport.type)) || inWind(this, transport.id))`,
 }, {
   file: 'rules/movement.ts',
-  why: 'the raid: a boat neither rises nor lands',
+  why: 'the raid: an airship neither climbs nor lands',
   was: `  if (flies(world.def(t.type)) && climb(t, speed)) {`,
-  now: `  if (flies(world.def(t.type)) && !onRiver(world, t.id) && climb(t, speed)) {`,
+  now: `  if (flies(world.def(t.type)) && !inWind(world, t.id) && climb(t, speed)) {`,
 }, {
   file: 'rules/movement.ts',
-  why: 'the raid: a boat neither rises nor lands',
+  why: 'the raid: an airship neither climbs nor lands',
   was: `import { flies } from '../defs.js';`,
   now: `import { flies } from '../defs.js';
-import { onRiver } from './raid.js';`,
+import { inWind } from './raid.js';`,
 }, {
   file: 'rules/combat.ts',
-  why: 'the raid: a boat is hit as what is on the water is',
+  why: 'the raid: an airship low in the wind is hit as what stands on the ground is',
   was: `function airborne(world: World, e: Entity): boolean {
   return 'type' in e && flies(world.def(e.type));
 }`,
   now: `function airborne(world: World, e: Entity): boolean {
-  // (netstorm-3d) the raid's boats are on the river, not in the air
-  return 'type' in e && flies(world.def(e.type)) && !onRiver(world, e.id);
+  // (netstorm-3d) the raid's airships ride low in the wind between the islands, not high above
+  return 'type' in e && flies(world.def(e.type)) && !inWind(world, e.id);
 }`,
 }, {
   file: 'rules/combat.ts',
-  why: 'the raid: a boat is never sunk',
+  why: 'the raid: an airship is never brought down',
   was: `    amount = Math.min(amount, world.boons.get(entity.id)?.has('ward') ? PRIEST_WARD_BOON : PRIEST_WARD);
   }
 
@@ -4304,16 +4305,16 @@ import { onRiver } from './raid.js';`,
   now: `    amount = Math.min(amount, world.boons.get(entity.id)?.has('ward') ? PRIEST_WARD_BOON : PRIEST_WARD);
   }
 
-  // (netstorm-3d) the raid's boats are holed, never sunk: there are people aboard
-  amount = boatFloor(world, entity, amount);
+  // (netstorm-3d) the raid's airships are torn, never brought down: there are people aboard
+  amount = shipFloor(world, entity, amount);
 
   const before = entity.hp;`,
 }, {
   file: 'rules/combat.ts',
-  why: 'the raid: a boat is hit as what is on the water is',
+  why: 'the raid: an airship low in the wind is hit as what stands on the ground is',
   was: `import { flies, type UnitDef } from '../defs.js';`,
   now: `import { flies, type UnitDef } from '../defs.js';
-import { boatFloor, onRiver } from './raid.js';`,
+import { inWind, shipFloor } from './raid.js';`,
 }, {
   file: 'rules/bridges.ts',
   why: 'the raid: bridge is laid from the landings',
@@ -4335,10 +4336,10 @@ import { docksOf } from './raid.js';`,
   why: 'the raid, declared: its commands',
   was: `  | { t: 'hover'; player: number; on?: boolean; };`,
   now: `  | { t: 'hover'; player: number; on?: boolean; }
-  // (netstorm-3d) the raid's (rules/raid.ts): her disguise; a boat's whistle at a landing; the
-  // pontoon bridge fired; the boats home
+  // (netstorm-3d) the raid's (rules/raid.ts): his disguise; a ship's horn at a landing; the bridge
+  // at the ferry fired; the ships home
   | { t: 'disguise'; player: number; }
-  | { t: 'whistle'; player: number; transport: number; }
+  | { t: 'horn'; player: number; transport: number; }
   | { t: 'burnBridge'; player: number; transport: number; }
   | { t: 'raidHome'; player: number; };`,
 }, {
@@ -4346,10 +4347,10 @@ import { docksOf } from './raid.js';`,
   why: 'the raid, declared: why a command of it is refused',
   was: `  | 'target not incapacitated';`,
   now: `  | 'target not incapacitated'
-  // (netstorm-3d) the raid's: not in this battle; a boat aground, not tied up at a landing; nobody
-  // left in the quarters a whistle would call; the boats not yet home
+  // (netstorm-3d) the raid's: not in this battle; a ship snagged, not tied up at a landing; nobody
+  // left in the quarters a horn would call; the ships not yet home
   | 'not here'
-  | 'aground'
+  | 'snagged'
   | 'not moored'
   | 'nobody to call'
   | 'too far';`,
@@ -4362,7 +4363,7 @@ import { docksOf } from './raid.js';`,
   now: `  lurker: { priest: number; };
   pit: { priest: number; };
   /** Of the raid (rules/raid.ts): what happened (\`kind\`), and where, to what, how many. */
-  raid: { kind: string; id?: number; n?: number; x?: number; y?: number; boat?: number; won?: boolean; why?: string; };
+  raid: { kind: string; id?: number; n?: number; x?: number; y?: number; ship?: number; won?: boolean; why?: string; };
 };`,
 }, {
   file: 'view.ts',
@@ -4386,8 +4387,8 @@ import type { Raid } from './rules/raid.js';`,
   now: `export { prayable } from './rules/spells.js';
 export * from './raid-map.js';
 export {
-  RIVER,
-  DEEP,
+  WIND,
+  STRONG,
   STEP,
   DISGUISE_SECONDS,
   DISGUISE_EVERY,
@@ -4397,8 +4398,8 @@ export {
   BOARD_PER_SECOND,
   SONG_BOARDING,
   FAMILY_PACE,
-  TORPEDO_HIT,
-  BOAT_FLOOR,
+  MINE_HIT,
+  SHIP_FLOOR,
   SHELL_REACH,
   BURN_SECONDS,
   HOME_REACH,
@@ -4409,8 +4410,8 @@ export {
   type Quarters,
   type Landing,
   type Family,
-  type Torpedo,
-  type Boat,
+  type Mine,
+  type Ship,
 } from './rules/raid.js';`,
 });
 

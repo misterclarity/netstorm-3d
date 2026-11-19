@@ -179,9 +179,9 @@ AFRAME.registerSystem('ns-game', {
     const rig = document.getElementById('camera')?.components['orbit-rig'];
     if (!rig || this.xr().mode) return;
     const temple = G.world.templeOf(ME);
-    // the raid: from above Field's Point, where Harriet Tubman stands at the start, up the river
-    const her = G.raid ? G.world.priestOf(ME) : null;
-    if (her) rig.setHome(new THREE.Vector3(wx(her.x - 8), groundAt(her.x + 0.5, her.y + 0.5), wz(her.y - 6)), 78);
+    // the raid: from above Windgate, where the Wayfinder stands at the start, up the Combahee
+    const him = G.raid ? G.world.priestOf(ME) : null;
+    if (him) rig.setHome(new THREE.Vector3(wx(him.x - 8), groundAt(him.x + 0.5, him.y + 0.5), wz(him.y - 6)), 78);
     else if (G.mission || !temple) rig.setHome(new THREE.Vector3(-7, 0, 7), 82);
     else rig.setHome(new THREE.Vector3(wx(temple.x + temple.fx / 2), groundAt(temple.x + 0.5, temple.y + 0.5), wz(temple.y + temple.fy / 2) + 6), 70);
   },
@@ -686,8 +686,9 @@ AFRAME.registerSystem('ns-game', {
     const altar = target?.kind === 'building' && target.owner === ME && defs.get(target.type)?.cls === 'Altar' ? target
       : target?.kind === 'priest' && target.state === 'chained' ? G.view.entities.get(target.chainedAt) : null;
     if (sel.kind === 'priest' && altar?.owner === ME) { G.afterDelivery.delete(sel.id); this.priestToAltar(altar); return true; }
-    // a boat of the raid goes wherever it is sent on the river: to the deep water nearest the place
-    if (sel.kind === 'transport' && G.world.raid?.boats.has(sel.id)) {
+    // an airship of the raid goes wherever it is sent along the Combahee: to its strong middle
+    // nearest the place
+    if (sel.kind === 'transport' && G.world.raid?.ships.has(sel.id)) {
       const cmd = { t: 'moveTransport', transport: sel.id, x, y };
       if (this.refuse(sel, cmd)) return 'refused';
       submit(cmd);
@@ -775,8 +776,8 @@ AFRAME.registerSystem('ns-game', {
   refuse(sel, cmd) {
     const w = G.world, t = w.entities.get(sel.id);
     if (!t) return false;
-    // a boat of the raid finds its own way by the river's deep water (sim/raid.ts, steerBoat)
-    if (w.raid?.boats.has(t.id)) return false;
+    // an airship of the raid finds its own way along the wind (sim/raid.ts, steerShip)
+    if (w.raid?.ships.has(t.id)) return false;
     const name = t.kind === 'priest' ? 'Your Priest' : `The ${defs.get(t.type)?.name ?? 'carrier'}`;
     const flies = t.kind === 'transport' && NS.flies(defs.get(t.type));
     const near = (e, d) => (c) => Math.abs(c[0] - e.x) + Math.abs(c[1] - e.y) <= d;
@@ -926,7 +927,7 @@ AFRAME.registerSystem('ns-game', {
       '-': () => this.hud.setSpeed(-1),
       delete: () => { if (G.selected !== null) this.hud.salvage(); },
       l: () => this.hud.toggleLog(),
-      // the raid: Harriet's disguise
+      // the raid: the Wayfinder's disguise
       c: () => { if (G.raid) submit({ t: 'disguise' }); },
       g: () => this.placement().toggleEnemyReach(),
       h: () => this.minimap.toTemple(),

@@ -158,14 +158,14 @@ AFRAME.registerSystem('ns-sound', {
 
   /**
    * The raid's sounds (raid-hud.js): the original's where it has one (a cannon, a blast, a bridge
-   * falling), and three made here, for it has none: a steamboat's whistle, a flock's wings, and a
-   * soft chord as Harriet sings to the crowd (no voice: the game does not put words in her mouth).
-   * `boat`, the boat it comes from.
+   * falling), and three made here, for it has none: an airship's horn, a flock's wings, and a low,
+   * soft chord as the Wayfinder sings to the crowd (no voice: his own are the Priest's, and the
+   * game puts no words in his mouth). `ship`, the airship it comes from.
    */
-  raid(kind, boat) {
-    const at = boat === undefined ? null : this.el.systems['ns-game']?.units()?.byId.get(boat)?.object3D.position ?? null;
+  raid(kind, ship) {
+    const at = ship === undefined ? null : this.el.systems['ns-game']?.units()?.byId.get(ship)?.object3D.position ?? null;
     if (kind === 'shell') { this.play('suncannonfire', at); return; }
-    if (kind === 'torpedo') { this.play('explosion', at); return; }
+    if (kind === 'mine') { this.play('explosion', at); return; }
     if (kind === 'burned') { this.play('bridgefall'); return; }
     if (kind === 'battery') { this.play('suncannonfire'); this.later('thunderquietdistant', 0.6); return; }
     const ctx = this.audio();
@@ -188,18 +188,36 @@ AFRAME.registerSystem('ns-sound', {
       o.stop(t0 + to + 0.05);
       return o;
     };
-    if (kind === 'whistle') {
-      // a steam whistle: a chord of two pipes, a little out of tune, rising as the steam comes
-      out.gain.value = 0.18 * volume;
-      for (const [f, d] of [[392, 0], [466, 3], [587, -4]]) {
-        const o = tone(f, 0, 1.9, 0.33, 'triangle');
-        o.detune.setValueAtTime(-60 + d, t0);
-        o.detune.linearRampToValueAtTime(d, t0 + 0.35);
+    if (kind === 'horn') {
+      // an airship's horn: two deep calls, a fifth apart and a little out of tune, brassy as the
+      // breath fills them
+      const brass = ctx.createBiquadFilter();
+      brass.type = 'lowpass';
+      brass.Q.value = 2;
+      brass.frequency.setValueAtTime(300, t0);
+      brass.frequency.linearRampToValueAtTime(1100, t0 + 0.4);
+      brass.frequency.setValueAtTime(1100, t0 + 1.2);
+      brass.frequency.linearRampToValueAtTime(500, t0 + 2.6);
+      brass.connect(out);
+      out.gain.value = 0.2 * volume;
+      for (const [f, d, from, to] of [[110, 0, 0, 1.3], [165, 4, 0, 1.3], [110, -3, 1.5, 2.7], [165, 2, 1.5, 2.7]]) {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.value = f;
+        o.detune.setValueAtTime(-30 + d, t0 + from);
+        o.detune.linearRampToValueAtTime(d, t0 + from + 0.3);
+        g.gain.setValueAtTime(0, t0 + from);
+        g.gain.linearRampToValueAtTime(0.3, t0 + from + 0.25);
+        g.gain.setValueAtTime(0.3, t0 + to - 0.25);
+        g.gain.linearRampToValueAtTime(0, t0 + to);
+        o.connect(g).connect(brass);
+        o.start(t0 + from);
+        o.stop(t0 + to + 0.05);
       }
     } else if (kind === 'song') {
-      // a soft chord, slow to swell and slow to fade
-      out.gain.value = 0.1 * volume;
-      for (const f of [220, 277.2, 329.6, 440]) tone(f, 0, 3.2, 0.25);
+      // a low, soft chord, slow to swell and slow to fade
+      out.gain.value = 0.11 * volume;
+      for (const f of [110, 138.6, 164.8, 220]) tone(f, 0, 3.2, 0.25);
     } else if (kind === 'birds') {
       // wings: short bursts of noise, many and fast
       out.gain.value = 0.22 * volume;

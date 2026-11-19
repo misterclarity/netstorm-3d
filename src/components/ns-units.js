@@ -172,8 +172,8 @@ AFRAME.registerComponent('ns-unit', {
       (MODELS[kind] ?? MODELS.generic)(this.rep, this.model, e);
       bake(this.model, `${kind}|${e.type ?? ''}|${e.owner ?? 0}`);
       this.rep.height = heightOf(this.model);
-      // an Aerial Transport's ring under it spans the ship (the raid's boats are on the river)
-      if (e.kind === 'transport' && NS.flies(defs.get(e.type)) && kind !== 'gunboat') {
+      // an Aerial Transport's ring under it spans the ship
+      if (e.kind === 'transport' && NS.flies(defs.get(e.type))) {
         const b = new THREE.Box3().setFromObject(this.model);
         this.rep.span = Math.max(b.max.x - b.min.x, b.max.z - b.min.z) / 2;
         this.rep.flies = true;

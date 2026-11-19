@@ -347,7 +347,7 @@ AFRAME.registerSystem('ns-fp', {
   /** H: he prays for the Hover, if he can now (the rules ask the same: prayHover). */
   prayHover() {
     const p = this.priest(), hud = this.game().hud, left = p ? G.world.hover?.get(p.id)?.pray ?? 0 : 0;
-    if (G.raid) { hud.toast('No Hover on the Combahee: her disguise (C) is her way past the pickets', 'bad'); return; }
+    if (G.raid) { hud.toast('No Hover on the Combahee: his disguise (C) is his way past the sentries', 'bad'); return; }
     if (!p || p.state !== 'normal' || p.casting > 0 || p.praying > 0) { hud.toast(p?.praying > 0 ? 'One prayer at a time: he is praying for a Spell' : 'He cannot pray for the Hover now', 'bad'); return; }
     if (left > 0) { hud.toast(`He is praying for the Hover: ${Math.ceil(left / TPS)} s more, standing still`); return; }
     submit({ t: 'prayHover' });
@@ -486,9 +486,9 @@ AFRAME.registerSystem('ns-fp', {
       return;
     }
     if (p && G.raid) {
-      // Harriet Tubman: her health, her disguise, the keys she has
+      // the Wayfinder: his health, his disguise, the keys he has
       const out = p.state === 'down' ? ' · knocked out' : '';
-      lines.push(`<b>Harriet Tubman</b> ${Math.ceil(p.hp)}/${p.hpMax}${out}`, RAID.disguiseLine());
+      lines.push(`<b>${RAID.cardName(p)}</b> ${Math.ceil(p.hp)}/${p.hpMax}${out}`, RAID.disguiseLine());
       lines.push(document.pointerLockElement === this.el.canvas
         ? '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · mouse look · click to walk there · <kbd>Esc</kbd> free the mouse · <kbd>V</kbd> view from above'
         : '<b>Click the view to look about with the mouse</b> · <kbd>V</kbd> view from above');

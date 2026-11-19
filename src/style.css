@@ -200,7 +200,7 @@ body.fp #right, body.fp #sel { display: none !important; }
 body.below #bar, body.below #mini, body.below #right, body.below #sel { display: none !important; }
 body.below #fpInfo { bottom: 24px; }
 
-/* The Combahee River Raid (raid-hud.js): its part of the menu, a row of its own; in its battles no
+/* The Combahee Raid (raid-hud.js): its part of the menu, a row of its own; in its battles no
    building cards, and in the scouting no bar at all */
 .modes .campaign { grid-column: 1 / -1; }
 .campaign .raids { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }

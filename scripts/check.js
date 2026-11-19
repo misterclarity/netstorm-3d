@@ -944,7 +944,7 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   console.log('dungeons, checked over: every thing in every dungeon; a Sacrifice waits while its Priest is below, who takes no order for the islands; no charge by air ship, none left over; up from below though his ground fell; the chests filled again by their kinds; a fall told as a fall; one prayer at a time');
 }
 
-// The Combahee River Raid (sim/raid.ts, sim/raid-map.ts): its two battles, played without a
+// The Combahee Raid (sim/raid.ts, sim/raid-map.ts): its two battles, played without a
 // browser. Each part would fail on the rule it is about.
 {
   const step = (w, cmds = [], n = 1) => {
@@ -956,133 +956,133 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   const refused = (ev) => ev.filter((e) => e.what === 'rejected').map((e) => e.data.err);
   const near = (a, x, y, r) => Math.max(Math.abs(a.x - x), Math.abs(a.y - y)) <= r;
 
-  // The scouting: a night under a new moon; the quarters she comes to tell her of their torpedoes;
-  // at the cove with all of them told, she has won; dawn finds her out, she has lost.
+  // The scouting: a night under a new moon; the quarters he comes to tell him of their sky mines;
+  // at the cove with all of them told, he has won; dawn finds him out, he has lost.
   {
     const w = NS.createRaid(defs, 'scout', 'normal');
-    const r = w.raid, her = w.priestOf(NS.ME);
-    if (!w.isNight() || w.moonPhase() !== 0 || r.torpedoes.some((t) => t.known)) fail('the scouting does not begin on a dark night under a new moon, knowing nothing');
-    if (w.players.get(NS.ME).hand.length || [...w.entities.values()].some((e) => e.kind === 'building' && e.owner === NS.ME)) fail('the scouting gives her side bridge or buildings');
-    // her way round: Field's Point, the south bank's quarters, over the pontoon bridge, the north bank's, the cove
+    const r = w.raid, him = w.priestOf(NS.ME);
+    if (!w.isNight() || w.moonPhase() !== 0 || r.mines.some((t) => t.known)) fail('the scouting does not begin on a dark night under a new moon, knowing nothing');
+    if (w.players.get(NS.ME).hand.length || [...w.entities.values()].some((e) => e.kind === 'building' && e.owner === NS.ME)) fail('the scouting gives his side bridge or buildings');
+    // his way round: Windgate, the south chain's quarters, over the bridge at the ferry, the north chain's, the cove
     for (const [x, y] of [...r.quarters.map((q) => q.door), [r.cove.x + 2, r.cove.y + 2]]) {
-      if (!w.findPath(NS.ME, her.x, her.y, (c) => c[0] === x && c[1] === y, true)) fail(`no way on foot from ${her.x},${her.y} to ${x},${y}`);
-      Object.assign(her, { x, y });
+      if (!w.findPath(NS.ME, him.x, him.y, (c) => c[0] === x && c[1] === y, true)) fail(`no way on foot from ${him.x},${him.y} to ${x},${y}`);
+      Object.assign(him, { x, y });
     }
-    Object.assign(her, { x: 191, y: r.quarters[0].door[1] + 9 });
+    Object.assign(him, { x: 191, y: r.quarters[0].door[1] + 9 });
     let told = 0;
     for (const q of r.quarters) {
-      Object.assign(her, { x: q.door[0], y: q.door[1], path: [] });
+      Object.assign(him, { x: q.door[0], y: q.door[1], path: [] });
       told += raided(step(w, [], 2), 'visit').reduce((n, e) => n + e.data.n, 0);
     }
-    if (told !== r.torpedoes.length || r.torpedoes.some((t) => !t.known) || r.verdict) fail(`the quarters told of ${told} torpedoes of ${r.torpedoes.length}, or it ended early`);
-    Object.assign(her, { x: r.cove.x + 2, y: r.cove.y + 2, path: [] });
+    if (told !== r.mines.length || r.mines.some((t) => !t.known) || r.verdict) fail(`the quarters told of ${told} mines of ${r.mines.length}, or it ended early`);
+    Object.assign(him, { x: r.cove.x + 2, y: r.cove.y + 2, path: [] });
     const end = raided(step(w), 'end')[0];
     if (!end?.data.won || w.winner !== NS.ME) fail(`at the cove with all told: ${JSON.stringify(end)}`);
     const late = NS.createRaid(defs, 'scout', 'normal');
     while (!late.raid.verdict && late.tick < late.raid.dawn + 5) late.step([]);
-    if (late.raid.verdict?.why !== 'dawn' || late.winner === NS.ME || late.isNight()) fail(`dawn found her out: ${JSON.stringify(late.raid.verdict)}`);
+    if (late.raid.verdict?.why !== 'dawn' || late.winner === NS.ME || late.isNight()) fail(`dawn found him out: ${JSON.stringify(late.raid.verdict)}`);
   }
 
-  // A picket fires on her as she comes within its reach (less at night), and not while she is in
-  // disguise; its birds rise before she is in reach. Knocked out, she has lost; nobody takes her.
+  // A sentry fires on him as he comes within its reach (less at night), and not while he is in
+  // disguise; its birds rise before he is in reach. Knocked out, he has lost; nobody takes him.
   {
     const w = NS.createRaid(defs, 'scout', 'normal');
-    const r = w.raid, her = w.priestOf(NS.ME);
+    const r = w.raid, him = w.priestOf(NS.ME);
     const gun = [...w.entities.values()].find((e) => e.kind === 'building' && e.owner !== NS.ME);
-    const cx = gun.x + 1, cy = gun.y + 1, reach = NS.gunReach(w, gun, defs.get(gun.type).range, her);
-    if (!(reach < defs.get(gun.type).range)) fail(`a picket reaches as far by night as by day: ${reach}`);
-    // she comes from far off toward the gun, a cell at a time
+    const cx = gun.x + 1, cy = gun.y + 1, reach = NS.gunReach(w, gun, defs.get(gun.type).range, him);
+    if (!(reach < defs.get(gun.type).range)) fail(`a sentry reaches as far by night as by day: ${reach}`);
+    // he comes from far off toward the gun, a cell at a time
     const way = [];
     for (let d = reach + 8; d >= 1; d--) way.push([cx + d, cy]);
     let sign = null;
     for (const [x, y] of way) {
       if (!w.walkable(NS.ME, x, y)) continue;
-      Object.assign(her, { x, y, path: [] });
+      Object.assign(him, { x, y, path: [] });
       const ev = step(w);
       if (!sign && raided(ev, 'sign').length) sign = Math.max(Math.abs(x - cx), Math.abs(y - cy));
       if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) <= reach - 1) break;
     }
-    if (sign === null || sign <= reach) fail(`no birds before the picket's reach (${reach}): ${sign}`);
-    const was = her.hp;
+    if (sign === null || sign <= reach) fail(`no birds before the sentry's reach (${reach}): ${sign}`);
+    const was = him.hp;
     step(w, [{ player: NS.ME, t: 'disguise' }], 60);
-    if (her.hp !== was || !(her.invisible > 0)) fail(`in disguise, a picket fired on her: ${was} to ${her.hp}`);
+    if (him.hp !== was || !(him.invisible > 0)) fail(`in disguise, a sentry fired on him: ${was} to ${him.hp}`);
     if (!refused(step(w, [{ player: NS.ME, t: 'disguise' }])).includes('not ready')) fail('a disguise again at once');
     for (let i = 0; i < 300 && !r.verdict; i++) step(w);
-    if (r.verdict?.why !== 'down' || her.state === 'carried' || her.state === 'chained') fail(`in a picket's reach out of disguise: ${JSON.stringify(r.verdict)}, ${her.state}`);
+    if (r.verdict?.why !== 'down' || him.state === 'carried' || him.state === 'chained') fail(`in a sentry's reach out of disguise: ${JSON.stringify(r.verdict)}, ${him.state}`);
   }
 
-  // The raid: the night of the full moon; the gunboats steer by the river's deep water around the
-  // torpedoes found; the Sentinel is aground; a boat tied up at a landing whistles, and the people of
+  // The raid: the night of the full moon; the airships ride the wind's strong middle around the
+  // mines found; the Sentinel is snagged; a ship tied up at a landing sounds its horn, and the people of
   // its quarters come down on their own feet, family by family, and go aboard, twice as fast while
-  // she sings there; no gun fires on them.
+  // he sings there; no gun fires on them.
   {
     const w = NS.createRaid(defs, 'raid', 'normal', [0, 1, 2, 3, 4, 5]);
     const r = w.raid;
     if (!w.isNight() || w.moonPhase() !== 2) fail('the raid does not begin at night under the full moon');
-    const [ja, weed] = [...r.boats.values()].filter((b) => !b.aground).map((b) => w.entities.get(b.id));
-    const sentinel = [...r.boats.values()].find((b) => b.aground);
-    if (!ja || !weed || !sentinel || !refused(step(w, [{ player: NS.ME, t: 'moveTransport', transport: sentinel.id, x: 150, y: 140 }])).includes('aground')) fail('two gunboats and the Sentinel aground');
+    const [swallow, rainbird] = [...r.ships.values()].filter((b) => !b.snagged).map((b) => w.entities.get(b.id));
+    const sentinel = [...r.ships.values()].find((b) => b.snagged);
+    if (!swallow || !rainbird || !sentinel || !refused(step(w, [{ player: NS.ME, t: 'moveTransport', transport: sentinel.id, x: 150, y: 140 }])).includes('snagged')) fail('two airships and the Sentinel snagged');
     const sail = (t, l) => { const ev = step(w, [{ player: NS.ME, t: 'moveTransport', transport: t.id, x: l.dock[0], y: l.dock[1] }]); while (t.path.length) ev.push(...step(w)); return ev; };
-    // up the river past every torpedo: none goes off, and the boat keeps to the deep water
-    const ev = sail(ja, r.landings.find((l) => l.ferry));
-    if (raided(ev, 'torpedo').length || NS.mooredAt(w, ja)?.ferry !== true) fail(`the John Adams to the ferry by the known torpedoes: ${JSON.stringify(raided(ev, 'torpedo'))}`);
-    if (refused(step(w, [{ player: NS.ME, t: 'whistle', transport: ja.id }])).length === 0) fail('a whistle at the ferry called somebody');
-    const nichols = r.landings.find((l) => l.name.startsWith('Nichols')), lowndes = r.landings.find((l) => l.name.startsWith('Lowndes'));
-    sail(ja, nichols);
-    sail(weed, lowndes);
-    const whistled = step(w, [{ player: NS.ME, t: 'whistle', transport: ja.id }, { player: NS.ME, t: 'whistle', transport: weed.id }], 2);
-    if (raided(whistled, 'whistle').length !== 2) fail(`two whistles: ${JSON.stringify(refused(whistled))}`);
+    // up the wind past every mine: none goes off, and the ship keeps to the strong middle
+    const ev = sail(swallow, r.landings.find((l) => l.ferry));
+    if (raided(ev, 'mine').length || NS.mooredAt(w, swallow)?.ferry !== true) fail(`the Swallow to the ferry by the known mines: ${JSON.stringify(raided(ev, 'mine'))}`);
+    if (refused(step(w, [{ player: NS.ME, t: 'horn', transport: swallow.id }])).length === 0) fail('a horn at the ferry called somebody');
+    const amberfield = r.landings.find((l) => l.name.startsWith('Amberfield')), goldcrest = r.landings.find((l) => l.name.startsWith('Goldcrest'));
+    sail(swallow, amberfield);
+    sail(rainbird, goldcrest);
+    const called = step(w, [{ player: NS.ME, t: 'horn', transport: swallow.id }, { player: NS.ME, t: 'horn', transport: rainbird.id }], 2);
+    if (raided(called, 'horn').length !== 2) fail(`two horns: ${JSON.stringify(refused(called))}`);
     const hp = new Map([...w.entities.values()].filter((e) => 'hp' in e).map((e) => [e.id, e.hp]));
     step(w, [], 150);
     if (!r.families.length || r.families.some((f) => f.waiting)) fail('no family on its way from the quarters');
-    if (![...r.boats.values()].some((b) => b.aboard > 0)) fail('nobody aboard after 15 s');
-    // she sings at the Nichols landing: twice the pace aboard there
-    const jaBoat = r.boats.get(ja.id), her = w.priestOf(NS.ME);
-    nichols.crowd += 200;
-    const a0 = jaBoat.aboard;
+    if (![...r.ships.values()].some((b) => b.aboard > 0)) fail('nobody aboard after 15 s');
+    // he sings at the Amberfield landing: twice the pace aboard there
+    const swallowShip = r.ships.get(swallow.id), him = w.priestOf(NS.ME);
+    amberfield.crowd += 200;
+    const a0 = swallowShip.aboard;
     step(w, [], 50);
-    const plain = jaBoat.aboard - a0;
-    Object.assign(her, { x: nichols.x + 1, y: nichols.y, path: [] });
+    const plain = swallowShip.aboard - a0;
+    Object.assign(him, { x: amberfield.x + 1, y: amberfield.y, path: [] });
     const sung = raided(step(w), 'song').length;
-    const a1 = jaBoat.aboard;
+    const a1 = swallowShip.aboard;
     step(w, [], 50);
-    if (!sung || jaBoat.aboard - a1 < 2 * plain - 1) fail(`her singing: ${plain} aboard in 5 s, then ${jaBoat.aboard - a1}`);
-    // nobody fired on the families (they are no units), and the gunboats shelled what was in reach
-    if ([...w.entities.values()].some((e) => e.kind === 'priest' && e.hp < hp.get(e.id))) fail('the families\' way: a shot at her');
+    if (!sung || swallowShip.aboard - a1 < 2 * plain - 1) fail(`his singing: ${plain} aboard in 5 s, then ${swallowShip.aboard - a1}`);
+    // nobody fired on the families (they are no units), and the airships shelled what was in reach
+    if ([...w.entities.values()].some((e) => e.kind === 'priest' && e.hp < hp.get(e.id))) fail('the families\' way: a shot at him');
   }
 
   // A parted landing: its people wait at the quarters until a bridge joins it to their island; a
-  // piece can be laid from a landing (the raid's side has no Temple). The pontoon bridge burns
+  // piece can be laid from a landing (the raid's side has no Temple). The bridge at the ferry burns
   // through and falls; the battery is held then; with it standing the battery comes after dawn.
-  // Home with enough aboard, it is won; with too few, lost. A torpedo not known goes off under a
-  // boat, which is holed, never sunk.
+  // Home with enough aboard, it is won; with too few, lost. A mine not known goes off against a
+  // ship, which is torn, never brought down.
   {
     const w = NS.createRaid(defs, 'raid', 'normal', [0, 1, 2, 3, 4, 5]);
     const r = w.raid;
-    const [ja, weed] = [...r.boats.values()].filter((b) => !b.aground).map((b) => w.entities.get(b.id));
+    const [swallow, rainbird] = [...r.ships.values()].filter((b) => !b.snagged).map((b) => w.entities.get(b.id));
     const sail = (t, l) => { step(w, [{ player: NS.ME, t: 'moveTransport', transport: t.id, x: l.dock[0], y: l.dock[1] }]); while (t.path.length) step(w); };
-    const middleton = r.landings.find((l) => l.name.startsWith('Middleton'));
-    sail(ja, middleton);
-    step(w, [{ player: NS.ME, t: 'whistle', transport: ja.id }], 120);
-    if (!r.families.length || r.families.some((f) => !f.waiting) || middleton.crowd) fail('the people of a parted landing\'s plantation did not wait for a bridge');
+    const highmere = r.landings.find((l) => l.name.startsWith('Highmere'));
+    sail(swallow, highmere);
+    step(w, [{ player: NS.ME, t: 'horn', transport: swallow.id }], 120);
+    if (!r.families.length || r.families.some((f) => !f.waiting) || highmere.crowd) fail('the people of a parted landing\'s plantation did not wait for a bridge');
     // a piece of the hand can be laid from the landing
     let laid = false;
     const pl = w.players.get(NS.ME);
     for (let k = 0; k < 120 && pl.hand.length < 4; k++) step(w);
     for (let hand = 0; hand < pl.hand.length && !laid; hand++) {
       for (let rot = 0; rot < 4 && !laid; rot++) {
-        for (let y = middleton.y - 4; y <= middleton.y + middleton.h + 4 && !laid; y++) {
-          for (let x = middleton.x - 4; x <= middleton.x + middleton.w + 4 && !laid; x++) {
+        for (let y = highmere.y - 4; y <= highmere.y + highmere.h + 4 && !laid; y++) {
+          for (let x = highmere.x - 4; x <= highmere.x + highmere.w + 4 && !laid; x++) {
             laid = refused(step(w, [{ player: NS.ME, t: 'dropPiece', hand, x, y, rot }])).length === 0;
           }
         }
       }
     }
     if (!laid) fail('no bridge piece could be laid from a landing');
-    // a bridge across the creek (laid here cell by cell: the pieces dealt are the game's luck)
-    for (let x = middleton.x + 1; x <= middleton.x + 2; x++) {
+    // a bridge across the rift (laid here cell by cell: the pieces dealt are the game's luck)
+    for (let x = highmere.x + 1; x <= highmere.x + 2; x++) {
       for (let k = 1; k <= 2; k++) {
-        const i = w.at(x, middleton.y + middleton.h - 1 + k);
+        const i = w.at(x, highmere.y + highmere.h - 1 + k);
         if (w.terrain[i] === NS.Terrain.Sky) {
           w.terrain[i] = NS.Terrain.Bridge;
           w.links[i] = 5;
@@ -1091,19 +1091,19 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
       }
     }
     step(w, [], 150);
-    if (r.families.some((f) => f.waiting) || !(r.boats.get(ja.id).aboard > 0)) fail(`a bridge across the creek: still ${r.families.filter((f) => f.waiting).length} families waiting`);
-    // the pontoon bridge: fired from the ferry landing, it falls; the battery is held
+    if (r.families.some((f) => f.waiting) || !(r.ships.get(swallow.id).aboard > 0)) fail(`a bridge across the rift: still ${r.families.filter((f) => f.waiting).length} families waiting`);
+    // the bridge at the ferry: fired from the ferry's landing, it falls; the battery is held
     const ferry = r.landings.find((l) => l.ferry);
-    sail(weed, ferry);
-    const burned = step(w, [{ player: NS.ME, t: 'burnBridge', transport: weed.id }], NS.BURN_SECONDS * NS.TPS + 2);
-    if (!raided(burned, 'burned').length || !r.pontoon.cells.every(([x, y]) => w.terrain[w.at(x, y)] === NS.Terrain.Sky)) fail('the pontoon bridge did not burn through');
-    if (refused(step(w, [{ player: NS.ME, t: 'raidHome' }])).length === 0) fail('home with the boats upriver');
+    sail(rainbird, ferry);
+    const burned = step(w, [{ player: NS.ME, t: 'burnBridge', transport: rainbird.id }], NS.BURN_SECONDS * NS.TPS + 2);
+    if (!raided(burned, 'burned').length || !r.bridge.cells.every(([x, y]) => w.terrain[w.at(x, y)] === NS.Terrain.Sky)) fail('the bridge at the ferry did not burn through');
+    if (refused(step(w, [{ player: NS.ME, t: 'raidHome' }])).length === 0) fail('home with the ships up the wind');
     while (w.tick < r.battery.due + 2) step(w);
     if (!r.battery.held || r.battery.came || w.isNight()) fail(`the battery with the bridge burned: ${JSON.stringify(r.battery)}`);
     const aboard = NS.freed(w);
-    const mouth = r.landings.find((l) => l.mouth);
-    sail(ja, mouth);
-    sail(weed, mouth);
+    const windgate = r.landings.find((l) => l.home);
+    sail(swallow, windgate);
+    sail(rainbird, windgate);
     step(w, [{ player: NS.ME, t: 'raidHome' }]);
     if (r.verdict?.won !== false || r.verdict.why !== 'few' || r.freed !== aboard) fail(`home with ${r.freed} aboard of ${r.target}: ${JSON.stringify(r.verdict)}`);
 
@@ -1111,31 +1111,31 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     const v = NS.createRaid(defs, 'raid', 'normal', [0, 1, 2, 3, 4, 5]);
     while (v.tick < v.raid.battery.due + 2) v.step([]);
     if (!v.raid.battery.came || v.raid.battery.guns.length !== 2) fail('the battery did not come over the standing bridge');
-    for (const b of v.raid.boats.values()) b.aboard = b.aground ? 0 : Math.ceil(v.raid.target / 2);
-    const [vja, vweed] = [...v.raid.boats.values()].filter((b) => !b.aground).map((b) => v.entities.get(b.id));
-    if (!near(vja, ...v.raid.landings.find((l) => l.mouth).dock, NS.HOME_REACH) || !near(vweed, ...v.raid.landings.find((l) => l.mouth).dock, NS.HOME_REACH)) fail('the boats do not start at home');
+    for (const b of v.raid.ships.values()) b.aboard = b.snagged ? 0 : Math.ceil(v.raid.target / 2);
+    const [vswallow, vrainbird] = [...v.raid.ships.values()].filter((b) => !b.snagged).map((b) => v.entities.get(b.id));
+    if (!near(vswallow, ...v.raid.landings.find((l) => l.home).dock, NS.HOME_REACH) || !near(vrainbird, ...v.raid.landings.find((l) => l.home).dock, NS.HOME_REACH)) fail('the ships do not start at home');
     v.step([{ player: NS.ME, t: 'raidHome' }]);
     if (!v.raid.verdict?.won || v.winner !== NS.ME) fail(`home with enough aboard: ${JSON.stringify(v.raid.verdict)}`);
 
-    // a torpedo not known: a boat sent over it is holed, and not sunk; no prayer, building or
+    // a mine not known: a ship sent over it is torn, and not brought down; no prayer, building or
     // capture in the raid
     const u = NS.createRaid(defs, 'raid', 'normal', []);
-    const ut = u.entities.get([...u.raid.boats.values()].find((b) => !b.aground).id);
-    const tp = u.raid.torpedoes[0];
+    const ut = u.entities.get([...u.raid.ships.values()].find((b) => !b.snagged).id);
+    const tp = u.raid.mines[0];
     u.step([{ player: NS.ME, t: 'moveTransport', transport: ut.id, x: tp.x - 6, y: tp.y }]);
     let hit = false;
-    for (let i = 0; i < 400 && ut.path.length; i++) { u.step([]); hit ||= u.drainEvents().some((e) => e.what === 'raid' && e.data.kind === 'torpedo'); }
-    if (!hit || ut.hp <= 0 || ut.hp > ut.hpMax * (1 - NS.TORPEDO_HIT) + 1) fail(`over a torpedo not known: hit ${hit}, hp ${ut.hp}/${ut.hpMax}`);
-    // a Sun Cannon north of it, facing south down its column: it hits, and the boat is not sunk
+    for (let i = 0; i < 400 && ut.path.length; i++) { u.step([]); hit ||= u.drainEvents().some((e) => e.what === 'raid' && e.data.kind === 'mine'); }
+    if (!hit || ut.hp <= 0 || ut.hp > ut.hpMax * (1 - NS.MINE_HIT) + 1) fail(`over a mine not known: hit ${hit}, hp ${ut.hp}/${ut.hpMax}`);
+    // a Sun Cannon north of it, facing south down its column: it hits, and the ship does not fall
     const gun = u.spawnBuilding('suncannon', NS.RAID_ENEMY, ut.x - 1, ut.y - 12, 2);
     gun.rising = 0;
     const hpWas = ut.hp;
     for (let i = 0; i < 600; i++) u.step([]);
-    if (!u.entities.has(ut.id) || ut.hp >= hpWas || ut.hp < Math.ceil(ut.hpMax * NS.BOAT_FLOOR)) fail(`a battery's gun on a boat: ${hpWas} to ${u.entities.has(ut.id) ? ut.hp : 'sunk'}/${ut.hpMax}`);
+    if (!u.entities.has(ut.id) || ut.hp >= hpWas || ut.hp < Math.ceil(ut.hpMax * NS.SHIP_FLOOR)) fail(`a battery's gun on a ship: ${hpWas} to ${u.entities.has(ut.id) ? ut.hp : 'fallen'}/${ut.hpMax}`);
     if (!refused(step(u, [{ player: NS.ME, t: 'pray', spell: 'bombexplodemedium' }])).includes('not here')) fail('a prayer for a Spell in the raid');
     if (!refused(step(u, [{ player: NS.ME, t: 'prayHover' }])).includes('not here')) fail('a prayer for the Hover in the raid');
   }
-  console.log('the Combahee River Raid: the scouting (a new moon, the quarters tell her of the torpedoes, the cove, dawn; birds before a picket, a disguise, knocked out); the raid (the full moon, the deep water past known torpedoes, the Sentinel aground, whistles, families on foot, singing, a parted landing and its bridge, pieces from the landings, the pontoon bridge burned, the battery held or come, home won or lost, a torpedo not known, no boat sunk, no prayer)');
+  console.log('the Combahee Raid: the scouting (a new moon, the quarters tell him of the sky mines, the cove, dawn; birds before a sentry, a disguise, knocked out); the raid (the full moon, the wind\'s strong middle past known mines, the Sentinel snagged, horns, families on foot, singing, a parted landing and its bridge, pieces from the landings, the bridge at the ferry burned, the battery held or come, home won or lost, a mine not known, no ship brought down, no prayer)');
 }
 
 // Every name of the engine that the client's code uses is one the engine has (one was not: the

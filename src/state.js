@@ -18,7 +18,7 @@ export const G = {
   setup: { mode: 'mission', difficulty: 'normal' },
   /** The mission being played, or null in a skirmish. */
   mission: MISSION,
-  /** The battle of the Combahee River Raid being played ('scout' or 'raid'), or null. */
+  /** The battle of the Combahee Raid being played ('scout' or 'raid'), or null. */
   raid: null,
   world: null,
   view: null,
@@ -109,10 +109,10 @@ export function hash(x, y, s) {
 /** Why the raid refuses an order (sim/raid.ts): its own refusals, which netstorm-web has no words for. */
 const RAID_ERRORS = {
   'not here': 'Not in this battle',
-  aground: 'She is aground for good',
-  'not moored': 'Tie the boat up at a landing first: send it beside one',
+  snagged: 'She is snagged on the crag for good',
+  'not moored': 'Tie the ship up at a landing first: send her beside one',
   'nobody to call': 'Nobody is left there to call',
-  'too far': 'Every boat that is not aground must be at Field’s Point first',
+  'too far': 'Every ship not snagged must be at Windgate first',
 };
 
 export function errorText(err) {

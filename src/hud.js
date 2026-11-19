@@ -117,7 +117,7 @@ export class Hud {
   updateTop() {
     const me = G.world?.players.get(ME);
     $('storm').innerHTML = `⚡ <b>${me ? Math.floor(me.storm) : 0}</b>`;
-    $('storm').hidden = !!G.raid; // the raid is fought with what its boats carry
+    $('storm').hidden = !!G.raid; // the raid is fought with what its airships carry
     const secs = Math.floor((G.world?.tick ?? 0) / TPS);
     $('clock').innerHTML = `⏱ <b>${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}</b>`;
     // day and night (a setting): which it is, and how long until it turns
@@ -219,7 +219,7 @@ export class Hud {
   }
   /** "Use your High Priest to build Temples, Workshops, and Altars"; the Outpost where a side has it. */
   priestCards() {
-    if (G.raid) return []; // in the raid she builds nothing
+    if (G.raid) return []; // in the raid he builds nothing
     const ids = [`${playerTheme(ME)}factory`, 'sunfactory', 'altar'];
     if (G.world.players.get(ME).tech.has('outpost')) ids.push('outpost');
     return [...new Set(ids)].map((id) => defs.get(id)).filter(Boolean);
@@ -359,7 +359,7 @@ export class Hud {
     const d = e.type ? defs.get(e.type) : null, owner = e.owner ? G.world.players.get(e.owner) : null;
     const name = RAID.cardName(e) ?? (e.kind === 'priest' ? 'High Priest' : e.kind === 'geyser' ? 'Geyser' : e.kind === 'crystal' ? 'Storm crystal' : e.kind === 'obelisk' ? 'Obelisk' : d?.name ?? e.kind);
     const lines = [], acts = [];
-    // the raid's own cards (raid-hud.js): Harriet Tubman, the boats, the Confederates' buildings
+    // the raid's own cards (raid-hud.js): the Wayfinder, the airships, the Sun-lords' buildings
     const raided = RAID.card(e, lines, acts);
     if (raided) { /* said */ } else if (e.kind === 'obelisk') {
       lines.push(`Holds the ${spellName(e.spell)}: it ${spellText(e.spell)}.`);

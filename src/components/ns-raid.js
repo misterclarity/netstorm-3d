@@ -1,9 +1,10 @@
 /**
- * The Combahee River Raid in the scene (sim/raid.ts has its rules): the river's water and the
- * landings' piers; the families on their way to the boats and the crowds waiting on the landings;
- * the torpedoes she found; the flocks of birds that warn her of a picket; the gunboats' shells; the
- * pontoon bridge burning; a marker over each quarters and over her scouts' cove; and the North
- * Star in the night sky.
+ * The Combahee Raid in the scene (sim/raid.ts has its rules): a wooden dock at each landing; the
+ * families on their way to the airships and the crowds waiting on the landings; the sky mines the
+ * Wayfinder found, floating in the wind; the flocks of birds that warn him of a sentry; the
+ * airships' shells; the bridge at the ferry burning; his veil while he is in disguise and a glow
+ * about him while he sings; a marker over each quarters and over his scouts' cove; and the North
+ * Star in the night sky. The Combahee itself is sky: nothing is drawn for it.
  *
  * The people are drawn as small figures of the game's own, many to an instanced mesh: as many as
  * walk, and of a crowd on a landing up to CROWD_SHOWN. Nothing aims at them and nothing carries
@@ -15,11 +16,11 @@ import { nightness } from './ns-sun.js';
 /** The most figures drawn at once, walking or waiting; and of one crowd on a landing. */
 const FIGURES = 700;
 const CROWD_SHOWN = 70;
-/** How far below the islands' ground the water lies. */
-const WATER = -0.32;
+/** How high the sky mines float: where a laden airship rides the wind (ns-units' AIR.aloft). */
+const MINE_HEIGHT = 2.6;
 /** Clothes and skin, varied figure by figure. */
 const CLOTHES = ['#6d5a48', '#7b6a55', '#56606b', '#8a7458', '#5b4b3f', '#8c8273', '#6b4f3a', '#4d5a4a', '#9a8a6e', '#7a5f52'];
-const SKIN = ['#4a2c1e', '#5a3826', '#6b4430', '#3f2619', '#7a5038'];
+const SKIN = ['#4a2c1e', '#5a3826', '#6b4430', '#3f2619', '#7a5038', '#c9a27e', '#e0b994', '#8d5a3b'];
 
 const tmp = { m: new THREE.Matrix4(), q: new THREE.Quaternion(), p: new THREE.Vector3(), s: new THREE.Vector3(), c: new THREE.Color(), e: new THREE.Euler() };
 
@@ -46,8 +47,6 @@ AFRAME.registerComponent('ns-raid', {
       o.removeFromParent();
       o.traverse((x) => { x.geometry?.dispose(); if (x.material && !x.material.userData.shared) x.material.dispose(); });
     }
-    this.ripple?.dispose();
-    this.ripple = null;
     this.fx = [];
     this.built = null;
   },
@@ -57,48 +56,20 @@ AFRAME.registerComponent('ns-raid', {
     const r = G.world?.raid;
     if (!r) return;
     this.built = r;
-    this.water(r);
-    this.piers(r);
+    this.docks(r);
     this.people();
     this.mines(r);
     this.markers(r);
     this.northStar();
     this.flames = this.flameSprites(r);
+    this.aura();
   },
 
-  /** The river: a sheet of dark water over its cells, and under the pontoon bridge's. */
-  water(r) {
-    const cells = [];
-    for (let i = 0; i < r.river.length; i++) if (r.river[i]) cells.push(i);
-    for (const [x, y] of r.pontoon.cells) cells.push(y * NS.W + x);
-    const pos = new Float32Array(cells.length * 18);
-    cells.forEach((i, n) => {
-      const x = wx(i % NS.W), z = wz(Math.floor(i / NS.W)), o = n * 18;
-      pos.set([x, WATER, z, x, WATER, z + 1, x + 1, WATER, z, x + 1, WATER, z, x, WATER, z + 1, x + 1, WATER, z + 1], o);
-    });
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.computeVertexNormals();
-    const uv = new Float32Array(cells.length * 12);
-    cells.forEach((i, n) => {
-      const x = (i % NS.W) / 6, y = Math.floor(i / NS.W) / 6, d = 1 / 6;
-      uv.set([x, y, x, y + d, x + d, y, x + d, y, x, y + d, x + d, y + d], n * 12);
-    });
-    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    this.ripple = ripples();
-    const mat = new THREE.MeshStandardMaterial({
-      color: '#22465f', roughness: 0.18, metalness: 0.25, transparent: true, opacity: 0.86, map: this.ripple,
-      emissive: '#0c1c2b', emissiveIntensity: 0.6,
-    });
-    const sheet = new THREE.Mesh(geo, mat);
-    sheet.receiveShadow = true;
-    this.root.add(sheet);
-  },
-
-  /** A wharf of weathered planks on posts where each landing meets the river. */
-  piers(r) {
+  /** A wooden dock where each landing meets the wind: planks out over the sky on a beam, a post each
+   * side at its end for the airships' lines. */
+  docks(r) {
     const woods = ['#9a7a58', '#8a6b4b', '#a3845f'].map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.95, flatShading: true }));
-    const g = new THREE.Group(), post = new THREE.CylinderGeometry(0.07, 0.09, 0.9, 6);
+    const g = new THREE.Group(), post = new THREE.CylinderGeometry(0.07, 0.09, 0.6, 6);
     for (const l of r.landings) {
       const [dx, dy] = l.dock, cx = l.x + l.w / 2, cy = l.y + l.h / 2;
       // out from the landing's middle toward its dock: `along` that way, `across` the other
@@ -113,12 +84,13 @@ AFRAME.registerComponent('ns-raid', {
         plank.castShadow = plank.receiveShadow = true;
         g.add(plank);
       }
-      for (const end of [0.9, length - 0.15]) {
-        for (const side of [-1, 1]) {
-          const p = new THREE.Mesh(post, woods[1]);
-          p.position.set(wx(x0 + ax * end + ay * side * width * 0.5), -0.2, wz(y0 + ay * end + ax * side * width * 0.5));
-          g.add(p);
-        }
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(ax ? length : 0.18, 0.16, ay ? length : 0.18), woods[1]);
+      beam.position.set(wx(x0 + (ax * length) / 2), -0.16, wz(y0 + (ay * length) / 2));
+      g.add(beam);
+      for (const side of [-1, 1]) {
+        const p = new THREE.Mesh(post, woods[1]);
+        p.position.set(wx(x0 + ax * (length - 0.2) + ay * side * width * 0.45), 0.26, wz(y0 + ay * (length - 0.2) + ax * side * width * 0.45));
+        g.add(p);
       }
     }
     this.root.add(g);
@@ -151,26 +123,37 @@ AFRAME.registerComponent('ns-raid', {
     }
   },
 
-  /** The torpedoes known: a dark float on the water and a red ring about it. */
+  /** The sky mines known: dark spiked orbs floating where the airships ride, a red ring about each. */
   mines(r) {
     this.mineMeshes = new Map();
-    const float = new THREE.SphereGeometry(0.32, 10, 6);
-    const ring = new THREE.TorusGeometry(0.9, 0.05, 4, 24);
+    const orb = new THREE.IcosahedronGeometry(0.3, 0);
+    const spike = new THREE.ConeGeometry(0.06, 0.26, 4);
+    spike.translate(0, 0.38, 0);
+    const ring = new THREE.TorusGeometry(0.85, 0.045, 4, 24);
     ring.rotateX(Math.PI / 2);
-    const dark = new THREE.MeshStandardMaterial({ color: '#2a2724', metalness: 0.5, roughness: 0.4 });
-    const red = new THREE.MeshBasicMaterial({ color: '#e0473a', transparent: true, opacity: 0.8 });
-    for (const t of r.torpedoes) {
+    const dark = new THREE.MeshStandardMaterial({ color: '#2f2a2c', metalness: 0.6, roughness: 0.35, flatShading: true, emissive: '#3a0b08', emissiveIntensity: 0.6 });
+    const red = new THREE.MeshBasicMaterial({ color: '#ff5a46', transparent: true, opacity: 0.8, depthWrite: false });
+    const ways = [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
+    const up = new THREE.Vector3(0, 1, 0);
+    for (const t of r.mines) {
       const g = new THREE.Group();
-      g.add(new THREE.Mesh(float, dark));
-      g.add(new THREE.Mesh(ring, red));
-      g.position.set(wx(t.x + 0.5), WATER + 0.05, wz(t.y + 0.5));
+      g.add(new THREE.Mesh(orb, dark));
+      for (const [x, y, z] of ways) {
+        const s = new THREE.Mesh(spike, dark);
+        s.quaternion.setFromUnitVectors(up, new THREE.Vector3(x, y, z));
+        g.add(s);
+      }
+      const halo = new THREE.Mesh(ring, red);
+      halo.name = 'ring';
+      g.add(halo);
+      g.position.set(wx(t.x + 0.5), MINE_HEIGHT, wz(t.y + 0.5));
       g.visible = false;
       this.root.add(g);
       this.mineMeshes.set(t.id, g);
     }
   },
 
-  /** A lantern-like marker over each quarters (and her scouts' cove): bright while it waits for her. */
+  /** A lantern-like marker over each quarters (and his scouts' cove): bright while it waits for him. */
   markers(r) {
     this.marks = new Map();
     const geo = new THREE.OctahedronGeometry(0.45, 0);
@@ -194,7 +177,7 @@ AFRAME.registerComponent('ns-raid', {
       s.scale.setScalar(size);
       return s;
     };
-    // (as high over the horizon as the Combahee lies north of the equator: 32.6°)
+    // (as high over the horizon as the Combahee of 1863 lies north of the equator: 32.6°)
     const sky = new THREE.Group();
     sky.add(star(0, 211, 14, 1));
     for (const [x, y] of [[9, 204], [16, 198], [20, 190], [30, 188], [33, 179], [24, 177]]) sky.add(star(x, y, 6, 0.55));
@@ -202,14 +185,14 @@ AFRAME.registerComponent('ns-raid', {
     this.root.add(sky);
   },
 
-  /** The flames along the pontoon bridge while it burns: soft tongues of fire, three to a cell. */
+  /** The flames along the bridge at the ferry while it burns: soft tongues of fire, three to a cell. */
   flameSprites(r) {
     const tex = flameTexture();
     const mats = ['#fff0b0', '#ffb04a', '#ff6a2a'].map((color) => new THREE.SpriteMaterial({
       map: tex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
     }));
     const g = new THREE.Group();
-    for (let i = 0; i < r.pontoon.cells.length * 3; i++) {
+    for (let i = 0; i < r.bridge.cells.length * 3; i++) {
       const s = new THREE.Sprite(mats[i % 3]);
       s.center.set(0.5, 0.05); // (it grows up from its foot)
       s.visible = false;
@@ -218,6 +201,26 @@ AFRAME.registerComponent('ns-raid', {
     g.count = 0;
     this.root.add(g);
     return g;
+  },
+
+  /**
+   * About the Wayfinder: a veil of drifting mist while he is in disguise (in either art style: the
+   * Priest's sprite cannot change its clothes), and a warm glow at his feet while he sings.
+   */
+  aura() {
+    const veil = new THREE.Group();
+    const wisp = new THREE.SphereGeometry(0.3, 7, 5);
+    const mist = new THREE.MeshBasicMaterial({ color: '#c3cddc', transparent: true, opacity: 0.2, depthWrite: false });
+    for (let i = 0; i < 12; i++) veil.add(new THREE.Mesh(wisp, mist));
+    veil.visible = false;
+    const glow = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.95, 32), new THREE.MeshBasicMaterial({
+      color: '#ffd27a', transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }));
+    glow.rotation.x = -Math.PI / 2;
+    glow.visible = false;
+    this.veil = veil;
+    this.glow = glow;
+    this.root.add(veil, glow);
   },
 
   /** Smoke rising and spreading as it thins. */
@@ -242,7 +245,7 @@ AFRAME.registerComponent('ns-raid', {
   /** A flock of birds rises from about (x, y) and scatters. */
   birds(x, y) {
     if (!this.built) return;
-    // (pale birds, as the egrets of the rice fields: a dark one would not be seen at night)
+    // (pale birds, as the egrets of the fields: a dark one would not be seen at night)
     const geo = birdGeometry(), mat = new THREE.MeshBasicMaterial({ color: '#efe9da', side: THREE.DoubleSide });
     for (let i = 0; i < 16; i++) {
       const b = new THREE.Mesh(geo, mat);
@@ -263,27 +266,45 @@ AFRAME.registerComponent('ns-raid', {
     }
   },
 
-  /** A gunboat's shell: a flash at the boat, a ball in a high arc, a burst where it lands. */
-  shell(boat, x, y) {
-    const from = this.el.sceneEl.systems['ns-game'].units()?.byId.get(boat)?.object3D.position;
+  /** An airship's shell: a flash at her side, a ball in a high arc, a burst where it lands. */
+  shell(ship, x, y) {
+    const unit = this.el.sceneEl.systems['ns-game'].units()?.byId.get(ship), from = unit?.object3D.position;
     const effects = this.el.sceneEl.systems['ns-game'].effects();
     if (!from || !this.built) return;
-    const a = from.clone().add(new THREE.Vector3(0, 1.4, 0)), b = new THREE.Vector3(wx(x + 0.5), 0.8, wz(y + 0.5));
+    const alt = unit.components['ns-unit']?.rep.alt ?? 1.3;
+    const a = from.clone().add(new THREE.Vector3(0, alt + 0.4, 0)), b = new THREE.Vector3(wx(x + 0.5), 0.8, wz(y + 0.5));
     effects?.puff(a.clone(), '#fff1b0', 0.8, 0.25);
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 4), new THREE.MeshBasicMaterial({ color: '#2b2b2b' }));
     this.root.add(ball);
     this.fx.push({
       kind: 'shell', obj: ball, age: 0, life: 0.7, own: [ball.material, ball.geometry],
-      update: (f, k) => { f.obj.position.lerpVectors(a, b, k); f.obj.position.y += Math.sin(k * Math.PI) * 4; },
+      update: (f, k) => { f.obj.position.lerpVectors(a, b, k); f.obj.position.y += Math.sin(k * Math.PI) * 3; },
       done: () => { effects?.puff(b.clone(), '#ffb347', 1.0, 0.35); this.smoke(b.clone().setY(1.1), 1.1, 1.5); },
     });
   },
 
-  /** A torpedo going off: a column of water and spray. */
-  splash(x, y) {
-    const effects = this.el.sceneEl.systems['ns-game'].effects(), at = new THREE.Vector3(wx(x + 0.5), WATER + 0.2, wz(y + 0.5));
-    effects?.puff(at.clone(), '#ffd9a0', 1.4, 0.35);
-    for (let i = 0; i < 4; i++) effects?.puff(at.clone().setY(0.5 + i * 0.8), '#d8ecff', 1.1 + i * 0.3, 0.8 + i * 0.2);
+  /** A sky mine going off against an airship: a flash of fire in the air, shards, smoke. */
+  burst(x, y) {
+    if (!this.built) return;
+    const effects = this.el.sceneEl.systems['ns-game'].effects(), at = new THREE.Vector3(wx(x + 0.5), MINE_HEIGHT, wz(y + 0.5));
+    effects?.puff(at.clone(), '#fff3c4', 1.0, 0.25);
+    effects?.puff(at.clone(), '#ff8a3a', 1.7, 0.6);
+    this.smoke(at.clone().setY(MINE_HEIGHT + 0.6), 1.3, 2.4);
+    const shard = new THREE.TetrahedronGeometry(0.1, 0), dark = new THREE.MeshBasicMaterial({ color: '#2f2a2c' });
+    for (let i = 0; i < 10; i++) {
+      const m = new THREE.Mesh(shard, dark), a = h01(i, x + y) * Math.PI * 2, rise = 1 + h01(i, 5) * 3, out = 2 + h01(i, 6) * 3;
+      m.position.copy(at);
+      this.root.add(m);
+      this.fx.push({
+        kind: 'burst', obj: m, age: 0, life: 1.4, own: i === 0 ? [dark, shard] : [],
+        update: (f, k, dt) => {
+          f.obj.position.x += Math.cos(a) * out * dt;
+          f.obj.position.z += Math.sin(a) * out * dt;
+          f.obj.position.y += (rise - k * 9) * dt;
+          f.obj.rotation.x += dt * 9;
+        },
+      });
+    }
   },
 
   /* -------------------------------------- tick -------------------------------------- */
@@ -293,14 +314,16 @@ AFRAME.registerComponent('ns-raid', {
     if (r !== this.built) { if (r) this.build(); else if (this.built) this.clear(); }
     if (!r) return;
     const s = t / 1000, sec = Math.min(dt, 100) / 1000;
-    if (this.ripple) this.ripple.offset.set((s * 0.012) % 1, (s * 0.02) % 1);
     this.figures(r, s);
-    for (const tp of r.torpedoes) {
-      const m = this.mineMeshes.get(tp.id);
-      m.visible = tp.known && !tp.spent;
-      if (m.visible) m.position.y = WATER + 0.05 + Math.sin(s * 1.6 + tp.id) * 0.05;
+    for (const m of r.mines) {
+      const g = this.mineMeshes.get(m.id);
+      g.visible = m.known && !m.spent;
+      if (!g.visible) continue;
+      g.position.y = MINE_HEIGHT + Math.sin(s * 1.3 + m.id) * 0.12;
+      g.rotation.y = s * 0.4 + m.id;
+      g.getObjectByName('ring').rotation.y = -s;
     }
-    // the markers: a quarters bright until she has been (the scouting) or its people are called
+    // the markers: a quarters bright until he has been (the scouting) or its people are called
     for (const q of r.quarters) {
       const m = this.marks.get(q.id);
       m.visible = r.mission === 'scout' ? !q.visited : !q.called && q.left > 0;
@@ -316,6 +339,7 @@ AFRAME.registerComponent('ns-raid', {
     this.sky.visible = dark > 0.2;
     for (const st of this.sky.children) st.material.opacity = (st === this.sky.children[0] ? 1 : 0.55) * dark;
     this.burn(r, s);
+    this.about(r, s);
     // the passing effects
     for (const f of [...this.fx]) {
       f.age += sec;
@@ -327,6 +351,27 @@ AFRAME.registerComponent('ns-raid', {
         for (const m of f.own ?? []) m.dispose();
         this.fx.splice(this.fx.indexOf(f), 1);
       }
+    }
+  },
+
+  /** His veil and his glow, where his unit is drawn. */
+  about(r, s) {
+    const unit = this.el.sceneEl.systems['ns-game'].units()?.byId.get(r.guide), him = G.world.entities.get(r.guide);
+    const here = unit?.object3D.position, up = him?.state === 'normal';
+    this.veil.visible = !!here && up && G.world.tick < r.disguise.until;
+    this.glow.visible = !!here && up && r.singing >= 0 && !him.path?.length;
+    if (this.veil.visible) {
+      this.veil.position.copy(here);
+      this.veil.children.forEach((w, i) => {
+        const a = s * 0.9 + (i / 12) * Math.PI * 2, h = 0.2 + ((s * 0.35 + i / 12) % 1) * 1.7;
+        w.position.set(Math.cos(a) * 0.6, h, Math.sin(a) * 0.6);
+        w.scale.setScalar(0.6 + Math.sin(s * 2 + i) * 0.3);
+      });
+    }
+    if (this.glow.visible) {
+      this.glow.position.copy(here).setY(here.y + 0.05);
+      this.glow.material.opacity = 0.2 + Math.sin(s * 3) * 0.08;
+      this.glow.scale.setScalar(1 + Math.sin(s * 1.5) * 0.08);
     }
   },
 
@@ -367,9 +412,9 @@ AFRAME.registerComponent('ns-raid', {
     }
   },
 
-  /** The pontoon bridge burning: flames on its cells that still stand, flickering. */
+  /** The bridge at the ferry burning: flames on its cells that still stand, flickering. */
   burn(r, s) {
-    const p = r.pontoon, g = this.flames, burning = p.burning > 0 && !p.burned;
+    const p = r.bridge, g = this.flames, burning = p.burning > 0 && !p.burned;
     g.count = 0;
     g.children.forEach((f, i) => {
       f.visible = burning;
@@ -389,27 +434,6 @@ AFRAME.registerComponent('ns-raid', {
     }
   },
 });
-
-/** Ripples on the water: a soft, light pattern the water's colour runs through. */
-function ripples() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  g.fillStyle = '#9fb7c8';
-  g.fillRect(0, 0, 128, 128);
-  for (let i = 0; i < 70; i++) {
-    const x = h01(i, 11) * 128, y = h01(i, 12) * 128, w = 10 + h01(i, 13) * 26;
-    g.strokeStyle = `rgba(235,245,255,${0.18 + h01(i, 14) * 0.3})`;
-    g.lineWidth = 1 + h01(i, 15) * 1.5;
-    g.beginPath();
-    g.ellipse(x, y, w, w * 0.18, 0, 0, Math.PI * 2);
-    g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
 
 /** A tongue of fire: white at its foot, yellow, then orange and red where it thins out. */
 let flameTex = null;

@@ -9,7 +9,6 @@
  * time a unit of it is drawn, a few at a time; until a frame has come, the still sprite stands in.
  */
 import { ART, NS, G } from '../state.js';
-import { raidOwn } from '../models.js';
 
 const { THREE } = AFRAME;
 const PX = 16; // pixels per cell across
@@ -68,8 +67,7 @@ AFRAME.registerSystem('ns-art', {
 
   /** The frame an entity shows this tick ({ tex, geo, w, h, hx, hy }), or null for none yet. */
   frameOf(e) {
-    // (the raid's Harriet Tubman and boats are models in every mode: models.js raidOwn)
-    if (this.mode !== 'sprites' || !this.images || raidOwn(e)) return null;
+    if (this.mode !== 'sprites' || !this.images) return null;
     if (this.scene.world !== G.view) this.resetScene();
     let slot;
     try { slot = NS.slotOf(e, G.world.tick, this.scene); } catch { return null; }

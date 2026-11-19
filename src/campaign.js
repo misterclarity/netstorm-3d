@@ -1,23 +1,26 @@
 /**
- * The Combahee River Raid: a campaign of two battles and an epilogue (the rules are sim/raid.ts,
- * the map sim/raid-map.ts). Its story follows Thea Anderson's essay "Harriet Tubman as a Magical,
- * Mercurial Figure: An Astrological Analysis of the Combahee River Raid" (The Mountain Astrologer,
- * June/July 2021), and it shows Harriet Tubman as the essay does: Mercury in a human life, the
- * swift traveller and messenger who reads the signs about her, slips by in disguise and moves by
- * night. The words here are the game's own, not the essay's; the facts of the raid are the
- * historians'. Her figure (models.js) is the game's own too, in the dress of her time: no portrait.
+ * The Combahee Raid: a campaign of two battles and an epilogue in NetStorm's world of islands in
+ * the sky (the rules are sim/raid.ts, the map sim/raid-map.ts). A fantasy after the Combahee River
+ * Raid of June 1 to 2, 1863, and after Thea Anderson's essay on its Mercurial guide (The Mountain
+ * Astrologer, June/July 2021): its hero is the player's own High Priest, the Wayfinder, drawn as
+ * the essay draws its subject, Mercury in a life: the swift traveller and messenger who reads the
+ * signs about him, slips by in disguise and moves by night, and who lives to guide and shield
+ * those who cannot fend for themselves. The words here are the game's own, not the essay's.
  *
  * In this campaign nobody is captured and nobody sacrificed, and the people who free themselves
- * are no units: they walk to the boats on their own feet, no gun aims at them, and they are counted
- * only by the boats that take them aboard.
+ * are no units: they walk to the airships on their own feet, no gun aims at them, and they are
+ * counted only by the ships that take them aboard.
  */
 import { G } from './state.js';
 
+/** The hero's name, as the story calls him. */
+export const HERO = 'the Wayfinder';
+export const Hero = 'The Wayfinder';
+
 export const CAMPAIGN = {
   id: 'combahee',
-  title: 'The Combahee River Raid',
-  when: '1863',
-  blurb: 'Harriet Tubman scouts the river by night, then guides the gunboats up the Combahee. Two battles and an epilogue, after Thea Anderson’s essay on Tubman as a Mercurial figure.',
+  title: 'The Combahee Raid',
+  blurb: 'A High Priest born under Mercury scouts the Sun-lords’ islands by night, then guides two airships along the Combahee wind to carry their bondfolk to freedom. Two battles and an epilogue.',
   source: {
     title: 'Harriet Tubman as a Magical, Mercurial Figure: An Astrological Analysis of the Combahee River Raid',
     author: 'Thea Anderson',
@@ -31,31 +34,31 @@ export const RAID_MISSIONS = [
   {
     id: 'scout',
     title: 'Sky Messages',
-    when: 'Spring 1863',
+    when: 'A night of the new moon',
     briefing: [
-      'South Carolina, spring 1863. Harriet Tubman escaped slavery fourteen years ago and went back again and again to lead others out. Now she scouts for the Union army at Beaufort. Before any boat can go up the Combahee River, someone has to learn where the Confederates sank their torpedoes and where their pickets keep watch. She goes herself, by night, as she always has.',
-      'Thea Anderson reads her as Mercury in a human life: the traveller and messenger, quick, cunning and hard to catch, a master of disguise who reads the signs about her. When a flock of birds scatters over the trees ahead, someone is waiting there.',
+      'Between two chains of islands runs the Combahee, a wind that carries airships from the open sky deep into the realm of the Sun-lords. On the islands along it the Sun-lords keep bondfolk, whole families made to work their fields. Before any airship can ride the Combahee to bring them out, someone has to learn where the Sun-lords have sown their sky mines and where their sentries keep watch.',
+      'That someone is the Wayfinder, a High Priest born under Mercury: the traveller and messenger, quick, cunning and hard to catch, a master of disguise who reads the signs about him, and never at rest while anyone is left behind. He goes alone, by night, as he always has. When a flock of birds scatters over the trees ahead, someone is waiting there.',
     ],
     tasks: [
-      'Walk her along both banks under the new moon and visit the <b>quarters</b> of the Nichols, Middleton, Heyward and Lowndes plantations: the people there know where the torpedoes lie.',
-      'Cross the river at the ferry, on the pontoon bridge, and meet her scouts in the <b>cove past Tar Bluff</b> before dawn.',
-      '<b>Pickets</b> fire on anyone in their reach, which is shorter in the dark. Birds rise as she comes near one. <b>Disguise</b> (<kbd>C</kbd>) keeps every picket from firing on her for 15 seconds; then it takes 50 to wear one again.',
-      'If she is knocked out, or dawn finds her behind the lines, the scouting has failed.',
+      'Walk him along both chains of islands under the new moon to the <b>quarters</b> of the Amberfield, Highmere, Goldcrest and Sunhollow estates: the bondfolk there were made to sow the mines, and know where they float.',
+      'Cross at Ferry Isle, on the Sun-lords’ bridge, and meet his scouts in the <b>cove past Raven Bluff</b> before dawn.',
+      '<b>Sentries</b> fire on anyone in their reach, which is shorter in the dark. Birds rise as he comes near one. His <b>disguise</b> (<kbd>C</kbd>) keeps every sentry from firing on him for 15 seconds; then it takes 50 to wear one again.',
+      'If he is knocked out, or dawn finds him behind their lines, the scouting has failed.',
     ],
   },
   {
     id: 'raid',
-    title: 'Combahee Ferry',
-    when: 'The night of June 1 to 2, 1863',
+    title: 'The Combahee Wind',
+    when: 'A night of the full moon',
     briefing: [
-      'The night of June 1, 1863, under a full moon. Three steamers leave Beaufort with about three hundred soldiers of the 2nd South Carolina Volunteers, a Black regiment, under Colonel James Montgomery. Harriet Tubman is aboard the lead boat, the John Adams. The Sentinel runs aground near the river’s mouth; the John Adams and the Harriet A. Weed go on.',
-      'The essay reads the raid’s own sky as Mercury’s. The messenger planet had just stood still in Gemini, close to Uranus, the planet of sudden change: knowledge that stuns and sets free. Venus and Mars met in Cancer, the sign of home and family: families running to the boats.',
+      'The full moon is up. Two airships, the Swallow and the Rainbird, leave Windgate with three hundred volunteers aboard and the Wayfinder with them; a third, the Sentinel, is snagged on a crag by the gate and stays behind. Laden as they are, the ships cannot climb out of the Combahee: they ride its strong middle, low between the islands, in reach of the Sun-lords’ guns.',
+      'The astrologers of the free isles read tonight’s sky as his. Mercury, the messenger, has just stood still in Gemini beside Uranus, the planet of sudden change: knowledge that stuns and sets free. Venus and Mars meet in Cancer, the sign of home and family: families running to the ships.',
     ],
     tasks: [
-      'Steam up the river past the torpedoes she found: the boats keep clear of them on their own. Select a boat and click the river to send it.',
-      'A boat tied up at a <b>landing</b> can <b>sound its whistle</b>: the people of that plantation come down to the river, family by family, and go aboard. Two landings are cut off by a creek: <b>lay bridge</b> for them.',
-      'Where Harriet stands at a landing she <b>sings</b>, and the crowd goes aboard twice as fast.',
-      '<b>Burn the pontoon bridge</b> from the ferry landing before a Confederate battery crosses it after dawn. Then bring the boats home to Field’s Point and press <b>Steam home</b>.',
+      'Ride the Combahee past the mines he found: the ships keep clear of them on their own. Select a ship and click the sky to send it.',
+      'A ship tied up at a <b>landing</b> can <b>sound its horn</b>: the bondfolk of that estate come down to it, family by family, and go aboard. Two landings are cut off by a rift: <b>lay bridge</b> for them.',
+      'Where the Wayfinder stands at a landing he <b>sings</b>, and the crowd goes aboard twice as fast.',
+      '<b>Burn the bridge</b> at Ferry Isle before the Sun-lords’ battery crosses it after dawn. Then bring the ships home to Windgate and press <b>Fly home</b>.',
     ],
   },
 ];
@@ -64,45 +67,44 @@ export const RAID_MISSIONS = [
 export function endText(mission, verdict, n, target) {
   if (mission === 'scout') {
     if (verdict.won) {
-      return ['She is back with her scouts before first light. What the people in the quarters told her goes back to Beaufort: where the six torpedoes lie, where the pickets stand, the road to the ferry. Colonel Montgomery plans the raid around it.',
-        'Weeks later, Boston’s Commonwealth would name her as the leader of the raid that followed.'];
+      return ['He is back with his scouts before first light. What the bondfolk told him goes home to Windgate: where the six mines float, where the sentries stand, the way to the ferry. The raid is planned around it.',
+        'At the next full moon the airships will ride the Combahee.'];
     }
     return verdict.why === 'dawn'
-      ? ['The sky is getting light, and she is still behind the pickets’ lines. She slips back unseen, this time, and the scouting must wait for another dark night.', 'Try again: the night is long enough if she does not linger.']
-      : ['A picket’s shot has knocked her out. Her scouts carry her back to their boat, and the scouting must wait for another dark night.', 'Try again: watch for the birds, and wear a disguise past the pickets.'];
+      ? ['The sky is getting light, and he is still behind the sentries’ lines. He slips back unseen, this time, and the scouting must wait for another dark night.', 'Try again: the night is long enough if he does not linger.']
+      : ['A sentry’s shot has knocked him out. His scouts carry him back to their skiff, and the scouting must wait for another dark night.', 'Try again: watch for the birds, and wear a disguise past the sentries.'];
   }
   if (verdict.won) {
-    return [`The boats steam home with ${n} people aboard.`,
-      'On June 2, 1863 the raid freed more than seven hundred people: 756, by the historian Edda L. Fields-Black’s count. Within days many of the freed men had joined the 2nd South Carolina. The pontoon bridge, the rice mills and the barns burned, and the Confederate troops came too late to stop the boats.'];
+    return [`The ships fly home with ${n} people aboard.`,
+      'Behind them the Sun-lords’ bridge, their mills and their barns are burning, and their battery came too late to stop the ships. Many of the men freed tonight will fly with the Wayfinder on the next raid.'];
   }
   if (verdict.why === 'down') {
-    return ['Harriet has been hit and knocked out. The soldiers carry her aboard, and the boats turn back.', 'Try again: keep her out of the pickets’ reach and the battery’s line of fire.'];
+    return ['The Wayfinder has been hit and knocked out. The volunteers carry him aboard, and the ships turn back.', 'Try again: keep him out of the sentries’ reach and the battery’s line of fire.'];
   }
-  return [`The boats are home with ${n} people aboard, fewer than the ${target} you set out for.`, 'Try again: whistle at every landing, lay bridge across the creeks, and let her sing where the crowd is largest.'];
+  return [`The ships are home with ${n} people aboard, fewer than the ${target} you set out for.`, 'Try again: sound the horn at every landing, lay bridge across the rifts, and let him sing where the crowd is largest.'];
 }
 
 /** The epilogue, after the raid is won. */
 export const EPILOGUE = {
-  title: 'July 10, 1863',
+  title: 'Mercury Returns',
   text: [
-    'On that day, five weeks after the raid, Boston’s Commonwealth named Harriet Tubman as its leader.',
-    'Thea Anderson points out that on that same day Mercury came back, moving forward again, to the degree of Gemini it had held on the night of the raid, where it had turned retrograde. The ephemeris agrees: Mercury stood still at 26.6° Gemini on June 1, 1863, and was back there by July 10.',
-    'Tubman was barely paid for her years of service in the war. She lived on in Auburn, New York, until 1913, caring for the old and the poor and working for women’s right to vote. More than a century later, Black feminists in Boston named their collective after the raid: the Combahee River Collective.',
+    'Five weeks after the raid, Mercury came back, moving forward again, to the degree of Gemini where it had stood still on the night of the raid. On that day the free isles named the Wayfinder as the raid’s leader, and the bondfolk he had brought out built the first houses of their own.',
+    'The astrologers say that is how a Mercurial life runs: swift and out of sight, and at its strongest when it carries a message or a people through. He would go back for others, as he always had.',
   ],
 };
 
-/** Where the story and the facts come from, for the briefings and the epilogue. */
+/** Where the story comes from, for the epilogue (the link is the essay's, in raid-hud.js). */
 export const CREDITS = [
-  `Story after Thea Anderson, “${CAMPAIGN.source.title}”, ${CAMPAIGN.source.where}.`,
-  'Facts of the raid from the National Park Service and the historians’ accounts (Edda L. Fields-Black, Combee, 2024). The sky of June 1 to 2, 1863 worked out with Astronomy Engine.',
-  'The map, the numbers and the figures are the game’s own; Harriet Tubman’s figure is not a portrait.',
+  'The raid of 1863 freed 756 people, by the historian Edda L. Fields-Black’s count; the 756 bondfolk of this campaign are in their honour.',
+  'The sky of the raid is that of June 1 to 2, 1863, worked out with Astronomy Engine: Mercury stood still at 26.6° Gemini on June 1, and was back there by July 10.',
+  'The world, the names, the map and the numbers are the game’s own.',
 ];
 
 /* -------------------------------------- progress ------------------------------------------ */
 
 const STORAGE = 'netstorm-3d:combahee';
 
-/** What the player has done of the campaign: the battles won, the torpedoes found. */
+/** What the player has done of the campaign: the battles won, the sky mines found. */
 export function progress() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE) ?? '{}');
@@ -115,7 +117,7 @@ export function progress() {
 export function remember(mission, world) {
   const p = progress();
   if (!p.done.includes(mission)) p.done.push(mission);
-  if (mission === 'scout') p.known = world.raid.torpedoes.filter((t) => t.known).map((t) => t.id);
+  if (mission === 'scout') p.known = world.raid.mines.filter((m) => m.known).map((m) => m.id);
   try { localStorage.setItem(STORAGE, JSON.stringify(p)); } catch { /* not remembering is harmless */ }
 }
 
@@ -124,15 +126,15 @@ export const unlocked = (mission) => mission === 'scout' || progress().done.incl
 
 /* ------------------------------------- what is what --------------------------------------- */
 
-/** What the raid's buildings are, by type. */
-const RAID_NAMES = { sunarcher: 'Confederate picket', suncannon: 'Battery gun', sunbattery: 'Rice mill' };
+/** What the Sun-lords' buildings are in the raid, by type. */
+const RAID_NAMES = { sunarcher: 'Sentry', suncannon: 'Battery gun', sunbattery: 'Mill' };
 
 /** The name an entity goes by in the raid, or null where the game's own name stands. */
 export function raidName(e) {
   const r = e ? G.world?.raid : null;
   if (!r) return null;
-  if (e.kind === 'priest' && e.id === r.tubman) return 'Harriet Tubman';
-  if (e.kind === 'transport' && r.boats.has(e.id)) return r.boats.get(e.id).name;
+  if (e.kind === 'priest' && e.id === r.guide) return Hero;
+  if (e.kind === 'transport' && r.ships.has(e.id)) return r.ships.get(e.id).name;
   if (e.kind === 'building') return RAID_NAMES[e.type] ?? null;
   return null;
 }
