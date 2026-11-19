@@ -39,11 +39,10 @@ export const RAID_MISSIONS = [
       'Between two chains of islands runs the Combahee, a wind that carries airships from the open sky deep into the realm of the Sun-lords. On the islands along it the Sun-lords keep bondfolk, whole families made to work their fields. Before any airship can ride the Combahee to bring them out, someone has to learn where the Sun-lords have sown their sky mines and where their sentries keep watch.',
       'That someone is the Wayfinder, a High Priest born under Mercury: the traveller and messenger, quick, cunning and hard to catch, a master of disguise who reads the signs about him, and never at rest while anyone is left behind. He goes alone, by night, as he always has. When a flock of birds scatters over the trees ahead, someone is waiting there.',
     ],
-    tasks: [
-      'Walk him along both chains of islands under the new moon to the <b>quarters</b> of the Amberfield, Highmere, Goldcrest and Sunhollow estates: the bondfolk there were made to sow the mines, and know where they float.',
-      'Cross at Ferry Isle, on the Sun-lords’ bridge, and meet his scouts in the <b>cove past Raven Bluff</b> before dawn.',
-      '<b>Sentries</b> fire on anyone in their reach, which is shorter in the dark. Birds rise as he comes near one. His <b>disguise</b> (<kbd>C</kbd>) keeps every sentry from firing on him for 15 seconds; then it takes 50 to wear one again.',
-      'If he is knocked out, or dawn finds him behind their lines, the scouting has failed.',
+    how: [
+      'Select the Wayfinder and click the ground to walk him there. A gold marker hangs over each quarters still to visit; the blue one over the cove.',
+      'The four estates lie two on each chain of islands. To cross from the south chain to the north, take the Sun-lords’ bridge at Ferry Isle, far to the west.',
+      'Sentries fire on him within their reach, which is shorter in the dark. Birds rise over a sentry before it can see him: then press <kbd>C</kbd> for his disguise. For 15 seconds no sentry fires on him; after that it takes 50 seconds before he can wear one again.',
     ],
   },
   {
@@ -54,17 +53,18 @@ export const RAID_MISSIONS = [
       'The full moon is up. Two airships, the Swallow and the Rainbird, leave Windgate with three hundred volunteers aboard and the Wayfinder with them; a third, the Sentinel, is snagged on a crag by the gate and stays behind. Laden as they are, the ships cannot climb out of the Combahee: they ride its strong middle, low between the islands, in reach of the Sun-lords’ guns.',
       'The astrologers of the free isles read tonight’s sky as his. Mercury, the messenger, has just stood still in Gemini beside Uranus, the planet of sudden change: knowledge that stuns and sets free. Venus and Mars meet in Cancer, the sign of home and family: families running to the ships.',
     ],
-    tasks: [
-      'Ride the Combahee past the mines he found: the ships keep clear of them on their own. Select a ship and click the sky to send it.',
-      'A ship tied up at a <b>landing</b> can <b>sound its horn</b>: the bondfolk of that estate come down to it, family by family, and go aboard. Two landings are cut off by a rift: <b>lay bridge</b> for them.',
-      'Where the Wayfinder stands at a landing he <b>sings</b>, and the crowd goes aboard twice as fast.',
-      '<b>Burn the bridge</b> at Ferry Isle before the Sun-lords’ battery crosses it after dawn. Then bring the ships home to Windgate and press <b>Fly home</b>.',
+    how: [
+      'Select a ship and click a landing to send her there: she rides the wind and steers round the mines he found by herself.',
+      'At a landing, select the ship and press <b>Sound the horn</b> on her card: the families of that estate walk down and go aboard. Highmere and Sunhollow are cut off by a rift: lay bridge pieces from the landing across it so they can come.',
+      'Walk the Wayfinder onto a landing where people wait: while he sings there, they board twice as fast.',
+      'Bonus: after dawn the Sun-lords’ battery comes to Ferry Isle over their bridge and fires along the wind there. Send a ship to Ferry Isle first and burn the bridge from her card. Sentries fire on him and on the ships; nothing aims at the families.',
+      'Once enough are aboard, send both ships home to Windgate and press <b>Fly home</b> on the objectives panel.',
     ],
   },
 ];
 
-/** Why a battle ended, in words: `n` people aboard, `target` wanted. */
-export function endText(mission, verdict, n, target) {
+/** Why a battle ended, in words: `n` people aboard, `target` wanted; whether the bridge burned. */
+export function endText(mission, verdict, n, target, burned) {
   if (mission === 'scout') {
     if (verdict.won) {
       return ['He is back with his scouts before first light. What the bondfolk told him goes home to Windgate: where the six mines float, where the sentries stand, the way to the ferry. The raid is planned around it.',
@@ -76,7 +76,8 @@ export function endText(mission, verdict, n, target) {
   }
   if (verdict.won) {
     return [`The ships fly home with ${n} people aboard.`,
-      'Behind them the Sun-lords’ bridge, their mills and their barns are burning, and their battery came too late to stop the ships. Many of the men freed tonight will fly with the Wayfinder on the next raid.'];
+      burned ? 'Behind them the Sun-lords’ bridge, their mills and their barns are burning, and their battery came too late to stop the ships. Many of the men freed tonight will fly with the Wayfinder on the next raid.'
+        : 'Behind them the Sun-lords’ mills and barns are burning; their bridge at the ferry still stands, but the ships are beyond their guns. Many of the men freed tonight will fly with the Wayfinder on the next raid.'];
   }
   if (verdict.why === 'down') {
     return ['The Wayfinder has been hit and knocked out. The volunteers carry him aboard, and the ships turn back.', 'Try again: keep him out of the sentries’ reach and the battery’s line of fire.'];

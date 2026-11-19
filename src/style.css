@@ -98,6 +98,7 @@
     #right { top: 60px; right: 10px; left: 10px; width: auto; }
     #goal { padding: 8px 12px; font-size: 12px; }
     #goal .sub { display: none; }
+    #goal ol.objectives li.done, #goal ol.objectives li:not(.now) > ul { display: none; }
     #sel { bottom: 126px; left: 10px; width: calc(100vw - 20px); padding: 9px 12px; }
     #bar { left: 10px; right: 10px; transform: none; padding: 6px; }
     .card { width: 62px; height: 78px; font-size: 10px; } .piece { width: 50px; }
@@ -212,3 +213,26 @@ body.scouting #bar { display: none; }
 #modal .credit a, #modal .level a, #modal .credits a { color: var(--accent, #f2c14e); }
 #modal ul.credits { padding-left: 18px; font-size: 0.9em; color: var(--muted); }
 #goal .home { display: block; margin-top: 8px; padding: 4px 12px; font: inherit; cursor: pointer; }
+
+/* The objectives (objectives.js): ✓ done, ▸ the one to work on now, ✗ failed, • a condition that
+   holds all along; the next step under them */
+ol.objectives { list-style: none; margin: 4px 0 8px; padding: 0; }
+ol.objectives li { position: relative; padding-left: 20px; margin: 3px 0; }
+ol.objectives li::before { content: '☐'; position: absolute; left: 1px; top: 0; color: var(--muted); }
+ol.objectives li.done { color: var(--muted); }
+ol.objectives li.done::before { content: '✓'; color: #7bd88f; font-weight: 700; }
+ol.objectives li.now { font-weight: 600; }
+ol.objectives li.now::before { content: '▸'; color: var(--accent); }
+ol.objectives li.fail { color: #ff8a80; }
+ol.objectives li.fail::before { content: '✗'; color: #ff6b6b; font-weight: 700; }
+ol.objectives li.rule { color: var(--muted); }
+ol.objectives li.rule::before { content: '•'; left: 5px; }
+ol.objectives .meta { color: var(--muted); font-weight: 400; white-space: nowrap; }
+ol.objectives li.now > .meta { color: var(--accent); }
+ol.objectives ul { list-style: none; margin: 2px 0 0; padding: 0; font-weight: 400; font-size: 12px; }
+ol.objectives ul li { margin: 1px 0; }
+#goal.listed #goalText::before { content: 'Next: '; color: var(--accent); font-weight: 700; }
+#modal ol.objectives { margin: 6px 0 10px; }
+#modal h3.objectives-head { margin: 12px 0 2px; }
+#modal ul.how { font-size: 14px; padding-left: 20px; margin: 4px 0 8px; }
+#modal ul.how li { margin: 4px 0; }

@@ -153,9 +153,15 @@ AFRAME.registerComponent('ns-raid', {
     }
   },
 
-  /** A lantern-like marker over each quarters (and his scouts' cove): bright while it waits for him. */
+  /**
+   * Lantern-like markers over where the objectives are (raid-hud.js): at the scouting a gold one over
+   * each quarters he has still to visit and a blue one over his scouts' cove; at the raid a gold one
+   * over each landing whose families are not called yet, an orange one over the bridge at Ferry Isle
+   * while it stands, and a green one over Windgate once enough are aboard.
+   */
   markers(r) {
     this.marks = new Map();
+    this.cove = this.ferry = this.home = null;
     const geo = new THREE.OctahedronGeometry(0.45, 0);
     const mark = (x, y, color) => {
       const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.2, transparent: true, opacity: 0.9 }));
@@ -164,8 +170,19 @@ AFRAME.registerComponent('ns-raid', {
       this.root.add(m);
       return m;
     };
-    for (const q of r.quarters) this.marks.set(q.id, mark(q.x + 2, q.y + 2, '#ffd27a'));
-    if (r.mission === 'scout') this.cove = mark(r.cove.x + r.cove.w / 2, r.cove.y + r.cove.h / 2, '#9fe2ff');
+    if (r.mission === 'scout') {
+      for (const q of r.quarters) this.marks.set(q.id, mark(q.door[0] + 0.5, q.door[1] + 0.5, '#ffd27a'));
+      this.cove = mark(r.cove.x + r.cove.w / 2, r.cove.y + r.cove.h / 2, '#9fe2ff');
+      return;
+    }
+    for (const q of r.quarters) {
+      const l = r.landings[q.landing];
+      this.marks.set(q.id, mark(l.x + l.w / 2, l.y + l.h / 2, '#ffd27a'));
+    }
+    const [bx, by] = r.bridge.cells[Math.floor(r.bridge.cells.length / 2)];
+    this.ferry = mark(bx + 1, by + 0.5, '#ff8a3a');
+    const home = r.landings.find((l) => l.home);
+    this.home = mark(home.x + home.w / 2, home.y + home.h / 2, '#7bd88f');
   },
 
   /** The North Star, and the faint Little Dipper it is the tip of, in the night sky to the north. */
@@ -323,16 +340,28 @@ AFRAME.registerComponent('ns-raid', {
       g.rotation.y = s * 0.4 + m.id;
       g.getObjectByName('ring').rotation.y = -s;
     }
-    // the markers: a quarters bright until he has been (the scouting) or its people are called
+    // the markers: a quarters until he has been (the scouting), a landing until its people are
+    // called; the cove bright once all are visited; the bridge while it stands; home once enough
+    // are aboard
+    const bob = (m, k) => { m.rotation.y = s * 1.4; m.position.y = 4.2 + Math.sin(s * 2 + k) * 0.25; };
     for (const q of r.quarters) {
       const m = this.marks.get(q.id);
-      m.visible = r.mission === 'scout' ? !q.visited : !q.called && q.left > 0;
-      m.rotation.y = s * 1.4;
-      m.position.y = 4.2 + Math.sin(s * 2 + q.id) * 0.25;
+      m.visible = !r.verdict && (r.mission === 'scout' ? !q.visited : !q.called && q.left > 0);
+      bob(m, q.id);
     }
     if (this.cove) {
       this.cove.material.emissiveIntensity = r.quarters.every((q) => q.visited) ? 2 + Math.sin(s * 5) : 0.5;
-      this.cove.rotation.y = s;
+      this.cove.visible = !r.verdict;
+      bob(this.cove, 7);
+    }
+    if (this.ferry) {
+      this.ferry.visible = !r.verdict && !r.bridge.burned && !r.bridge.burning && !r.battery.came;
+      bob(this.ferry, 9);
+    }
+    if (this.home) {
+      this.home.visible = !r.verdict && NS.freed(G.world) >= r.target;
+      this.home.material.emissiveIntensity = 2 + Math.sin(s * 5);
+      bob(this.home, 11);
     }
     // the North Star by night
     const dark = G.world.nights ? nightness(G.world.clockSeconds()) : 0;

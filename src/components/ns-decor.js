@@ -1,8 +1,10 @@
 /**
  * The islands' greenery and stones: trees, pines, bushes, rocks, flowers and tufts of grass on
- * island ground, so that the islands do not look bare. The trees are the rules' too (world.treeGrows
- * and treeAt, scripts/house-rules.mjs): a shot at a unit behind one is stopped, and a Priest walked
- * in first person cannot walk through one; the rest are only to look at. Clicks go through them,
+ * island ground, so that the islands do not look bare. The trees and bushes are drawn twice the size
+ * they first had (GROWN), tall over a Priest and a Golem, their crowns reaching over the cells about
+ * them. The trees are the rules' too (world.treeGrows and treeAt, scripts/house-rules.mjs): a shot at
+ * a unit behind one is stopped, and a Priest walked in first person cannot walk through one; in the
+ * rules a tree is still the one cell its trunk stands on. The rest are only to look at. Clicks go through them,
  * and they keep clear of what the battle needs, standing
  * nowhere near a building, a geyser, an Obelisk, a Temple or a Residence, and none on a bridge.
  * Each kind is one instanced mesh, so the whole lot costs a few draw calls. Each cell's lot is
@@ -30,6 +32,8 @@ const GEO = {
   flower: new THREE.IcosahedronGeometry(0.06, 0).translate(0, 0.07, 0),
   tuft: new THREE.ConeGeometry(0.05, 0.3, 3).translate(0, 0.15, 0),
 };
+/** How much bigger than its part above each kind is drawn: the trees and the bushes twice. */
+const GROWN = { trunk: 2, crown: 2, pine: 2, pineTop: 2, bush: 2 };
 const MAT = new THREE.MeshStandardMaterial({ color: '#ffffff', flatShading: true, roughness: 0.9 });
 const SHADOWS = new Set(['trunk', 'crown', 'pine', 'pineTop', 'bush', 'rock']);
 
@@ -100,7 +104,7 @@ AFRAME.registerComponent('ns-decor', {
     const lots = { trunk: [], crown: [], pine: [], pineTop: [], bush: [], rock: [], flower: [], tuft: [] }, cells = new Set();
     // with tiered islands (heights.js), on the ground of its island's height
     const put = (kind, cell, x, z, scale, role, pick, turn) => {
-      lots[kind].push({ cell, x, y: heightOfCell(cell % WORLD, Math.floor(cell / WORLD)), z, scale, turn, role, pick, hidden: false });
+      lots[kind].push({ cell, x, y: heightOfCell(cell % WORLD, Math.floor(cell / WORLD)), z, scale: scale * (GROWN[kind] ?? 1), turn, role, pick, hidden: false });
       cells.add(cell);
     };
     const island = (x, y) => x >= 0 && y >= 0 && x < WORLD && y < WORLD && v.terrain[y * WORLD + x] === ISLAND;
@@ -118,15 +122,18 @@ AFRAME.registerComponent('ns-decor', {
         // where a tree grows is the rules' (world.treeGrows: trees are cover, and in the way in first
         // person); the same odds as here
         if (G.world?.treeGrows ? G.world.treeGrows(x, y) : r < trees) {
+          // (a tree stands nearer its cell's middle than the rest: its trunk, grown, stays in the cell
+          // the rules give it)
+          const tx = wx(x + 0.5) + jx * 0.5, tz = wz(y + 0.5) + jz * 0.5;
           // pines grow more on Wind's and Thunder's islands; which Fury that is can change, so the
           // choice is by place alone and the colours follow the owner
           if (hash(x, y, 7) < 0.4) {
-            put('trunk', i, cx, cz, size * 0.8, 'trunk', 0, turn);
-            put('pine', i, cx, cz, size, 'leaves', pick(6), turn);
-            put('pineTop', i, cx, cz, size, 'leaves', pick(6), turn);
+            put('trunk', i, tx, tz, size * 0.8, 'trunk', 0, turn);
+            put('pine', i, tx, tz, size, 'leaves', pick(6), turn);
+            put('pineTop', i, tx, tz, size, 'leaves', pick(6), turn);
           } else {
-            put('trunk', i, cx, cz, size, 'trunk', 0, turn);
-            put('crown', i, cx, cz, size, 'leaves', pick(6), turn);
+            put('trunk', i, tx, tz, size, 'trunk', 0, turn);
+            put('crown', i, tx, tz, size, 'leaves', pick(6), turn);
           }
         } else if (r < trees + 0.035) put('bush', i, cx, cz, size, 'leaves', pick(8), turn);
         else if (r < trees + 0.055) put('rock', i, cx, cz, size, 'rock', pick(9), turn);

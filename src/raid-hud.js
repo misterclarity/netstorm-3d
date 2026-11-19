@@ -6,6 +6,7 @@
 import { G, NS, ME, TPS, escapeHtml } from './state.js';
 import { submit } from './game.js';
 import { CAMPAIGN, RAID_MISSIONS, EPILOGUE, CREDITS, HERO, Hero, endText, progress, remember, unlocked, raidName } from './campaign.js';
+import { objectivesHtml, showObjectives } from './objectives.js';
 
 const LEVELS = ['easy', 'normal', 'hard'];
 const $ = (id) => document.getElementById(id);
@@ -49,17 +50,116 @@ export function wireMenu(box, match) {
 /* --------------------------------------- briefing ----------------------------------------- */
 
 export function briefing(hud) {
-  const m = missionOf(G.raid), r = G.world.raid, n = RAID_MISSIONS.indexOf(m) + 1;
-  const aim = G.raid === 'raid' ? `<p class="note">Bring at least <b>${r.target}</b> people aboard, and the ships home to Windgate by midday.</p>` : '';
+  const m = missionOf(G.raid), n = RAID_MISSIONS.indexOf(m) + 1;
   hud.modal(`<h2>${escapeHtml(m.title)}</h2><p class="when">${escapeHtml(CAMPAIGN.title)} · battle ${n} of ${RAID_MISSIONS.length} · ${escapeHtml(m.when)}</p>
     ${m.briefing.map((p) => `<p class="text">${escapeHtml(p)}</p>`).join('')}
-    <ol>${m.tasks.map((t) => `<li>${t}</li>`).join('')}</ol>${aim}
+    <h3 class="objectives-head">Objectives</h3><ol class="objectives">${objectivesHtml(objectives(G.world, null))}</ol>
+    <h3 class="objectives-head">How</h3><ul class="how">${m.how.map((t) => `<li>${t}</li>`).join('')}</ul>
     <p class="note credit">After the Combahee River Raid of 1863 and ${essay()} on its Mercurial guide (The Mountain Astrologer, 2021).</p>`,
   [{ label: 'Main menu', act: () => hud.game.start(G.setup, { menu: true }) }, { label: 'Controls', act: () => hud.help(true) },
     { label: 'Begin', main: true, act: () => hud.begin() }]);
 }
 
 /* --------------------------------------- the goal ----------------------------------------- */
+
+/** Which chain of islands a place is on: north or south of the Combahee. */
+const chain = (x, y) => (y + 0.5 < NS.windY(x + 0.5) ? 'north' : 'south');
+const away = (e, [x, y]) => Math.max(Math.abs(e.x - x), Math.abs(e.y - y));
+
+/**
+ * The battle's objectives as they stand (objectives.js): the one the next step is about (`focus`, an
+ * objective's key) marked as the one to work on, else the first still to do.
+ */
+export function objectives(w = G.world, focus = nextStep(w)?.of) {
+  const r = w.raid, him = w.entities.get(r.guide), list = [], over = !!r.verdict;
+  const health = him?.kind === 'priest' ? `${Math.ceil(him.hp)}/${him.hpMax}` : '';
+  const lost = over && !r.verdict.won ? r.verdict.why : null;
+  if (r.mission === 'scout') {
+    const seen = r.quarters.filter((q) => q.visited).length;
+    list.push({
+      key: 'quarters', text: 'Visit the quarters of the four estates (gold markers)', meta: `${seen}/${r.quarters.length}`,
+      state: seen === r.quarters.length ? 'done' : '',
+      items: r.quarters.map((q) => ({ text: `${q.name}, ${chain(q.door[0], q.door[1])} chain`, state: q.visited ? 'done' : '' })),
+    });
+    list.push({ key: 'cove', text: 'Then meet his scouts in the cove past Raven Bluff (blue marker)', state: r.verdict?.won ? 'done' : '' });
+    list.push({ key: 'dawn', text: 'Before dawn', meta: !over && w.tick < r.dawn ? `${mmss(r.dawn - w.tick)} left` : '', state: lost === 'dawn' ? 'fail' : 'rule' });
+  } else {
+    const aboard = NS.freed(w);
+    list.push({
+      key: 'aboard', text: `Bring at least ${r.target} people aboard: at each estate’s landing a ship sounds her horn, and its families come`,
+      meta: `${aboard}/${r.target}`, state: aboard >= r.target ? 'done' : lost === 'few' ? 'fail' : '',
+      items: r.quarters.map((q) => {
+        const l = r.landings[q.landing], stuck = r.families.some((f) => f.quarters === q.id && f.waiting);
+        const coming = q.left + r.families.filter((f) => f.quarters === q.id).reduce((n, f) => n + f.size, 0);
+        const meta = over ? '' : stuck ? 'stuck at the rift: lay bridge' : !q.called && l.parted ? 'behind a rift: lay bridge' : q.called && coming > 0 ? `${coming} on their way` : '';
+        return { text: l.name, meta, state: q.called && !stuck ? 'done' : stuck && !over && aboard < r.target ? 'now' : '' };
+      }),
+    });
+    list.push({ key: 'home', text: 'Fly the ships home to Windgate, then press Fly home', meta: !over && w.tick < r.noon ? `before midday: ${mmss(r.noon - w.tick)}` : '', state: r.verdict?.won ? 'done' : lost === 'few' ? 'fail' : '' });
+    const bridge = over || r.bridge.burned || r.battery.came ? '' : r.bridge.burning ? `burning, ${mmss(r.bridge.burning - w.tick)}` : `battery in ${mmss(r.battery.due - w.tick)}`;
+    list.push({ key: 'bridge', text: 'Bonus: burn the bridge at Ferry Isle before the Sun-lords’ battery crosses it', meta: bridge, state: r.bridge.burned ? 'done' : r.battery.came ? 'fail' : '' });
+  }
+  list.push({ key: 'hp', text: `Keep ${HERO} on his feet: below half he is knocked out`, meta: health, state: lost === 'down' ? 'fail' : 'rule' });
+  if (!r.verdict) {
+    const now = list.find((o) => o.key === focus && o.state === '') ?? list.find((o) => o.state === '');
+    if (now) now.state = 'now';
+  }
+  return list;
+}
+
+/** What to do next, in a sentence, and which objective that is (`of`); null once it is over. */
+export function nextStep(w = G.world) {
+  const r = w.raid, him = w.entities.get(r?.guide);
+  if (!r || r.verdict) return null;
+  const up = him?.kind === 'priest' && him.state === 'normal';
+  // a sentry's birds have risen, and he is near it
+  if (up && r.signs.size > 0 && w.tick >= r.disguise.until) {
+    return w.tick >= r.disguise.ready
+      ? { of: 'hp', text: 'Birds! A sentry is close. Press C for his disguise, then walk on past it.' }
+      : { of: 'hp', text: `Birds! A sentry is close, and his disguise is ready again in ${mmss(r.disguise.ready - w.tick)}: keep him out of its reach (Enemy range shows it) till then.` };
+  }
+  if (r.mission === 'scout') {
+    const left = r.quarters.filter((q) => !q.visited);
+    if (!left.length) return { of: 'cove', text: `Walk ${HERO} to the cove past Raven Bluff, at the east end of the north chain (blue marker): select him, then click the ground there.` };
+    // the quarters on his own chain first, the nearest of them
+    const mine = up ? left.filter((q) => chain(q.door[0], q.door[1]) === chain(him.x, him.y)) : [];
+    const pick = (mine.length ? mine : left).reduce((a, q) => (him && away(him, q.door) < away(him, a.door) ? q : a));
+    const cross = up && !mine.length ? ` It lies on the ${chain(pick.door[0], pick.door[1])} chain: cross on the Sun-lords’ bridge at Ferry Isle, far to the west.` : '';
+    return { of: 'quarters', text: `Walk ${HERO} to the ${pick.name} quarters (gold marker): select him, then click the ground by its door.${cross}` };
+  }
+  const ships = [...r.ships.values()].filter((b) => !b.snagged).map((b) => ({ b, t: w.entities.get(b.id) })).filter((s) => s.t);
+  const landingOf = (q) => r.landings[q.landing];
+  const standing = !r.bridge.burned && !r.bridge.burning && !r.battery.came;
+  const ferry = r.landings.find((l) => l.ferry), atFerry = standing && ships.find(({ t }) => NS.mooredAt(w, t) === ferry);
+  if (atFerry) return { of: 'bridge', text: `Select the ${atFerry.b.name} at Ferry Isle and press Burn the bridge on her card.` };
+  // enough aboard: home
+  if (NS.freed(w) >= r.target) return { of: 'home', text: 'Enough are aboard! Send both ships home to Windgate, in the east (select each, then click its landing), and press Fly home.' };
+  // families stuck at a rift
+  const stuck = r.quarters.find((q) => r.families.some((f) => f.quarters === q.id && f.waiting));
+  if (stuck) return { of: 'aboard', text: `The ${stuck.name} families cannot reach ${landingOf(stuck).name}: lay bridge across the rift. Pick a bridge piece below, then click it into place between the landing and their island.` };
+  // a ship tied up where nobody has been called yet
+  for (const { b, t } of ships) {
+    const at = NS.mooredAt(w, t), q = at && r.quarters.find((x) => x.landing === at.id && !x.called && x.left > 0);
+    if (q) return { of: 'aboard', text: `Select the ${b.name} at ${at.name} and press Sound the horn on her card.${at.parted ? ' Then lay bridge across the rift for the families.' : ''}` };
+  }
+  // a landing still to call: the nearest ship that is free of a crowd to it
+  const uncalled = r.quarters.filter((q) => !q.called);
+  const busy = (t) => { const at = NS.mooredAt(w, t); return !!at && (at.crowd > 0 || r.quarters.some((q) => q.landing === at.id && (q.left > 0 || r.families.some((f) => f.quarters === q.id)))); };
+  const free = ships.filter(({ b, t }) => b.aboard < b.capacity && !busy(t));
+  // the bridge at the ferry, a bonus, when the battery is near and a ship can be spared
+  if (standing && free.length && (r.battery.due - w.tick < 120 * TPS || !uncalled.length)) {
+    return { of: 'bridge', text: `Bonus: the Sun-lords’ battery comes in ${mmss(r.battery.due - w.tick)}. Send the ${free[0].b.name} to Ferry Isle, far to the west, and burn the bridge from her card.` };
+  }
+  if (uncalled.length && free.length) {
+    let best = null;
+    for (const s of free) for (const q of uncalled) { const d = away(s.t, landingOf(q).dock); if (!best || d < best.d) best = { s, q, d }; }
+    const l = landingOf(best.q);
+    return { of: 'aboard', text: `Send the ${best.s.b.name} to ${l.name}: select her, then click the landing.${l.parted ? ' A rift parts it from its estate: lay bridge across it too.' : ''}` };
+  }
+  const crowd = r.landings.filter((l) => l.crowd > 0).sort((a, b) => b.crowd - a.crowd)[0];
+  if (crowd && r.singing !== crowd.id && up) return { of: 'aboard', text: `Walk ${HERO} onto ${crowd.name}: while he sings there, the ${crowd.crowd} waiting board twice as fast.` };
+  return { of: 'aboard', text: 'The families are on their way to the ships: wait while they board, or send a ship on to the next landing.' };
+}
 
 /** His disguise, in the lines of the first person. */
 export function disguiseLine() {
@@ -70,42 +170,25 @@ export function disguiseLine() {
   return `<kbd>C</kbd> disguise: for ${NS.DISGUISE_SECONDS} s no sentry fires on him`;
 }
 
-/** The goal panel, as the raid stands. */
+/** The goal panel, as the raid stands: its objectives, the next step, and how things stand. */
 export function goal() {
   const w = G.world, r = w.raid;
   if (!r) return;
-  const him = w.entities.get(r.guide), lines = [];
-  let head;
-  const disguise = w.tick < r.disguise.until ? `in disguise, ${mmss(r.disguise.until - w.tick)} more`
-    : w.tick < r.disguise.ready ? `disguise again in ${mmss(r.disguise.ready - w.tick)}` : 'disguise ready (C)';
-  if (r.mission === 'scout') {
-    const seen = r.quarters.filter((q) => q.visited);
-    head = seen.length < r.quarters.length
-      ? `Quarters visited: ${seen.length} of ${r.quarters.length}. Still to go: ${r.quarters.filter((q) => !q.visited).map((q) => q.name).join(', ')}.`
-      : 'Every quarters has told him what it knows. Meet his scouts in the cove past Raven Bluff!';
-    lines.push(`Dawn in ${mmss(r.dawn - w.tick)} · sky mines found ${r.mines.filter((m) => m.known).length} of ${r.mines.length} · ${disguise}`);
-  } else {
-    const aboard = NS.freed(w), ships = [...r.ships.values()].filter((b) => !b.snagged);
-    head = `Aboard: ${aboard} of ${r.target} · ${ships.map((b) => `${b.name} ${b.aboard}/${b.capacity}`).join(' · ')}`;
-    const waiting = r.quarters.filter((q) => r.families.some((f) => f.quarters === q.id && f.waiting));
-    const uncalled = r.quarters.filter((q) => !q.called);
-    if (waiting.length) lines.push(`Waiting at the ${waiting.map((q) => q.name).join(' and ')} quarters: no way to the landing. Lay bridge across the rift.`);
-    else if (uncalled.length) lines.push(`Not yet called: ${uncalled.map((q) => q.name).join(', ')}. Tie a ship up at their landing and sound its horn.`);
-    const crowds = r.landings.filter((l) => l.crowd > 0);
-    if (crowds.length) lines.push(`On the landings: ${crowds.map((l) => `${l.crowd} at ${l.name}`).join(', ')}${r.singing >= 0 ? ` · ${HERO} sings at ${r.landings[r.singing].name}` : ''}`);
-    const dawn = w.tick < r.dawn ? `dawn in ${mmss(r.dawn - w.tick)}` : 'day';
-    const bridge = r.bridge.burned ? 'the bridge at the ferry burned' : r.bridge.burning ? `the bridge at the ferry burning (${mmss(r.bridge.burning - w.tick)})` : 'the bridge at the ferry standing';
-    const battery = r.battery.came ? 'the battery is at the ferry!' : r.battery.held ? 'the battery is held back' : r.bridge.burned ? '' : `battery in ${mmss(r.battery.due - w.tick)}`;
-    lines.push([dawn, bridge, battery, `midday in ${mmss(r.noon - w.tick)}`, disguise].filter(Boolean).join(' · '));
-  }
-  if (him?.kind === 'priest' && him.hp < him.hpMax * 0.75 && him.state === 'normal') lines.push(`${Hero} is hurt (${Math.ceil(him.hp)}/${him.hpMax}): below half he is knocked out.`);
-  if (r.verdict) {
-    head = r.verdict.won ? 'Won.' : 'Lost.';
-    lines.length = 0;
-  }
+  const step = nextStep(w);
   const h3 = $('goal')?.querySelector('h3');
   if (h3) h3.textContent = missionOf(r.mission)?.title ?? CAMPAIGN.title;
-  $('goalText').textContent = head;
+  showObjectives(objectives(w, step?.of), !r.verdict);
+  $('goalText').textContent = r.verdict ? (r.verdict.won ? 'Won.' : 'Lost.') : step?.text ?? '';
+  const disguise = w.tick < r.disguise.until ? `in disguise, ${mmss(r.disguise.until - w.tick)} more`
+    : w.tick < r.disguise.ready ? `disguise again in ${mmss(r.disguise.ready - w.tick)}` : 'disguise ready (C)';
+  const lines = [];
+  if (!r.verdict) {
+    if (r.mission === 'scout') lines.push(`Sky mines found ${r.mines.filter((m) => m.known).length} of ${r.mines.length} · ${disguise}`);
+    else {
+      const ships = [...r.ships.values()].filter((b) => !b.snagged).map((b) => `${b.name} ${b.aboard}/${b.capacity}`);
+      lines.push([...ships, w.tick < r.dawn ? `dawn in ${mmss(r.dawn - w.tick)}` : 'day', r.singing >= 0 ? `${HERO} sings at ${r.landings[r.singing].name}` : '', disguise].filter(Boolean).join(' · '));
+    }
+  }
   // the lines change as the clock runs; the button stays the same one, so that a click on it holds
   const sub = $('goalSub');
   let text = sub.querySelector('.lines'), home = $('raidHome');
@@ -119,7 +202,7 @@ export function goal() {
     text.dataset.html = html;
     text.innerHTML = html;
   }
-  if (r.mission === 'raid' && !r.verdict) {
+  if (r.mission === 'raid' && !r.verdict && NS.freed(w) >= r.target) {
     if (!home) {
       home = Object.assign(document.createElement('button'), { className: 'home', id: 'raidHome', textContent: 'Fly home', title: 'Every ship not snagged must be at Windgate' });
       home.onclick = () => submit({ t: 'raidHome' });
@@ -230,13 +313,14 @@ export function end(hud, verdict) {
   const r = G.world.raid, m = missionOf(G.raid);
   if (verdict.won) remember(G.raid, G.world);
   hud.sound.end(verdict.won);
-  const words = endText(G.raid, verdict, r.freed, r.target);
+  const words = endText(G.raid, verdict, r.freed, r.target, r.bridge.burned);
   const next = RAID_MISSIONS[RAID_MISSIONS.indexOf(m) + 1];
   const buttons = [{ label: 'Keep looking', act: () => hud.closeModal() }, { label: 'Main menu', act: () => hud.game.start(G.setup, { menu: true }) }];
   if (!verdict.won) buttons.push({ label: 'Try again', main: true, act: () => hud.game.start() });
   else if (next) buttons.push({ label: `Next: ${next.title}`, main: true, act: () => hud.game.start({ ...G.setup, mission: next.id }) });
   else buttons.push({ label: 'Epilogue', main: true, act: () => epilogue(hud) });
-  hud.modal(`<h2>${verdict.won ? escapeHtml(m.title) : `${escapeHtml(m.title)}: not this time`}</h2>${words.map((p) => `<p class="text">${escapeHtml(p)}</p>`).join('')}`, buttons);
+  hud.modal(`<h2>${verdict.won ? escapeHtml(m.title) : `${escapeHtml(m.title)}: not this time`}</h2>${words.map((p) => `<p class="text">${escapeHtml(p)}</p>`).join('')}
+    <h3 class="objectives-head">Objectives</h3><ol class="objectives">${objectivesHtml(objectives(G.world))}</ol>`, buttons);
 }
 
 /** The epilogue, and where the story comes from. */

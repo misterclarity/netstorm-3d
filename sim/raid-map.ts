@@ -446,6 +446,7 @@ export function createRaid(defs: DefTable, mission: RaidMission, level: RaidLeve
         dock: [0, 0],
         crowd: 0,
         boarding: 0,
+        parted: spec.parted,
         ferry: spec.ferry ?? false,
         home: spec.home ?? false,
       });

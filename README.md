@@ -31,7 +31,10 @@ campaign of its own:
   as fast where he sings; two landings are cut off by a rift until you lay bridge); the
   Sun-lords' bridge at Ferry Isle must burn before their battery crosses it after dawn, and the
   ships must be home by midday with enough people aboard. The second battle opens once the first
-  is won (the menu remembers it, and the mines found). Easy, normal or hard. Nobody is captured
+  is won (the menu remembers it, and the mines found). Each battle lists its objectives, in its
+  briefing and on the panel at the right as you play (✓ done, ▸ the one to work on, ✗ failed),
+  with the next step spelled out under them and a marker over each place they name. Easy, normal
+  or hard. Nobody is captured
   or sacrificed in this campaign, and the people who free themselves are no units: no gun aims
   at them, and they are counted only by the ships that take them aboard.
 - **Skirmish**: a random map from a seed, with your Fury and the enemy's (Wind, Rain or Thunder),
@@ -182,7 +185,8 @@ campaign of its own:
   hit), a tree, or a Residence's house (which stop it). Guns do not aim at a unit in cover. A gun
   a level or more above the unit fires down over cover, and flyers and Spells strike from above.
   The trees are the rules' own (`treeGrows`, `treeAt`), and the islands draw them where the rules
-  put them, so what you see is what covers.
+  put them, so what you see is what covers: in the rules a tree is the cell its trunk stands on,
+  though its crown, drawn twice the first size like the bushes', reaches over the cells about it.
 - **The weight of a hit** (always). The Sun and Thunder Cannons are **siege guns**: ×1.5 on
   buildings, ×0.5 on units. The Crossbow, the Disc Thrower and the Ice Cannon are **light guns**:
   ×0.75 on buildings. A hit on a walker riding a lift is the lift's, a building's. On tiered islands a gun hits 20% harder for each level its target stands below it and 20%
@@ -238,7 +242,10 @@ land, and cast a shadow on the ground beneath them.
 If something goes wrong, a small panel says so and the game keeps running. **Help** shows which
 build you are playing, and a notice offers to reload when a newer one has been published.
 
-A *Next step* card reads the state of the battle and tells you what to do next. **How to play**
+An *Objectives* card reads the state of the battle: it lists the battle's objectives (build a
+Workshop, Storm Power from geysers, bridge and guns in reach of the enemy Priest, an Altar, his
+capture and his sacrifice; ✓ done, ▸ the one to work on) and, under them, tells you what to do
+next. **How to play**
 (in the top bar, the main menu and the briefings) explains the game: the goal, Storm Power,
 bridges, building, fighting and capturing the enemy's Priest. **Help** in the top bar lists the
 controls: orbit by dragging, pan with right-drag or Shift-drag, zoom with the

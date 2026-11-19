@@ -68,6 +68,8 @@ export interface Landing {
   /** People on the landing, waiting for a ship; and the share of one person taken aboard so far. */
   crowd: number;
   boarding: number;
+  /** A rift two cells wide parts it from its estate: a bridge has to be laid for the people. */
+  parted: boolean;
   /** The landing by the bridge at the ferry, from which it can be burned. */
   ferry: boolean;
   /** The landing at the wind's mouth: where the ships set out from and come home to. */

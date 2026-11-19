@@ -89,6 +89,9 @@ const SCENARIOS = {
     const { page, errors } = await open();
     await startMission(page);
     await page.waitForTimeout(1500);
+    const objectives = () => page.evaluate(() => [...document.querySelectorAll('#goalList > li')].map((li) => `${li.className}:${li.firstChild.textContent.trim()}`));
+    const before = await objectives();
+    if (before.length !== 6 || before[0] !== 'now:Build a Sun Workshop') throw new Error(`the mission's objectives: ${before.join(' | ')}`);
     await page.evaluate(() => {
       const { G, game, NS } = window.NS3D, v = G.view, t = G.world.templeOf(1);
       const spot = (type) => {
@@ -132,6 +135,8 @@ const SCENARIOS = {
     if (!laid) throw new Error('no bridge piece could be laid');
     await fastForward(page, 300);
     await page.waitForTimeout(1500);
+    const after = await objectives();
+    if (!after[0].startsWith('done:') || !after[1].startsWith('done:') || !after.some((o) => o.startsWith('now:'))) throw new Error(`the mission's objectives, ticked: ${after.join(' | ')}`);
     const state = await page.evaluate(() => {
       const { G } = window.NS3D, all = [...G.view.entities.values()];
       return {
@@ -1833,8 +1838,16 @@ SCENARIOS.combahee = async () => {
   await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Sky Messages', null, { timeout: 20000 });
   const brief = await page.evaluate(() => document.getElementById('modal').innerText);
   if (!(await page.$('#modal a[href*="astro.com"]')) || /Tubman|Harriet|river/i.test(brief.replace(/Combahee River Raid/g, ''))) throw new Error(`the briefing: ${brief}`);
+  if ((await page.$$('#modal ol.objectives > li')).length !== 4) throw new Error('the briefing has no list of objectives');
   await page.click('#modal button.main');
   await page.waitForFunction(() => { const r = window.NS3D.G.world.raid; return r && document.getElementById('raid').components['ns-raid']?.built === r; }, null, { timeout: 30000 });
+  const listed = () => page.evaluate(() => ({
+    items: [...document.querySelectorAll('#goalList > li')].map((li) => `${li.className}:${li.firstChild.textContent.trim()}`),
+    next: document.getElementById('goalText').textContent,
+  }));
+  await page.waitForFunction(() => document.querySelectorAll('#goalList > li').length === 4, null, { timeout: 20000 });
+  const first = await listed();
+  if (!first.items[0].startsWith('now:Visit the quarters') || !/Amberfield quarters/.test(first.next)) throw new Error(`the scouting's objectives: ${JSON.stringify(first)}`);
   const him = await page.evaluate(() => {
     const { G, NS, game } = window.NS3D, p = G.world.priestOf(NS.ME);
     return { id: p.id, model: game.units().byId.get(p.id)?.components['ns-unit'].rep.model };
@@ -1864,9 +1877,15 @@ SCENARIOS.combahee = async () => {
   await page.waitForTimeout(1200);
   await shot('combahee-disguise');
   // the four quarters, and the cove
-  const scouted = await page.evaluate(() => {
+  await page.evaluate(() => {
     const { G, NS, stepWorld } = window.NS3D, w = G.world, r = w.raid, p = w.priestOf(NS.ME);
     for (const q of r.quarters) { Object.assign(p, { x: q.door[0], y: q.door[1], path: [] }); stepWorld(); }
+  });
+  await page.waitForFunction(() => document.querySelector('#goalList > li')?.className === 'done', null, { timeout: 20000 });
+  const toCove = await listed();
+  if (!toCove.items[1].startsWith('now:Then meet his scouts') || !/cove past Raven Bluff/.test(toCove.next)) throw new Error(`the scouting's objectives, quarters done: ${JSON.stringify(toCove)}`);
+  const scouted = await page.evaluate(() => {
+    const { G, NS, stepWorld } = window.NS3D, w = G.world, r = w.raid, p = w.priestOf(NS.ME);
     const known = r.mines.filter((m) => m.known).length;
     Object.assign(p, { x: r.cove.x + (r.cove.w >> 1), y: r.cove.y + (r.cove.h >> 1), path: [] });
     stepWorld();
@@ -1892,6 +1911,8 @@ SCENARIOS.combahee = async () => {
     return { swallow: swallow.id, rainbird: rainbird.id, known: r.mines.filter((m) => m.known).length, model: game.units().byId.get(swallow.id)?.components['ns-unit'].rep.model };
   });
   if (ships.known !== 6 || ships.model !== 'balloon') throw new Error(`the raid's start: ${JSON.stringify(ships)}`);
+  await page.waitForFunction(() => /^now:Bring at least/.test(`${document.querySelector('#goalList > li')?.className}:${document.querySelector('#goalList > li')?.firstChild.textContent}`), null, { timeout: 20000 });
+  if (await page.$('#raidHome')) throw new Error('Fly home is offered before enough are aboard');
   await fastForward(page, 150);
   // the known mines, floating in the wind, and a ship under way past them
   await page.evaluate(() => { const m = window.NS3D.G.world.raid.mines[1]; document.getElementById('camera').components['orbit-rig'].focus(window.NS3D.wx(m.x + 0.5), window.NS3D.wz(m.y + 0.5), 16); });
@@ -1979,7 +2000,7 @@ SCENARIOS.combahee = async () => {
   await page.click('#raidHome');
   await page.waitForFunction(() => document.querySelector('#modal button.main')?.textContent === 'Epilogue', null, { timeout: 20000 });
   const end = await page.evaluate(() => ({ verdict: window.NS3D.G.world.raid.verdict, text: document.getElementById('modal').innerText }));
-  if (!end.verdict?.won || !/people aboard/.test(end.text)) throw new Error(`the raid's end: ${JSON.stringify(end)}`);
+  if (!end.verdict?.won || !/people aboard/.test(end.text) || (await page.$$('#modal ol.objectives li.done')).length < 2) throw new Error(`the raid's end: ${JSON.stringify(end)}`);
   await page.click('#modal button.main');
   await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Mercury Returns', null, { timeout: 20000 });
   if (!(await page.$('#modal ul.credits a[href*="astro.com"]'))) throw new Error('the epilogue does not link its source');
@@ -1987,7 +2008,7 @@ SCENARIOS.combahee = async () => {
   for (const s of ['raid:horn', 'raid:song', 'explosion', 'bridgefall']) if (!heard.includes(s)) throw new Error(`no ${s} sound: ${heard.join(' ')}`);
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('netstorm-3d:combahee')));
   if (!saved.done.includes('scout') || !saved.done.includes('raid') || saved.known.length !== 6) throw new Error(`the campaign's progress: ${JSON.stringify(saved)}`);
-  console.log(`  scouted: birds over the sentry, disguised in a veil, four quarters, six mines, the cove; the raid: ${song.walking} families walking to Amberfield landing, his song, a shell at the mill, a mine struck, the bridge burned, home; the epilogue`);
+  console.log(`  objectives listed and ticked; scouted: birds over the sentry, disguised in a veil, four quarters, six mines, the cove; the raid: ${song.walking} families walking to Amberfield landing, his song, a shell at the mill, a mine struck, the bridge burned, home; the epilogue`);
   return errors;
 };
 

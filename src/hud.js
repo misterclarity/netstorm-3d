@@ -4,6 +4,7 @@
  */
 import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, facingText, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml, PLAY, setPlay } from './state.js';
 import * as RAID from './raid-hud.js';
+import { showObjectives } from './objectives.js';
 import { needOf, needText, iconsHtml, iconName, sourceOf } from './energy.js';
 import { submit, SKIRMISH_DEFAULTS } from './game.js';
 import { modelKind } from './models.js';
@@ -593,10 +594,34 @@ export class Hud {
       sub = `He stands near his Temple${toward ? ` to the ${toward}` : ''}. Guns shoot what is in range on their own.`;
     }
     if (me.storm < 400 && !has((e) => e.kind === 'transport' && e.goal !== 'idle')) sub = 'Low on Storm Power: send Golems to geysers.';
+    const won = G.ended && (NS.outcome(w, ME) === 'won' || G.raised.has('badteamdead'));
     if (G.ended) {
-      goal = NS.outcome(w, ME) === 'won' || G.raised.has('badteamdead') ? 'Victory!' : 'The battle is lost.';
+      goal = won ? 'Victory!' : 'The battle is lost.';
       sub = 'Press Restart to play again, or go back to the main menu.';
     }
+    // the battle's objectives, a list above the next step (objectives.js): the first three, once
+    // done, stay done; the rest are as things stand (an Altar can fall, a captive be freed)
+    if (this.tickedFor !== w) {
+      this.tickedFor = w;
+      this.ticked = new Set();
+    }
+    const steps = [
+      ['shop', `Build a ${shopName}`, !!sunShop && !sunShop.rising, true],
+      ['storm', 'Send a Golem to a geyser for Storm Power', has((e) => e.kind === 'transport' && e.goal !== 'idle'), true],
+      ['guns', `Lay bridge toward the enemy and build ${gunName}s in reach of his Priest`, reaches || ['down', 'carried', 'chained'].includes(foe?.state), true],
+      ['altar', 'Build an Altar', has((e) => def(e)?.cls === 'Altar' && !e.rising), false],
+      ['capture', 'Knock out the enemy Priest and carry him to your Altar', foe?.state === 'chained', false],
+      ['sacrifice', 'Sacrifice him at your Altar', won, false],
+    ];
+    for (const [key, , done, stays] of steps) if (stays && done) this.ticked.add(key);
+    const list = steps.map(([key, text, done]) => ({
+      text, state: won || done || this.ticked.has(key) ? 'done' : '',
+      meta: key === 'sacrifice' && foe?.state === 'chained' ? `${foe.runes}/5 runes` : '',
+    }));
+    const now = list.find((o) => !o.state);
+    if (now) now.state = G.ended ? 'fail' : 'now';
+    $('goal').querySelector('h3').textContent = G.mission ? 'Mission objectives' : 'Objectives';
+    showObjectives(list, !G.ended);
     $('goalText').textContent = goal;
     $('goalSub').textContent = sub;
   }
