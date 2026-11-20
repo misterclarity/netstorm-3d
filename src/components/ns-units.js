@@ -2,12 +2,15 @@
  * Everything on the battlefield as A-Frame entities. `ns-units` keeps one child
  * <a-entity ns-unit="id: N"> for each entity of the world (buildings, transports, flyers, priests,
  * crystals, geysers) and one <a-entity ns-residence> for each Residence; `ns-unit` draws its entity
- * as a model or a sprite card, moves it smoothly from cell to cell and shows its health.
+ * as a model or a sprite card, moves it smoothly from cell to cell and shows its health. What the
+ * fog of war hides from the player (src/fog.js) is not drawn: neither it nor its health bar, light
+ * or explosion.
  */
 import { G, NS, ART, TPS, PX, FACING_YAW, wx, wz, origin, playerTheme, defs, hash } from '../state.js';
 import { HEIGHTS, groundAt, flyAt, rideOf } from '../heights.js';
 import { nightness } from './ns-sun.js';
 import { MODELS, heightOf, modelKind, spriteKey, cargoModel, part, ico, glow, bake } from '../models.js';
+import { seenEntity, seenArea } from '../fog.js';
 
 /** The Disc Thrower's arm (models.js): its hook lies this far round from the arm's line, and its
  * spring winds it round this many times before each throw (rules/guns.ts: "about four"). */
@@ -147,7 +150,8 @@ AFRAME.registerComponent('ns-units', {
     for (const [id, el] of this.byId) {
       if (G.view.entities.has(id)) continue;
       const rep = el.components['ns-unit']?.rep;
-      if (game.destroyed.has(id) && rep) game.effects()?.explode(rep, el.object3D.position);
+      // (one the fog hid goes without a blast)
+      if (game.destroyed.has(id) && rep && el.object3D.visible) game.effects()?.explode(rep, el.object3D.position);
       el.parentNode?.removeChild(el);
       this.byId.delete(id);
       for (const h of this.halos) if (h.id === id) this.dim(h);
@@ -191,6 +195,8 @@ AFRAME.registerComponent('ns-unit', {
     this.pos = null;
     this.art = this.el.sceneEl.systems['ns-art'];
     if (e) this.place(e, 16, true);
+    // (not drawn for a frame where the fog hides it)
+    this.el.object3D.visible = !e || seenEntity(G.world, e);
   },
 
   /** Everything else it uses is shared (bake(), cardParts(), barParts(), ns-art's frames). */
@@ -270,6 +276,19 @@ AFRAME.registerComponent('ns-unit', {
   tick(t, dt) {
     const e = G.view?.entities.get(this.data.id);
     if (!e) return;
+    // hidden by the fog of war (src/fog.js): not drawn; seen again, it stands where it is
+    const seen = seenEntity(G.world, e);
+    if (seen !== this.el.object3D.visible) {
+      this.el.object3D.visible = seen;
+      if (seen) this.place(e, dt, true);
+    }
+    if (!seen) {
+      if (e.kind === 'priest') {
+        const halo = this.el.parentEl?.components['ns-units']?.halos.find((h) => h.id === e.id);
+        if (halo) halo.light.intensity = 0;
+      }
+      return;
+    }
     const rep = this.rep, s = t / 1000;
     this.place(e, dt);
     let visible = true;
@@ -589,6 +608,7 @@ AFRAME.registerComponent('ns-residence', {
   init() {
     const { x, y } = this.data, foot = NS.RESIDENCE_FOOT;
     this.el.object3D.position.set(wx(x + foot / 2), groundAt(x + 0.5, y + 0.5), wz(y + foot / 2));
+    this.el.object3D.visible = seenArea(x, y, foot, foot);
     this.art = this.el.sceneEl.systems['ns-art'];
     this.front = foot / 2 - 0.15;
   },
@@ -603,6 +623,9 @@ AFRAME.registerComponent('ns-residence', {
   },
 
   tick(t) {
+    // under the fog of war until its ground is explored (src/fog.js)
+    this.el.object3D.visible = seenArea(this.data.x, this.data.y, NS.RESIDENCE_FOOT, NS.RESIDENCE_FOOT);
+    if (!this.el.object3D.visible) return;
     const owner = G.view?.owner[this.data.y * NS.W + this.data.x] ?? 0, theme = owner ? playerTheme(owner) : 'sun';
     if (theme !== this.theme) this.build(theme);
     const key = `residence:${theme}`;

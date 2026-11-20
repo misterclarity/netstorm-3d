@@ -13,6 +13,7 @@ import { toScene } from './space.js';
 import { SPELL_MODES, SPELL_IDS, spellText, spellName } from './spells.js';
 import { HEIGHTS, LEVEL_NAMES } from './heights.js';
 import { loadSettings, saveSettings, NIGHT_REACH } from './settings.js';
+import { SIGHT } from './fog.js';
 import { MOON_ICON, moonName, reachText, furyText, hitText, classText, cutFor } from './moon.js';
 
 const $ = (id) => document.getElementById(id);
@@ -725,15 +726,19 @@ export class Hud {
     };
   }
 
-  /** Settings: rules a game takes as it starts (src/settings.js); `back` returns to where it was opened. */
+  /** Settings a game takes as it starts (src/settings.js); `back` returns to where it was opened. */
   settings(back) {
     const s = loadSettings(), share = (n) => (n ? `−${n}%` : 'as by day') + (n === 25 ? ' (default)' : '');
     this.modal(`<h2>Settings</h2>
-      <p class="text">These are rules: they hold from the next game you start.</p>
+      <p class="text">These hold from the next game you start.</p>
       <div class="form">
+        <label>Fog of war <select id="stFog"><option value="on" ${s.fog ? 'selected' : ''}>On</option><option value="off" ${s.fog ? '' : 'selected'}>Off</option></select></label>
         <label>Day and night <select id="stNights"><option value="on" ${s.nights ? 'selected' : ''}>On</option><option value="off" ${s.nights ? '' : 'selected'}>Off</option></select></label>
         <label>Guns' reach at night <select id="stNightReach">${NIGHT_REACH.map((n) => `<option value="${n}" ${n === s.nightReach ? 'selected' : ''}>${share(n)}</option>`).join('')}</select></label>
       </div>
+      <p class="level">With the fog of war, the islands you have not explored lie under cloud, and what stands on them is
+        hidden until your Priest, carriers, buildings or bridges come within sight; what you have explored stays in view. A
+        gun that fires on you is seen. Only your view is fogged: the computer opponent plays as before.</p>
       <p class="level">A day lasts ${NS.DAY_SECONDS / 60} minutes and a night ${NS.NIGHT_SECONDS / 60}, from a morning at the start of the battle. At night
         guns reach less far: the setting is how much under a new moon; a quarter moon takes three quarters of that, the full
         moon half, the Sun's guns lose more and Thunder's none (rings show how far). The moon also strengthens Rain, the
@@ -742,7 +747,7 @@ export class Hud {
       label: 'Save', main: true,
       act: () => {
         const box = $('modalBox');
-        saveSettings({ nights: box.querySelector('#stNights').value === 'on', nightReach: Number(box.querySelector('#stNightReach').value) });
+        saveSettings({ fog: box.querySelector('#stFog').value === 'on', nights: box.querySelector('#stNights').value === 'on', nightReach: Number(box.querySelector('#stNightReach').value) });
         back();
       },
     }]);
@@ -895,6 +900,13 @@ export class Hud {
         for each level down; not at flyers, nor the Disc Thrower. A Priest has a ward: no single hit takes more
         than ${NS.PRIEST_WARD} off him, so no one shot knocks him out. Select a gun of yours and point at an enemy:
         the tip says what its hits are multiplied by.</p>
+      <h3>Fog of war</h3>
+      <p>Unless it is turned off in Settings, a battle begins with only your home island explored, and the islets
+        just off its shore. The rest of the islands lie under cloud, and what is on ground you have not explored is
+        hidden, on the minimap too. The cloud lifts wherever something of yours comes within sight: your Priest
+        ${SIGHT.priest} cells, a Golem ${SIGHT.ground}, an air ship ${SIGHT.air}, a flyer ${SIGHT.flyer}, a building
+        ${SIGHT.building} past its edge, each cell of your bridges ${SIGHT.bridge}. What you have explored stays in view.
+        A gun that fires on yours is seen, and the ground where your shot lands. The computer opponent is not fogged.</p>
       <h3>Day and night</h3>
       <p>Unless it is turned off in Settings, a day of ${NS.DAY_SECONDS / 60} minutes follows the start of the battle,
         then a night of ${NS.NIGHT_SECONDS / 60}, and so on; the clock by the Storm Power says which, how long until

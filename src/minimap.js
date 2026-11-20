@@ -1,10 +1,14 @@
 /**
  * The minimap: the islands and bridges, everything on them and what the camera sees, drawn on a
  * canvas in the corner. Click or drag on it to look there. Its buttons (and keys H, P, F) jump to
- * your Temple or Priest, or keep the camera on the selected unit.
+ * your Temple or Priest, or keep the camera on the selected unit. Under the fog of war
+ * (src/fog.js), island ground not yet explored is cloud, and what the fog hides is not drawn.
  */
 import { G, ME, WORLD, OWNER_COLOR, FURY_COLOR, origin, wx, wz, playerTheme } from './state.js';
 import { groundPoint, lookAtCell, unit } from './space.js';
+import { FOG, seenEntity } from './fog.js';
+
+const CLOUD = '#aeb8c6';
 
 const { THREE } = AFRAME;
 const SIZE = 190;
@@ -88,8 +92,9 @@ export class Minimap {
         if (x < 0 || y < 0 || x >= WORLD || y >= WORLD) continue;
         const i = y * WORLD + x, t = v.terrain[i];
         if (!t) continue;
-        const owner = v.owner[i];
-        g.fillStyle = t >= 2 && t <= 4 ? '#8a5a34' : owner ? shade(FURY_COLOR[playerTheme(owner)], 0.55) : '#6f7a5a';
+        const owner = v.owner[i], bridge = t >= 2 && t <= 4;
+        if (FOG.on && !FOG.seen[i] && bridge) continue;
+        g.fillStyle = FOG.on && !FOG.seen[i] ? CLOUD : bridge ? '#8a5a34' : owner ? shade(FURY_COLOR[playerTheme(owner)], 0.55) : '#6f7a5a';
         g.fillRect((x - this.x0) * s, (y - this.y0) * s, Math.ceil(s), Math.ceil(s));
       }
     }
@@ -97,9 +102,10 @@ export class Minimap {
 
   draw() {
     if (!G.view || this.canvas.offsetParent === null) return;
-    if (this.revision !== G.view.terrainRevision || this.world !== G.world) {
+    if (this.revision !== G.view.terrainRevision || this.world !== G.world || this.fogRev !== FOG.revision) {
       this.revision = G.view.terrainRevision;
       this.world = G.world;
+      this.fogRev = FOG.revision;
       this.drawBase();
     }
     const g = this.ctx, s = SIZE / this.span;
@@ -107,6 +113,7 @@ export class Minimap {
     g.clearRect(0, 0, SIZE, SIZE);
     g.drawImage(this.base, 0, 0);
     for (const e of G.view.entities.values()) {
+      if (!seenEntity(G.world, e)) continue;
       if (e.kind === 'geyser') {
         if (e.stock > 0) { g.fillStyle = '#bff4ff'; g.fillRect(px(e.x) - 1, py(e.y) - 1, 3, 3); }
         continue;

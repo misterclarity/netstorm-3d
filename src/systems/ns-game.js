@@ -15,6 +15,7 @@ import { energyAt, missingAdvice } from '../energy.js';
 import { spellName } from '../spells.js';
 import { MOON_ICON, moonName, reachText, furyText, hitText } from '../moon.js';
 import { reachOf } from '../reach.js';
+import { FOG, seenAt, seenArea, seenEntity } from '../fog.js';
 import * as models from '../models.js';
 import * as RAID from '../raid-hud.js';
 
@@ -25,7 +26,7 @@ AFRAME.registerSystem('ns-game', {
     this.destroyed = new Set();
     this.raycaster = new THREE.Raycaster();
     // handles for tests and the console
-    window.NS3D = { G, NS, origin, wx, wz, game: this, stepWorld, flushPendingAi, submit, models, HEIGHTS, groundAt, groundCell, snapPiece, openEnds, reachOf, hitText };
+    window.NS3D = { G, NS, origin, wx, wz, game: this, stepWorld, flushPendingAi, submit, models, HEIGHTS, groundAt, groundCell, snapPiece, openEnds, reachOf, hitText, FOG, seenEntity };
     this.el.addEventListener('loaded', () => {
       this.hud = new Hud(this);
       this.minimap = new Minimap(this);
@@ -278,7 +279,7 @@ AFRAME.registerSystem('ns-game', {
         }
         case 'cast': {
           const at = positionOf(ev.data.transport);
-          if (at) fx?.cast(at, ev.data.spell);
+          if (at && seenEntity(G.world, G.view.entities.get(ev.data.transport))) fx?.cast(at, ev.data.spell);
           hud.log(mine ? `Your ${spellName(ev.data.spell)} went off` : `The enemy cast the ${spellName(ev.data.spell)}`, mine ? 'good' : 'bad');
           break;
         }
@@ -293,7 +294,7 @@ AFRAME.registerSystem('ns-game', {
         case 'upgrade': if (mine) hud.log(`Workshop upgraded to level ${ev.data.level + 1}`, 'good'); break;
         case 'salvaged': {
           const el = this.units()?.byId.get(ev.data.id);
-          if (el) fx?.puff(el.object3D.position.clone().add(new THREE.Vector3(0, 1, 0)), '#cfe8ff', 2, 0.6);
+          if (el?.object3D.visible) fx?.puff(el.object3D.position.clone().add(new THREE.Vector3(0, 1, 0)), '#cfe8ff', 2, 0.6);
           if (mine) hud.toast(`Salvaged: +${ev.data.refund} Storm Power`, 'good');
           break;
         }
@@ -339,7 +340,7 @@ AFRAME.registerSystem('ns-game', {
           if (ev.data.start) hud.toast(mine ? `Your Golem is setting a charge under the Altar: ${NS.SAP_SECONDS} s by the portal` : 'An enemy Golem at your dungeon’s portal is setting a charge under your Altar!', mine ? 'good' : 'bad');
           else if (ev.data.broken) hud.toast(mine ? 'The charge was not set: your Golem left the portal' : 'The charge under your Altar was not set');
           else if (ev.data.blast) {
-            fx?.explode({ kind: 'building', foot: [3] }, new THREE.Vector3(wx(ev.data.x + 1), groundAt(ev.data.x + 1, ev.data.y + 1), wz(ev.data.y + 1)));
+            if (seenArea(ev.data.x, ev.data.y, 2, 2)) fx?.explode({ kind: 'building', foot: [3] }, new THREE.Vector3(wx(ev.data.x + 1), groundAt(ev.data.x + 1, ev.data.y + 1), wz(ev.data.y + 1)));
             hud.toast(mine ? 'The charge went off under the Altar: your Priest is free, but knocked out. Fetch him!' : 'A charge went off under your Altar: the captive is thrown clear', mine ? 'good' : 'bad');
           }
           break;
@@ -347,7 +348,7 @@ AFRAME.registerSystem('ns-game', {
         case 'lift destroyed': {
           const { x, y, nx, ny } = ev.data, mx = (x + nx) / 2 + 0.5, my = (y + ny) / 2 + 0.5;
           const h = (groundAt(x + 0.5, y + 0.5) + groundAt(nx + 0.5, ny + 0.5)) / 2;
-          fx?.explode({ kind: 'building', foot: [3] }, new THREE.Vector3(wx(mx), h, wz(my)));
+          if (seenArea(Math.min(x, nx), Math.min(y, ny), Math.abs(x - nx) + 1, Math.abs(y - ny) + 1)) fx?.explode({ kind: 'building', foot: [3] }, new THREE.Vector3(wx(mx), h, wz(my)));
           hud.log(mine ? 'Your lift burst under fire, and its bridge fell' : 'An enemy lift burst, and its bridge fell', mine ? 'bad' : 'good');
           break;
         }
@@ -572,7 +573,7 @@ AFRAME.registerSystem('ns-game', {
     const units = this.units();
     let best = null, near = Infinity;
     for (const e of G.view.entities.values()) {
-      if (e.kind !== 'transport' || !NS.flies(defs.get(e.type))) continue;
+      if (e.kind !== 'transport' || !NS.flies(defs.get(e.type)) || !seenEntity(G.world, e)) continue;
       const el = units?.byId.get(e.id);
       if (!el) continue;
       AIR_BOX.setFromObject(el.object3D).expandByScalar(0.25 * unit());
@@ -596,7 +597,7 @@ AFRAME.registerSystem('ns-game', {
     let best = null, near = Infinity;
     for (const e of G.view.entities.values()) {
       const geyser = e.kind === 'geyser' && e.stock > 0, crystal = e.kind === 'crystal' && e.carriedBy === null;
-      if (!geyser && !crystal) continue;
+      if ((!geyser && !crystal) || !seenEntity(G.world, e)) continue;
       const el = units?.byId.get(e.id);
       if (!el) continue;
       const p = el.object3D.position, r = geyser ? 1.1 : 0.75, h = geyser ? Math.max(3.5, el.components['ns-unit']?.rep?.height ?? 0) : 1.4;
@@ -644,7 +645,8 @@ AFRAME.registerSystem('ns-game', {
       if (!shift) this.setTool({ kind: 'select' });
       return;
     }
-    const target = picked ?? NS.entityAt(G.view, x, y);
+    // (what the fog of war hides is not there to click: src/fog.js)
+    const target = picked ?? seenAt(G.world, x, y);
     // Shift and a click on a carrier of yours: it joins those selected, or leaves them
     if (shift && this.isCarrier(target)) {
       const ids = this.selectedIds().filter((id) => this.isCarrier(G.view.entities.get(id)));
@@ -755,7 +757,7 @@ AFRAME.registerSystem('ns-game', {
     if (!t || !w.templeOf(ME)) return null;
     const working = new Map();
     for (const e of w.entities.values()) if (e.kind === 'transport' && e.owner === ME && e.goal === 'collect') working.set(e.target, (working.get(e.target) ?? 0) + 1);
-    const near = [...w.entities.values()].filter((e) => e.kind === 'geyser' && e.stock > 0)
+    const near = [...w.entities.values()].filter((e) => e.kind === 'geyser' && e.stock > 0 && seenEntity(w, e))
       .sort((a, b) => Math.hypot(a.x - t.x, a.y - t.y) - Math.hypot(b.x - t.x, b.y - t.y)).slice(0, 6);
     let best = null, score = Infinity;
     for (const g of near) {

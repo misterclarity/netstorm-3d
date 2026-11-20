@@ -7,6 +7,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import * as NS from '../src/engine.js';
 import DATA from '../build/game-data.json';
+import { FOG, SIGHT, startFog, stepFog, seenCell, seenEntity, seenAt, raidKnown } from '../src/fog.js';
 
 const fail = (why) => { console.error(`check failed: ${why}`); process.exit(1); };
 const defs = NS.loadDefs(DATA.units);
@@ -1236,6 +1237,80 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     if (!p.raid.bridge.burned || !pt.path.length || west >= Math.min(...p.raid.bridge.cells.map(([x]) => x)) || west < p.raid.pilings) fail(`a ship sent up the wind past the burned bridge: as far west as ${west}, the stakes at ${p.raid.pilings}`);
   }
   console.log('the Combahee Raid: the scouting (a new moon, the quarters tell him of the sky mines, the cove, dawn; birds before a sentry, a disguise, knocked out); the raid (the full moon, the wind\'s strong middle past known mines, the Sentinel snagged, horns, families on foot, singing, a parted landing and its bridge, pieces from the landings, the bridge at the ferry burned, the battery held or come, home won or lost, a mine not known, no ship brought down, no prayer; the first estate wary, a warden fleeing from the volunteers and from him, a clinging crowd calmed by his song, two riders and the believed alarm, a mill counted, the stakes)');
+}
+
+// The fog of war (src/fog.js): what the player has explored, and what it hides from the player.
+{
+  const base = { ...NS.DEFAULT_OPTIONS, lang: 'en', difficulty: 'normal' };
+  const w = NS.createMatchWorld(defs, DATA.maps, DATA.missions, { ...base, mode: 'skirmish', opponent: 'ai', theme: 'wind', enemyTheme: 'rain', islands: 4, storm: 2000, seed: 42, spells: 'none' }, { known: [], altarLevel: 1 });
+  const W = NS.W, mine = w.templeOf(NS.ME), foe = w.templeOf(2), mp = w.priestOf(NS.ME);
+  startFog(w, true);
+  // the home island is explored whole from the start; the enemy's Temple is not, and is hidden
+  let ground = 0, groundSeen = 0;
+  for (let i = 0; i < W * W; i++) if (w.owner[i] === NS.ME && w.terrain[i] === 1) { ground++; groundSeen += FOG.seen[i]; }
+  if (!ground || groundSeen !== ground) fail(`fog: ${groundSeen} of the home island's ${ground} cells explored`);
+  // and the ground just off its shore (the islets of its geysers)
+  let shore = 0, shoreSeen = 0;
+  for (let i = W; i < W * W - W; i++) {
+    if (w.terrain[i] !== 1 || w.owner[i] === NS.ME) continue;
+    if ([i + 1, i - 1, i + W, i - W].some((j) => w.terrain[j] === 1 && w.owner[j] === NS.ME)) { shore++; shoreSeen += FOG.seen[i]; }
+  }
+  if (!shore || shoreSeen !== shore) fail(`fog: ${shoreSeen} of the ${shore} cells off the home island's shore explored`);
+  if (seenEntity(w, foe) || seenAt(w, foe.x, foe.y) || NS.entityAt(w, foe.x, foe.y)?.id !== foe.id) fail('fog: the enemy Temple seen from the start');
+  if (!seenEntity(w, mine) || seenAt(w, mine.x, mine.y)?.id !== mine.id) fail('fog: the player\'s own Temple hidden');
+  const geysers = [...w.entities.values()].filter((e) => e.kind === 'geyser');
+  const homeGeyser = geysers.find((g) => w.owner[g.y * W + g.x] === NS.ME);
+  if (!geysers.some((g) => !seenEntity(w, g)) || (homeGeyser && !seenEntity(w, homeGeyser))) fail('fog: geysers hidden and seen wrongly at the start');
+  // his sight: the Priest set down by the enemy Temple sees it, as far as SIGHT.priest and no further
+  const was = [mp.x, mp.y], counted = FOG.count, rev = FOG.revision;
+  Object.assign(mp, { x: foe.x - 6, y: foe.y + 1 });
+  stepFog(w);
+  if (!seenEntity(w, foe) || seenAt(w, foe.x, foe.y)?.id !== foe.id || FOG.revision === rev || FOG.count <= counted) fail('fog: the Priest beside the enemy Temple did not see it');
+  if (!seenCell(mp.x - SIGHT.priest + 1, mp.y) || seenCell(mp.x - SIGHT.priest - 1, mp.y)) fail(`fog: his sight is not ${SIGHT.priest} cells`);
+  // what was explored stays explored after he has gone
+  Object.assign(mp, { x: was[0], y: was[1] });
+  stepFog(w);
+  if (!seenEntity(w, foe)) fail('fog: explored ground fogged again');
+  // a bridge laid explores SIGHT.bridge about each of its cells: a cell of open sky far from anything seen
+  let sky = -1;
+  for (let i = 0; i < W * W && sky < 0; i++) {
+    const x = i % W, y = (i / W) | 0;
+    if (x < 12 || y < 12 || x > W - 12 || y > W - 12 || w.terrain[i]) continue;
+    let clear = true;
+    for (let dy = -8; dy <= 8 && clear; dy++) for (let dx = -8; dx <= 8 && clear; dx++) clear = !FOG.seen[(y + dy) * W + x + dx] && !w.terrain[(y + dy) * W + x + dx];
+    if (clear) sky = i;
+  }
+  const bx = sky % W, by = (sky / W) | 0;
+  w.terrain[sky] = 2;
+  w.owner[sky] = NS.ME;
+  w.terrainRevision++;
+  stepFog(w);
+  if (sky < 0 || !seenCell(bx + SIGHT.bridge, by) || !seenCell(bx, by - SIGHT.bridge) || seenCell(bx + SIGHT.bridge + 1, by)) fail(`fog: a bridge cell did not explore ${SIGHT.bridge} cells about it`);
+  w.terrain[sky] = 0;
+  w.owner[sky] = 0;
+  w.terrainRevision++;
+  // a gun firing on what is the player's is seen; where the player's own shot lands is seen about
+  startFog(w, true);
+  w.shots.push({ gun: foe, target: mine.id, x: mine.x, y: mine.y, leave: w.tick, land: w.tick + 5 });
+  stepFog(w);
+  if (!seenEntity(w, foe) || !seenCell(foe.x - SIGHT.firing, foe.y) || seenCell(foe.x - SIGHT.firing - 2, foe.y + 2)) fail('fog: a gun firing on the player stayed hidden');
+  w.shots.pop();
+  startFog(w, true);
+  w.shots.push({ gun: mine, target: foe.id, x: foe.x + 3, y: foe.y + 2, leave: w.tick, land: w.tick + 5 });
+  stepFog(w);
+  if (!seenCell(foe.x + 3 + SIGHT.struck, foe.y + 2) || seenCell(foe.x + 3 + SIGHT.struck + 1, foe.y + 2)) fail('fog: where the player\'s shot landed is not seen about');
+  w.shots.pop();
+  // without the fog everything is seen and picked
+  startFog(w, false);
+  if (!seenEntity(w, foe) || !seenCell(0, 0) || seenAt(w, foe.x, foe.y)?.id !== foe.id || geysers.some((g) => !seenEntity(w, g))) fail('fog: off, something is still hidden');
+  // the raid: the estates' quarters and landings are known from the scouting; the Sun-lords' sentries and mills away from them are not
+  const rw = NS.createRaid(defs, 'raid', 'normal', []);
+  startFog(rw, true, raidKnown(rw));
+  if (!rw.raid.quarters.every((q) => seenCell(q.door[0], q.door[1])) || !rw.raid.landings.every((l) => seenCell(l.dock[0], l.dock[1]) || seenCell(l.x, l.y))) fail('fog: the raid begins with an estate unknown');
+  const hid = [...rw.entities.values()].filter((e) => e.kind === 'building' && e.owner !== NS.ME && !seenEntity(rw, e)).length;
+  if (!hid) fail('fog: every building of the Sun-lords in sight as the raid begins');
+  startFog(rw, false);
+  console.log(`fog of war: the home island and its shore explored and the enemy Temple hidden at the start, his sight of ${SIGHT.priest} cells, explored staying explored, a bridge's ${SIGHT.bridge}, a gun firing on the player seen, a shot's landing seen about, off with the setting; the raid: the estates known, ${hid} buildings of the Sun-lords hidden`);
 }
 
 // Every name of the engine that the client's code uses is one the engine has (one was not: the

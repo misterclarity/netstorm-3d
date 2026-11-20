@@ -5,10 +5,12 @@
  * further a cell lies from the sky, with a few spikes under the larger islands. With tiered islands
  * (heights.js) each stands on its level, a cliff where it meets lower ground, the bridges are laid
  * flat on theirs, and where a bridge joins another level a lift stands, its car riding up and down
- * with whoever rides it.
+ * with whoever rides it. A bridge or a lift the player has not explored (the fog of war, src/fog.js)
+ * is not drawn until it is.
  */
 import { G, NS, WORLD, FURY_TILES, GROUND_PAINT, wx, wz, hash, playerTheme } from '../state.js';
 import { HEIGHTS, heightOfCell } from '../heights.js';
+import { FOG, seenCell } from '../fog.js';
 
 const { THREE } = AFRAME;
 
@@ -306,7 +308,8 @@ AFRAME.registerComponent('ns-terrain', {
   buildLifts() {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
     const flat = new THREE.Quaternion(), wheelTurn = new THREE.Quaternion();
-    const lifts = HEIGHTS.on ? HEIGHTS.lifts.slice(0, 200) : [];
+    const lifts = HEIGHTS.on ? HEIGHTS.lifts.filter((l) => seenCell(Math.floor(l.x), Math.floor(l.y))).slice(0, 200) : [];
+    if (HEIGHTS.on && lifts.length < Math.min(200, HEIGHTS.lifts.length)) this.fogged = true;
     let n = 0, band = 0;
     for (const lift of lifts) {
       const cx = wx(lift.x), cz = wz(lift.y), tall = lift.high - lift.low + 1.6, mid = lift.low - 0.3 + tall / 2;
@@ -413,6 +416,11 @@ AFRAME.registerComponent('ns-terrain', {
   },
 
   tick(t, dt) {
+    // what the fog hid, drawn as it is explored (a few times a second at most)
+    if (this.fogged && this.fogRev !== FOG.revision && t - (this.fogAt ?? 0) > 300) {
+      this.fogAt = t;
+      this.buildBridges();
+    }
     if (this.liftsShown?.length) this.moveCars(Math.min(dt, 100));
     if (this.liftsShown?.length || this.bars?.size) this.liftBars();
     this.lastFrame = t;
@@ -427,10 +435,13 @@ AFRAME.registerComponent('ns-terrain', {
     const turn = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0)), none = new THREE.Quaternion();
     const whole = new THREE.Color('#ffffff'), cracked = new THREE.Color('#a07a5c'), hard = new THREE.Color('#b8b2a8');
     let d = 0, r = 0, po = 0;
+    this.fogRev = FOG.revision;
+    this.fogged = false;
     for (let y = 0; y < WORLD; y++) {
       for (let x = 0; x < WORLD; x++) {
         const i = y * WORLD + x, t = v.terrain[i];
         if (t < 2 || t > 4 || d >= this.deck.instanceMatrix.count) continue;
+        if (FOG.on && !FOG.seen[i]) { this.fogged = true; continue; }
         const links = v.links[i] || 15, px = wx(x + 0.5), pz = wz(y + 0.5), h = heightOfCell(x, y);
         m.compose(p.set(px, h - 0.08, pz), (links & 2) || (links & 8) ? turn : none, one); // planks across the way
         this.deck.setMatrixAt(d, m);

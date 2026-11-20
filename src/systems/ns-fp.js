@@ -25,6 +25,7 @@ import { groundCell, toScene } from '../space.js';
 import { spellName } from '../spells.js';
 import * as RAID from '../raid-hud.js';
 import { groundAt } from '../heights.js';
+import { seenAt } from '../fog.js';
 
 /** His eyes above the ground he stands on, in cells; lying knocked out, near it. */
 const EYE = 1.45, EYE_DOWN = 0.35;
@@ -325,7 +326,7 @@ AFRAME.registerSystem('ns-fp', {
     if (!cell) return;
     if (G.tool.kind !== 'select') { game.primary(cell.x, cell.y, false, game.pickAt(ray), false, ray); this.hud(); return; }
     if (G.selected !== p.id) game.select([p.id]);
-    const target = game.pickAt(ray) ?? NS.entityAt(G.view, cell.x, cell.y);
+    const target = game.pickAt(ray) ?? seenAt(G.world, cell.x, cell.y);
     // his own Temple with a crystal in hand: bank it
     if (target?.kind === 'building' && target.owner === ME && defs.get(target.type)?.cls === 'Energy' && p.carrying !== null && p.carrying !== undefined) {
       game.bankCargo(p);

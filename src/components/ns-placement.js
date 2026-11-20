@@ -12,6 +12,7 @@ import { HEIGHTS, TIER, LEVEL_NAMES, groundAt, placeAt } from '../heights.js';
 import { snapPiece, openEnds } from '../snap.js';
 import { energyAt, sourceOf, energyTip } from '../energy.js';
 import { reachOf, reachOfBuilding, isGun } from '../reach.js';
+import { seenAt, seenEntity } from '../fog.js';
 
 const { THREE } = AFRAME;
 const KIND_COLOR = { mine: '#ffd27a', foe: '#ff5a4a' };
@@ -191,7 +192,8 @@ AFRAME.registerComponent('ns-placement', {
     let cells = 0, ends = 0, tip = '', bad = false, power = null;
     for (const g of this.shapes.values()) g.userData.used = false;
     this.arrow.visible = false;
-    const enemyGuns = () => [...G.view.entities.values()].filter((e) => e.kind === 'building' && e.owner && G.world.hostile(ME, e.owner) && !e.rising && isGun(defs.get(e.type)));
+    // (the guns the fog of war hides are not shown: src/fog.js)
+    const enemyGuns = () => [...G.view.entities.values()].filter((e) => e.kind === 'building' && e.owner && G.world.hostile(ME, e.owner) && !e.rising && isGun(defs.get(e.type)) && seenEntity(G.world, e));
     let showEnemies = this.showEnemyReach;
     this.grid.visible = false;
     this.shaft.visible = false;
@@ -261,7 +263,7 @@ AFRAME.registerComponent('ns-placement', {
     }
 
     // the selected gun's reach, and the one under the cursor
-    const hov = tool.kind === 'select' ? G.hoverPick ?? (at ? NS.entityAt(G.view, at.x, at.y) : null) : null;
+    const hov = tool.kind === 'select' ? G.hoverPick ?? (at ? seenAt(G.world, at.x, at.y) : null) : null;
     for (const e of [G.selected !== null ? G.view.entities.get(G.selected) : null, hov]) {
       // a Temple's or Generator's ring of Energy, in its Fury's colour
       const src = e?.kind === 'building' && !e.rising && tool.kind === 'select' ? sourceOf(e) : null;

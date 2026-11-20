@@ -13,10 +13,12 @@
  *
  * The lot is laid out when the islands change (a new map, an islet laid or fallen). After that a
  * building going up or coming down only hides or shows the plants around it, and an island that
- * changes hands only recolours its own: no new layout, no new meshes.
+ * changes hands only recolours its own: no new layout, no new meshes. Under the fog of war
+ * (src/fog.js) nothing grows that the player has not explored: it shows as the cloud lifts.
  */
 import { G, WORLD, wx, wz, hash, playerTheme } from '../state.js';
 import { heightOfCell } from '../heights.js';
+import { FOG } from '../fog.js';
 
 const { THREE } = AFRAME;
 const ISLAND = 1;
@@ -84,9 +86,9 @@ AFRAME.registerComponent('ns-decor', {
     if (!G.view || !this.cells) return;
     this.wait -= dt;
     if (this.wait > 0) return;
-    this.wait = 500;
+    this.wait = 250;
     const standing = this.standingSig();
-    if (standing !== this.standing) this.clearAround(standing);
+    if (standing !== this.standing || this.fogRev !== FOG.revision) this.clearAround(standing);
     const owners = this.ownersSig();
     if (owners !== this.owners) this.recolor(owners);
   },
@@ -165,10 +167,11 @@ AFRAME.registerComponent('ns-decor', {
     return M4.compose(P.set(item.x, item.y + 0.02, item.z), Q.setFromAxisAngle(UP, item.turn), S.setScalar(hidden ? 0 : item.scale));
   },
 
-  /** Hide the plants near what stands on the islands (and show again those it no longer covers). */
+  /** Hide the plants near what stands on the islands, and under the fog (and show again those no longer hidden). */
   clearAround(standing) {
     const v = G.view;
     this.standing = standing;
+    this.fogRev = FOG.revision;
     const keep = new Uint8Array(WORLD * WORLD);
     const clear = (x0, y0, w, h, margin) => {
       for (let y = y0 - margin; y < y0 + h + margin; y++) {
@@ -186,7 +189,7 @@ AFRAME.registerComponent('ns-decor', {
     for (const { mesh, items } of Object.values(this.meshes)) {
       let changed = false;
       items.forEach((item, n) => {
-        const hidden = keep[item.cell] === 1;
+        const hidden = keep[item.cell] === 1 || (FOG.on && !FOG.seen[item.cell]);
         if (hidden === item.hidden) return;
         item.hidden = hidden;
         mesh.setMatrixAt(n, this.matrix(item, hidden));

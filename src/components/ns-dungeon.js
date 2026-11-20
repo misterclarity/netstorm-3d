@@ -22,6 +22,7 @@
 import { THREE, G, NS, ME, wx, wz } from '../state.js';
 import { groundAt } from '../heights.js';
 import { nightness } from './ns-sun.js';
+import { seenArea } from '../fog.js';
 
 /** How bright the deep's lights are (physical units: candela). */
 const LUX = 4.5;
@@ -750,6 +751,7 @@ AFRAME.registerComponent('ns-dungeon', {
       g.add(f);
     }
     g.userData.dungeon = d.id;
+    g.userData.at = [d.x, d.y];
     this.portals.add(g);
   },
 
@@ -802,8 +804,11 @@ AFRAME.registerComponent('ns-dungeon', {
     const b = fp ? G.world.below?.get(fp.id) : null;
     this.setInside(!!b);
     const s = t / 1000, dark = G.world?.nights ? nightness(G.world.clockSeconds()) : 0;
-    // the portals' braziers breathe
-    for (const g of this.portals.children) for (const f of g.children) if (f.isSprite) f.scale.setScalar(1.1 * (0.88 + 0.12 * Math.sin(s * 9 + f.position.x)));
+    // the portals' braziers breathe; a portal the player has not explored is under the fog of war
+    for (const g of this.portals.children) {
+      g.visible = seenArea(g.userData.at[0], g.userData.at[1], 2, 2);
+      for (const f of g.children) if (f.isSprite) f.scale.setScalar(1.1 * (0.88 + 0.12 * Math.sin(s * 9 + f.position.x)));
+    }
     if (!this.inside || !this.built) return;
     const here = this.built[b.dungeon];
     for (const x of this.built) x.group.visible = x === here;

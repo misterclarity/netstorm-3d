@@ -1,8 +1,11 @@
 /**
  * Shells in flight (from the world's list of shots), their impacts, explosions of what is
- * destroyed and the debris of fallen bridges and islets.
+ * destroyed and the debris of fallen bridges and islets. What happens wholly under the fog of war
+ * (src/fog.js) is not drawn: a shot neither from nor to anything the player may see, a flyer's
+ * strike, an orb over a hidden caster.
  */
 import { G, NS, ME, defs, FURY_COLOR, FACING_YAW, wx, wz } from '../state.js';
+import { seenCell, seenEntity } from '../fog.js';
 import { groundAt, flyAt, heightOfCell } from '../heights.js';
 import { spellLook } from '../spells.js';
 import { mat, part, box, ico } from '../models.js';
@@ -83,6 +86,7 @@ AFRAME.registerComponent('ns-effects', {
     let n = 0, nd = 0;
     for (const shot of G.view.shots) {
       const key = `${shot.gun.id}:${shot.leave}:${shot.target}`, gun = shot.gun;
+      if (!seenEntity(G.world, gun) && !seenCell(shot.x, shot.y)) continue;
       live.add(key);
       // (with tiered islands, from the gun's ground and to its target's: heights.js)
       const base = groundAt(gun.x + 0.5, gun.y + 0.5);
@@ -148,7 +152,7 @@ AFRAME.registerComponent('ns-effects', {
       const was = this.stings.get(e.id);
       this.stings.set(e.id, e.cooldown);
       const target = e.target === null ? undefined : G.view.entities.get(e.target);
-      if (was === undefined || e.cooldown <= was || !target) continue;
+      if (was === undefined || e.cooldown <= was || !target || (!seenEntity(G.world, e) && !seenEntity(G.world, target))) continue;
       const { color, from: high } = STING[e.type];
       const big = target.kind === 'building';
       const from = new THREE.Vector3(wx(e.px / NS.FLYER_SCALE), this.baseOf(e.id) + high, wz(e.py / NS.FLYER_SCALE));
@@ -169,7 +173,7 @@ AFRAME.registerComponent('ns-effects', {
     const units = this.el.sceneEl.querySelector('[ns-units]')?.components['ns-units'];
     const live = new Set();
     for (const e of G.view.entities.values()) {
-      if ((e.kind !== 'priest' && e.kind !== 'transport') || !e.spell || (e.kind === 'priest' && e.state !== 'normal')) continue;
+      if ((e.kind !== 'priest' && e.kind !== 'transport') || !e.spell || (e.kind === 'priest' && e.state !== 'normal') || !seenEntity(G.world, e)) continue;
       const el = units?.byId.get(e.id), rep = el?.components['ns-unit']?.rep;
       if (!el) continue;
       live.add(e.id);
@@ -337,6 +341,7 @@ AFRAME.registerComponent('ns-effects', {
 
   /** A bridge cell or an islet dropping out of the sky. */
   fall(x, y, w, h, bridge) {
+    if (!seenCell(x, y) && !seenCell(x + w - 1, y + h - 1)) return;
     const g = new THREE.Group();
     part(g, box(w * 0.95, bridge ? 0.16 : 1.4, h * 0.95), mat(bridge ? '#8a5a34' : '#6b5a44'), 0, bridge ? 0 : -0.7, 0);
     g.position.set(wx(x + w / 2), heightOfCell(x, y), wz(y + h / 2));

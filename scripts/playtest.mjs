@@ -1404,6 +1404,76 @@ SCENARIOS.skirmish = async () => {
 };
 
 /**
+ * The fog of war (src/fog.js): a skirmish begins with only the home island and its shore explored;
+ * the enemy's Temple is neither drawn, hovered, clicked nor on the minimap, cloud lies over its
+ * island, and the trees there are not drawn; his Priest set down beside it explores it: the cloud
+ * lifts, the trees and the Temple are drawn and the Temple can be clicked. With the setting off
+ * (Settings, in the main menu), there is no fog.
+ */
+SCENARIOS.fog = async () => {
+  const { page, errors } = await open();
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  await page.click('#modal button.main');
+  await page.waitForTimeout(1000);
+  const look = () => page.evaluate(() => {
+    const { G, NS, FOG, game } = window.NS3D, w = G.world, foe = w.templeOf(2), units = game.units();
+    const fog = document.getElementById('fog').components['ns-fog'], decor = document.getElementById('decor').components['ns-decor'];
+    // the trees and stones about the enemy's Temple, and how many of them are drawn
+    const near = (i) => Math.abs((i % NS.W) - (foe.x + 4)) < 8 && Math.abs(Math.floor(i / NS.W) - (foe.y + 3)) < 8;
+    let plants = 0, shown = 0;
+    for (const { items } of Object.values(decor.meshes)) for (const it of items) if (near(it.cell)) { plants++; if (!it.hidden) shown++; }
+    // the minimap's colour over the Temple
+    const m = game.minimap, k = 190 / m.span, mini = [...m.ctx.getImageData(Math.floor((foe.x + 4 - m.x0) * k), Math.floor((foe.y + 3 - m.y0) * k), 1, 1).data].slice(0, 3);
+    return { on: FOG.on, puffs: fog.puffs.length, gone: fog.puffs.filter((p) => p.gone).length, drawn: units.byId.get(foe.id)?.object3D.visible, plants, shown, foe: [foe.x, foe.y], mini };
+  });
+  const near = (rgb, hex) => rgb.every((c, i) => Math.abs(c - parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16)) < 14);
+  const start = await look();
+  if (!start.on || !start.puffs || start.drawn !== false || !start.plants || start.shown || !near(start.mini, '#aeb8c6')) throw new Error(`the fog as the skirmish begins: ${JSON.stringify(start)}`);
+  // hovered and clicked, the Temple the fog hides is not there
+  const [fx, fy] = start.foe;
+  const blind = await page.evaluate(([x, y]) => {
+    const { G, game } = window.NS3D;
+    Object.assign(G, { hover: { x, y }, mouse: { x: 400, y: 300 }, hoverPick: null });
+    game.select([]);
+    game.primary(x, y);
+    return G.selected;
+  }, [fx + 1, fy + 1]);
+  await page.waitForTimeout(600);
+  const tip = await page.evaluate(() => document.getElementById('placement').components['ns-placement'].tipText);
+  if (blind !== null || /Temple/.test(tip)) throw new Error(`the hidden Temple was picked: ${JSON.stringify({ blind, tip })}`);
+  // his Priest set down beside it explores it: the cloud lifts, and the Temple and the trees are drawn
+  await page.evaluate(([x, y]) => {
+    const { G, NS, stepWorld } = window.NS3D, p = G.world.priestOf(NS.ME);
+    Object.assign(p, { x: x - 5, y: y + 2, path: [] });
+    stepWorld();
+  }, [fx, fy]);
+  await page.waitForFunction(() => { const { G, game } = window.NS3D; return game.units().byId.get(G.world.templeOf(2).id)?.object3D.visible; }, null, { timeout: 20000 })
+    .catch(() => { throw new Error('the enemy Temple seen by his Priest is not drawn'); });
+  await page.waitForTimeout(1500);
+  const after = await look();
+  if (!after.gone || !after.shown || near(after.mini, '#aeb8c6')) throw new Error(`the fog by the enemy Temple once he is there: ${JSON.stringify(after)}`);
+  const picked = await page.evaluate(([x, y]) => { const { G, game } = window.NS3D; game.select([]); game.primary(x, y); return G.selected === G.world.templeOf(2).id; }, [fx + 1, fy + 1]);
+  if (!picked) throw new Error('the enemy Temple, seen, cannot be selected');
+  // the setting off: no fog in the next battle
+  await page.evaluate(() => window.NS3D.game.start(window.NS3D.G.setup, { menu: true }));
+  await page.waitForTimeout(400);
+  await page.click('#modal .row button[data-i="0"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Settings', null, { timeout: 10000 });
+  await page.selectOption('#stFog', 'off');
+  await page.click('#modal button.main');
+  await page.waitForTimeout(400);
+  await page.click('[data-start="skirmish"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Skirmish', null, { timeout: 20000 });
+  await page.click('#modal button.main');
+  await page.waitForTimeout(1000);
+  const off = await look();
+  if (off.on || off.puffs || !off.drawn || !off.shown || near(off.mini, '#aeb8c6')) throw new Error(`the fog with the setting off: ${JSON.stringify(off)}`);
+  console.log(`  at the start ${start.puffs} puffs of cloud, the enemy Temple not drawn, hovered, clicked or on the minimap, ${start.plants} plants by it hidden; his Priest beside it: ${after.gone} puffs lifted, ${after.shown} plants and the Temple drawn and clicked; off in Settings, none`);
+  return errors;
+};
+
+/**
  * The tabletop: the preview on the screen played with the mouse (a card on the table's panel, then
  * a cell of the shrunken map), then a headset's controllers, faked: their rays hover a cell, the
  * trigger selects and builds, the sticks turn and zoom the map, A rotates the piece, the grip cancels.

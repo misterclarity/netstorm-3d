@@ -5,7 +5,8 @@
 import { NS, DATA, G, MISSION, TPS, ME, WORLD, defs, origin } from './state.js';
 import { settleResidences } from './residences.js';
 import { resetHeights } from './heights.js';
-import { applySettings } from './settings.js';
+import { applySettings, loadSettings } from './settings.js';
+import { startFog, stepFog, raidKnown } from './fog.js';
 import { progress } from './campaign.js';
 
 /** Skirmish settings the menu starts from. */
@@ -59,6 +60,9 @@ export function newGame(setup = G.setup) {
   if (!G.raid) applySettings(G.world);
   // islands on three levels, if the skirmish was set up so (src/heights.js)
   resetHeights(!G.mission && !G.raid && setup.tiers === 'tiered', setup.seed, setup.difficulty);
+  // the fog of war, if the settings have it (src/fog.js): at the raid the estates are known from
+  // the scouting
+  startFog(G.world, loadSettings().fog, G.raid === 'raid' ? raidKnown(G.world) : []);
   G.schedule = new NS.AiSchedule(TPS);
   G.pending.clear();
   G.memories.clear();
@@ -181,6 +185,7 @@ export function stepWorld() {
   }
   requestAi();
   G.world.step([...G.commands.splice(0), ...owed]);
+  stepFog(G.world);
   return true;
 }
 

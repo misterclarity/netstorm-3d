@@ -14,6 +14,7 @@ import './components/ns-sun.js';
 import './components/ns-clouds.js';
 import './components/ns-terrain.js';
 import './components/ns-decor.js';
+import './components/ns-fog.js';
 import './components/ns-units.js';
 import './components/ns-effects.js';
 import './components/ns-placement.js';
