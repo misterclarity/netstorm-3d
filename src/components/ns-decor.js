@@ -14,7 +14,7 @@
  * The lot is laid out when the islands change (a new map, an islet laid or fallen). After that a
  * building going up or coming down only hides or shows the plants around it, and an island that
  * changes hands only recolours its own: no new layout, no new meshes. Under the fog of war
- * (src/fog.js) nothing grows that the player has not explored: it shows as the cloud lifts.
+ * (src/fog.js) nothing grows that the player has not explored: it shows as the haze thins away.
  */
 import { G, WORLD, wx, wz, hash, playerTheme } from '../state.js';
 import { heightOfCell } from '../heights.js';

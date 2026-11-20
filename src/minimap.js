@@ -2,13 +2,14 @@
  * The minimap: the islands and bridges, everything on them and what the camera sees, drawn on a
  * canvas in the corner. Click or drag on it to look there. Its buttons (and keys H, P, F) jump to
  * your Temple or Priest, or keep the camera on the selected unit. Under the fog of war
- * (src/fog.js), island ground not yet explored is cloud, and what the fog hides is not drawn.
+ * (src/fog.js), island ground not yet explored is dark grey, and what the fog hides is not drawn.
  */
 import { G, ME, WORLD, OWNER_COLOR, FURY_COLOR, origin, wx, wz, playerTheme } from './state.js';
 import { groundPoint, lookAtCell, unit } from './space.js';
 import { FOG, seenEntity } from './fog.js';
 
-const CLOUD = '#aeb8c6';
+/** Island ground not yet explored: the fog's dark grey (ns-fog.js). */
+const FOGGED = '#59616c';
 
 const { THREE } = AFRAME;
 const SIZE = 190;
@@ -94,7 +95,7 @@ export class Minimap {
         if (!t) continue;
         const owner = v.owner[i], bridge = t >= 2 && t <= 4;
         if (FOG.on && !FOG.seen[i] && bridge) continue;
-        g.fillStyle = FOG.on && !FOG.seen[i] ? CLOUD : bridge ? '#8a5a34' : owner ? shade(FURY_COLOR[playerTheme(owner)], 0.55) : '#6f7a5a';
+        g.fillStyle = FOG.on && !FOG.seen[i] ? FOGGED : bridge ? '#8a5a34' : owner ? shade(FURY_COLOR[playerTheme(owner)], 0.55) : '#6f7a5a';
         g.fillRect((x - this.x0) * s, (y - this.y0) * s, Math.ceil(s), Math.ceil(s));
       }
     }

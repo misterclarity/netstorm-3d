@@ -1,7 +1,7 @@
 /**
  * The fog of war: what of the map the player has explored. A cell is explored once something of
  * the player's (or of an ally's) has come within sight of it, and stays explored for the rest of
- * the battle. Unexplored island ground is drawn under cloud (ns-fog.js), and what stands or moves
+ * the battle. Unexplored island ground is drawn under a dark haze (ns-fog.js), and what stands or moves
  * on unexplored cells (enemy and neutral buildings, carriers, flyers, geysers, crystals, bridges,
  * Residences, trees) is not drawn, picked or listed; one's own and allies' things always are.
  *

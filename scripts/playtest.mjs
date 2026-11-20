@@ -1405,10 +1405,10 @@ SCENARIOS.skirmish = async () => {
 
 /**
  * The fog of war (src/fog.js): a skirmish begins with only the home island and its shore explored;
- * the enemy's Temple is neither drawn, hovered, clicked nor on the minimap, cloud lies over its
- * island, and the trees there are not drawn; his Priest set down beside it explores it: the cloud
- * lifts, the trees and the Temple are drawn and the Temple can be clicked. With the setting off
- * (Settings, in the main menu), there is no fog.
+ * the enemy's Temple is neither drawn, hovered, clicked nor on the minimap, the dark haze lies over
+ * its island, and the trees there are not drawn; his Priest set down beside it explores it: the haze
+ * thins away there, the trees and the Temple are drawn and the Temple can be clicked. With the
+ * setting off (Settings, in the main menu), there is no fog.
  */
 SCENARIOS.fog = async () => {
   const { page, errors } = await open();
@@ -1425,11 +1425,13 @@ SCENARIOS.fog = async () => {
     for (const { items } of Object.values(decor.meshes)) for (const it of items) if (near(it.cell)) { plants++; if (!it.hidden) shown++; }
     // the minimap's colour over the Temple
     const m = game.minimap, k = 190 / m.span, mini = [...m.ctx.getImageData(Math.floor((foe.x + 4 - m.x0) * k), Math.floor((foe.y + 3 - m.y0) * k), 1, 1).data].slice(0, 3);
-    return { on: FOG.on, puffs: fog.puffs.length, gone: fog.puffs.filter((p) => p.gone).length, drawn: units.byId.get(foe.id)?.object3D.visible, plants, shown, foe: [foe.x, foe.y], mini };
+    const p = w.priestOf(NS.ME);
+    return { on: FOG.on, haze: fog.planes.filter((plane) => plane.visible).length, over: +fog.densityAt(foe.x + 1, foe.y + 2).toFixed(2), by: +fog.densityAt(p.x, p.y).toFixed(2), fading: fog.fading.length,
+      drawn: units.byId.get(foe.id)?.object3D.visible, plants, shown, foe: [foe.x, foe.y], mini };
   });
   const near = (rgb, hex) => rgb.every((c, i) => Math.abs(c - parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16)) < 14);
   const start = await look();
-  if (!start.on || !start.puffs || start.drawn !== false || !start.plants || start.shown || !near(start.mini, '#aeb8c6')) throw new Error(`the fog as the skirmish begins: ${JSON.stringify(start)}`);
+  if (!start.on || !start.haze || start.over < 0.9 || start.by > 0 || start.drawn !== false || !start.plants || start.shown || !near(start.mini, '#59616c')) throw new Error(`the fog as the skirmish begins: ${JSON.stringify(start)}`);
   // hovered and clicked, the Temple the fog hides is not there
   const [fx, fy] = start.foe;
   const blind = await page.evaluate(([x, y]) => {
@@ -1442,7 +1444,7 @@ SCENARIOS.fog = async () => {
   await page.waitForTimeout(600);
   const tip = await page.evaluate(() => document.getElementById('placement').components['ns-placement'].tipText);
   if (blind !== null || /Temple/.test(tip)) throw new Error(`the hidden Temple was picked: ${JSON.stringify({ blind, tip })}`);
-  // his Priest set down beside it explores it: the cloud lifts, and the Temple and the trees are drawn
+  // his Priest set down beside it explores it: the haze thins away, and the Temple and the trees are drawn
   await page.evaluate(([x, y]) => {
     const { G, NS, stepWorld } = window.NS3D, p = G.world.priestOf(NS.ME);
     Object.assign(p, { x: x - 5, y: y + 2, path: [] });
@@ -1450,9 +1452,11 @@ SCENARIOS.fog = async () => {
   }, [fx, fy]);
   await page.waitForFunction(() => { const { G, game } = window.NS3D; return game.units().byId.get(G.world.templeOf(2).id)?.object3D.visible; }, null, { timeout: 20000 })
     .catch(() => { throw new Error('the enemy Temple seen by his Priest is not drawn'); });
-  await page.waitForTimeout(1500);
+  const thinning = await look();
+  await page.waitForFunction(() => document.getElementById('fog').components['ns-fog'].fading.length === 0, null, { timeout: 60000 });
+  await page.waitForTimeout(1000);
   const after = await look();
-  if (!after.gone || !after.shown || near(after.mini, '#aeb8c6')) throw new Error(`the fog by the enemy Temple once he is there: ${JSON.stringify(after)}`);
+  if (!thinning.fading || after.by > 0.05 || after.over > 0.1 || !after.shown || near(after.mini, '#59616c')) throw new Error(`the fog by the enemy Temple once he is there: ${JSON.stringify({ thinning, after })}`);
   const picked = await page.evaluate(([x, y]) => { const { G, game } = window.NS3D; game.select([]); game.primary(x, y); return G.selected === G.world.templeOf(2).id; }, [fx + 1, fy + 1]);
   if (!picked) throw new Error('the enemy Temple, seen, cannot be selected');
   // the setting off: no fog in the next battle
@@ -1468,8 +1472,8 @@ SCENARIOS.fog = async () => {
   await page.click('#modal button.main');
   await page.waitForTimeout(1000);
   const off = await look();
-  if (off.on || off.puffs || !off.drawn || !off.shown || near(off.mini, '#aeb8c6')) throw new Error(`the fog with the setting off: ${JSON.stringify(off)}`);
-  console.log(`  at the start ${start.puffs} puffs of cloud, the enemy Temple not drawn, hovered, clicked or on the minimap, ${start.plants} plants by it hidden; his Priest beside it: ${after.gone} puffs lifted, ${after.shown} plants and the Temple drawn and clicked; off in Settings, none`);
+  if (off.on || off.haze || !off.drawn || !off.shown || near(off.mini, '#59616c')) throw new Error(`the fog with the setting off: ${JSON.stringify(off)}`);
+  console.log(`  at the start the haze ${start.over} thick over the enemy Temple's corner, which is not drawn, hovered, clicked or on the minimap, ${start.plants} plants by it hidden; his Priest beside it: the haze thinning there (${thinning.fading} texels) to ${after.over}, ${after.shown} plants and the Temple drawn and clicked; off in Settings, none`);
   return errors;
 };
 

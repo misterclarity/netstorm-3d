@@ -736,7 +736,7 @@ export class Hud {
         <label>Day and night <select id="stNights"><option value="on" ${s.nights ? 'selected' : ''}>On</option><option value="off" ${s.nights ? '' : 'selected'}>Off</option></select></label>
         <label>Guns' reach at night <select id="stNightReach">${NIGHT_REACH.map((n) => `<option value="${n}" ${n === s.nightReach ? 'selected' : ''}>${share(n)}</option>`).join('')}</select></label>
       </div>
-      <p class="level">With the fog of war, the islands you have not explored lie under cloud, and what stands on them is
+      <p class="level">With the fog of war, the islands you have not explored lie under a dark haze, and what stands on them is
         hidden until your Priest, carriers, buildings or bridges come within sight; what you have explored stays in view. A
         gun that fires on you is seen. Only your view is fogged: the computer opponent plays as before.</p>
       <p class="level">A day lasts ${NS.DAY_SECONDS / 60} minutes and a night ${NS.NIGHT_SECONDS / 60}, from a morning at the start of the battle. At night
@@ -902,8 +902,8 @@ export class Hud {
         the tip says what its hits are multiplied by.</p>
       <h3>Fog of war</h3>
       <p>Unless it is turned off in Settings, a battle begins with only your home island explored, and the islets
-        just off its shore. The rest of the islands lie under cloud, and what is on ground you have not explored is
-        hidden, on the minimap too. The cloud lifts wherever something of yours comes within sight: your Priest
+        just off its shore. The rest of the islands lie under a dark haze, and what is on ground you have not explored is
+        hidden, on the minimap too. The haze thins away wherever something of yours comes within sight: your Priest
         ${SIGHT.priest} cells, a Golem ${SIGHT.ground}, an air ship ${SIGHT.air}, a flyer ${SIGHT.flyer}, a building
         ${SIGHT.building} past its edge, each cell of your bridges ${SIGHT.bridge}. What you have explored stays in view.
         A gun that fires on yours is seen, and the ground where your shot lands. The computer opponent is not fogged.</p>
