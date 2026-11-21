@@ -20,6 +20,8 @@ export const G = {
   mission: MISSION,
   /** The battle of the Combahee Raid being played ('scout' or 'raid'), or null. */
   raid: null,
+  /** A sky city to stroll through: 'concord' or 'altamar' (sim/city-map.ts), or null. */
+  city: null,
   world: null,
   view: null,
   options: null,

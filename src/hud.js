@@ -4,6 +4,7 @@
  */
 import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, facingText, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml, PLAY, setPlay } from './state.js';
 import * as RAID from './raid-hud.js';
+import * as CITY from './city-hud.js';
 import { showObjectives } from './objectives.js';
 import { needOf, needText, iconsHtml, iconName, sourceOf } from './energy.js';
 import { submit, SKIRMISH_DEFAULTS } from './game.js';
@@ -119,7 +120,11 @@ export class Hud {
   updateTop() {
     const me = G.world?.players.get(ME);
     $('storm').innerHTML = `⚡ <b>${me ? Math.floor(me.storm) : 0}</b>`;
-    $('storm').hidden = !!G.raid; // the raid is fought with what its airships carry
+    $('storm').hidden = !!G.raid || !!G.city; // the raid is fought with what its airships carry; a city has no battle
+    // (nor are there enemy guns to show the reach of)
+    $('rangesToggle').style.display = G.city ? 'none' : '';
+    // (nor, in Altamar, a Temple of his to look at)
+    $('camTemple').style.display = G.city && !G.world.templeOf(ME) ? 'none' : '';
     const secs = Math.floor((G.world?.tick ?? 0) / TPS);
     $('clock').innerHTML = `⏱ <b>${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}</b>`;
     // day and night (a setting): which it is, and how long until it turns
@@ -228,6 +233,9 @@ export class Hud {
   }
 
   renderBar() {
+    // a sky city: nothing to lay or build
+    $('bar').style.display = G.city ? 'none' : '';
+    if (G.city) return;
     const me = G.world.players.get(ME), tool = G.tool;
     const units = this.unitCards(), priest = this.priestCards(), locked = this.lockedUnits();
     const cool = (id) => me.refresh.find((r) => r.type === id);
@@ -421,7 +429,10 @@ export class Hud {
       this.spellCard(e, lines, acts);
       if (e.owner === ME) acts.push('<button data-sel="salvage">Salvage</button>');
     }
-    if (!raided && e.kind === 'priest') {
+    if (G.city && e.kind === 'priest') {
+      // a sky city: a stroll, nothing more
+      lines.push(e.owner === ME ? 'Click the ground to send him there, or press <kbd>V</kbd> to see through his eyes and walk him with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>.' : 'A Priest of the city');
+    } else if (!raided && e.kind === 'priest') {
       const doing = { build: 'Building', collect: 'Collecting Storm Power', home: 'Carrying Storm Power home', pickup: 'Fetching a crystal' }[e.goal] ?? 'Standing';
       lines.push({ normal: doing, down: 'Knocked out', carried: 'Being carried off', chained: `Chained to an Altar: ${e.runes}/5 runes` }[e.state] ?? e.state);
       // the Hover (the house rules): prayed for, then floating faster until it is spent
@@ -536,6 +547,7 @@ export class Hud {
   /* ------------------------ the next step, read off the battle --------------------------- */
   renderGoal() {
     if (G.raid) { RAID.goal(); return; }
+    if (G.city) { CITY.goal(this); return; }
     const v = G.view, w = G.world, me = w.players.get(ME);
     const all = [...v.entities.values()], mine = all.filter((e) => e.owner === ME);
     const has = (f) => mine.some(f);
@@ -693,6 +705,7 @@ export class Hud {
           <p class="level" id="skLevelNote"></p>
           <button class="main" data-start="skirmish">Start skirmish</button></section>
         ${RAID.menuSection()}
+        ${CITY.menuSection()}
       </div>`, [{ label: 'Settings', act: () => this.settings(() => this.menu()) }, { label: 'How to play', act: () => this.howToPlay(() => this.menu()) }]);
     const box = $('modalBox');
     box.querySelector('#skDice').onclick = () => { box.querySelector('#skSeed').value = String(Math.floor(Math.random() * 100000)); };
@@ -704,6 +717,7 @@ export class Hud {
       show();
     }
     RAID.wireMenu(box, this.game);
+    CITY.wireMenu(box, this.game);
     box.querySelector('[data-start="mission"]').onclick = () => {
       const difficulty = box.querySelector('#msLevel').value;
       try { localStorage.setItem('netstorm-3d:mission-level', difficulty); } catch { /* no storage */ }
@@ -764,6 +778,7 @@ export class Hud {
 
   briefing() {
     if (G.raid) return RAID.briefing(this);
+    if (G.city) return CITY.briefing(this);
     if (!G.mission) return this.skirmishBriefing();
     const mission = G.mission;
     const text = (mission.pages['a.']?.text ?? mission.briefing).replace(/^The War Begins!\s*/, '');

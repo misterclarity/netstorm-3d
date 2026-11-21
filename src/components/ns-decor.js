@@ -114,6 +114,10 @@ AFRAME.registerComponent('ns-decor', {
       for (let x = 0; x < WORLD; x++) {
         const i = y * WORLD + x;
         if (v.terrain[i] !== ISLAND) continue;
+        // in a sky city only its gardens grow anything of this (sim/city-map.ts): its own trees, its
+        // paving and its houses are the city's (ns-city.js)
+        const city = G.world?.city;
+        if (city && (city.paint[i] !== 3 || city.blocked[i])) continue;
         // near the rim the trees stand thicker
         let rim = 0;
         for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [1, 1], [-1, -1], [1, -1], [-1, 1]]) if (!island(x + dx, y + dy)) rim++;

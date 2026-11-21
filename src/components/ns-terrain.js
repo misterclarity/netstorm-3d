@@ -12,6 +12,111 @@ import { G, NS, WORLD, FURY_TILES, GROUND_PAINT, wx, wz, hash, playerTheme } fro
 import { HEIGHTS, heightOfCell } from '../heights.js';
 import { FOG, seenCell } from '../fog.js';
 
+/**
+ * The ground of a sky city's cell as its plan lays it (sim/city-map.ts PAVE): cobbles, slabs,
+ * garden, terracotta, the quay's stone, the compass rose about the Temple of Concord; Concord's
+ * tinted by the quarter's Fury (the owner's), Altamar's whitewashed.
+ */
+const PAVING = {
+  street: { sun: '#c9a878', rain: '#93a3b0', wind: '#c8c6aa', thunder: '#7a7686', none: '#bdb6a4', med: '#e7e0d2' },
+  plaza: { sun: '#e2cfa6', rain: '#c3cfd8', wind: '#e0dfc8', thunder: '#a19eac', none: '#e2dccf', med: '#f3efe6', rose: '#ece6d8' },
+};
+// the compass rose's long points, light half and dark, towards the Sun's quarter (east), the
+// Rain's (south), the Wind's (west) and the Thunder's (north); and its short ones
+const ROSE = [['#e3b04f', '#a97a28'], ['#5d94cc', '#33649a'], ['#8cb862', '#5a8a3c'], ['#9a82d6', '#6650a4']];
+const ROSE_SHORT = ['#f7f3ea', '#c9c1b0'];
+const ROSE_MIDDLE = 128;
+/** One point of the rose, as two halves: from the middle out along the bearing a to the tip. */
+function rosePoint(g, ox, oy, a, long, wide, T, [light, dark]) {
+  const c = Math.cos(a), s = Math.sin(a), at = (u, w) => [ox + (c * u - s * w) * T, oy + (s * u + c * w) * T];
+  for (const [side, colour] of [[1, light], [-1, dark]]) {
+    g.beginPath();
+    g.moveTo(...at(0, 0));
+    g.lineTo(...at(wide, side * wide));
+    g.lineTo(...at(long, 0));
+    g.closePath();
+    g.fillStyle = colour;
+    g.fill();
+    g.stroke();
+  }
+}
+function cityGround(g, x, y, px, py, T, code, theme) {
+  const v = (k) => hash(x, y, k), q = T / 16;
+  const fill = (hex, l = 1) => {
+    const c = new THREE.Color(hex).multiplyScalar(l);
+    g.fillStyle = `rgb(${c.r * 255 | 0},${c.g * 255 | 0},${c.b * 255 | 0})`;
+  };
+  switch (code) {
+    case 1: case 2: {
+      // cobbles three by three, or great slabs two by two, a little uneven, with darker joints
+      const base = (code === 1 ? PAVING.street : PAVING.plaza)[theme] ?? PAVING.street.none, n = code === 1 ? 3 : 2;
+      fill(base, 0.78);
+      g.fillRect(px, py, T, T);
+      const s = T / n, shift = code === 1 && y % 2 ? s / 2 : 0;
+      for (let j = 0; j < n; j++) {
+        for (let i = -1; i < n; i++) {
+          const sx = px + i * s + shift;
+          if (sx + s <= px || sx >= px + T) continue;
+          fill(base, 0.92 + hash(x * 5 + i, y * 5 + j, 46) * 0.14);
+          const x0 = Math.max(px, sx + q * 0.6), x1 = Math.min(px + T, sx + s - q * 0.6);
+          g.fillRect(x0, py + j * s + q * 0.6, x1 - x0, s - q * 1.2);
+        }
+      }
+      break;
+    }
+    case 3: {
+      // grass, flowers in it
+      fill('#6f9a4a', 0.9 + v(47) * 0.15);
+      g.fillRect(px, py, T, T);
+      for (let i = 0; i < 4; i++) {
+        fill(['#7faa52', '#5f8a3e', '#d84a95', '#f2d43a', '#f4f0e6'][Math.floor(hash(x * 3 + i, y, 48) * 5)]);
+        g.fillRect(px + hash(x, y * 3 + i, 49) * 13 * q, py + hash(x * 7 + i, y, 50) * 13 * q, 2.5 * q, 2.5 * q);
+      }
+      break;
+    }
+    case 4: case 5: {
+      // terracotta tiles, or the quay's great grey blocks
+      const base = code === 4 ? '#c0704a' : '#b1aa9c', n = code === 4 ? 2 : 1;
+      fill(base, 0.72);
+      g.fillRect(px, py, T, T);
+      const s = T / n;
+      for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+          fill(base, 0.9 + hash(x * 3 + i, y * 3 + j, 51) * 0.16);
+          g.fillRect(px + i * s + q * 0.7, py + j * s + q * 0.7, s - q * 1.4, s - q * (code === 5 ? 3.5 : 1.4));
+        }
+      }
+      break;
+    }
+    case 6: {
+      // the compass rose, drawn across its cells on marble slabs: two rings, and an eight-pointed
+      // star whose long points are the Furies' colours, each towards its quarter
+      cityGround(g, x, y, px, py, T, 2, 'rose');
+      const ox = px + (ROSE_MIDDLE - x) * T, oy = py + (ROSE_MIDDLE - y) * T;
+      g.save();
+      g.beginPath();
+      g.rect(px, py, T, T);
+      g.clip();
+      g.strokeStyle = '#8a6a3c';
+      for (const [r, wide] of [[8.1, 0.22], [7.6, 0.08], [4.4, 0.14]]) {
+        g.lineWidth = wide * T;
+        g.beginPath();
+        g.arc(ox, oy, r * T, 0, Math.PI * 2);
+        g.stroke();
+      }
+      g.lineWidth = 0.05 * T;
+      g.strokeStyle = '#5e4a2e';
+      for (let i = 0; i < 4; i++) rosePoint(g, ox, oy, Math.PI / 4 + (i * Math.PI) / 2, 5.2, 1.1, T, ROSE_SHORT);
+      for (let i = 0; i < 4; i++) rosePoint(g, ox, oy, (i * Math.PI) / 2, 7.9, 1.5, T, ROSE[i]);
+      g.restore();
+      break;
+    }
+    default:
+      fill('#bdb6a4');
+      g.fillRect(px, py, T, T);
+  }
+}
+
 const { THREE } = AFRAME;
 
 AFRAME.registerComponent('ns-terrain', {
@@ -88,7 +193,10 @@ AFRAME.registerComponent('ns-terrain', {
         const owner = near.get(y * WORLD + x) ?? 0;
         const theme = owner ? playerTheme(owner) : 'sun';
         const set = tiles?.[owner ? FURY_TILES[theme] : 'rgrass'];
-        if (set?.length) {
+        const paved = G.world?.city?.paint[y * WORLD + x];
+        if (paved) {
+          cityGround(g, x, y, cx * T, cy * T, T, paved, G.world.city.name === 'altamar' ? 'med' : owner ? theme : 'none');
+        } else if (set?.length) {
           g.drawImage(set[Math.floor(hash(x, y, 40) * set.length)], cx * T, cy * T, T, T);
         } else {
           const [r, gg, b] = owner ? GROUND_PAINT[theme] : [138, 140, 104];

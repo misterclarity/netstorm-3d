@@ -4446,12 +4446,88 @@ CHANGES.push({
 import { docksOf } from './raid.js';`,
 });
 
+// The sky cities (netstorm-3d): two maps to stroll through, with no battle in them, laid out in
+// sim/city-map.ts (laid in as city-map.ts, EXTRA_FILES below). Here they are hooked in: the city on
+// the world; walkers kept off the cells its houses, stalls, trees and towers stand on (`blocked`);
+// no trees of the rules' own in a city (it plants its own); nothing done there but walking (the
+// Priest, by order or by hand, his lamp at night, and the airships sent about); and a clock that
+// starts in the late afternoon, under a full moon by night.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'the sky cities: the city',
+  was: `import { inWind, raidCommand, steerShip, tickRaid, type Raid } from './rules/raid.js';`,
+  now: `import { inWind, raidCommand, steerShip, tickRaid, type Raid } from './rules/raid.js';
+import type { City } from './city-map.js';`,
+}, {
+  file: 'world.ts',
+  why: 'the sky cities: the city',
+  was: `  /** (netstorm-3d) A battle of the Combahee Raid (rules/raid.ts), or null. */
+  raid: Raid | null = null;`,
+  now: `  /** (netstorm-3d) A battle of the Combahee Raid (rules/raid.ts), or null. */
+  raid: Raid | null = null;
+  /** (netstorm-3d) A sky city to stroll through (city-map.ts), or null. */
+  city: City | null = null;`,
+}, {
+  file: 'world.ts',
+  why: 'the sky cities: walkers kept off what stands in the streets',
+  was: `    const occ = this.entities.get(this.occupant[i] ?? 0);
+
+    return occ?.kind !== 'building' || !withinRim(occ, x, y);`,
+  now: `    // (netstorm-3d) in a sky city, a house, a stall, a tree or a tower (city-map.ts)
+    if (this.city?.blocked[i]) {
+      return false;
+    }
+
+    const occ = this.entities.get(this.occupant[i] ?? 0);
+
+    return occ?.kind !== 'building' || !withinRim(occ, x, y);`,
+}, {
+  file: 'world.ts',
+  why: 'the sky cities: a city plants its own trees',
+  was: `  treeGrows(x: number, y: number): boolean {
+    const island =`,
+  now: `  treeGrows(x: number, y: number): boolean {
+    if (this.city) {
+      return false;
+    }
+
+    const island =`,
+}, {
+  file: 'world.ts',
+  why: 'the sky cities: nothing done there but walking',
+  was: `    // (netstorm-3d) in the raid he prays for no Spell and no Hover and builds nothing, and nobody`,
+  now: `    // (netstorm-3d) in a sky city nothing is done but walking: the Priest by order or by hand, his
+    // lamp at night, and the airships sent about
+    if (this.city && c.t !== 'movePriest' && c.t !== 'steerPriest' && c.t !== 'lamp' && c.t !== 'moveTransport') {
+      return 'not here';
+    }
+
+    // (netstorm-3d) in the raid he prays for no Spell and no Hover and builds nothing, and nobody`,
+}, {
+  file: 'world.ts',
+  why: 'the sky cities: the late afternoon, and a full moon',
+  was: `    return this.raid ? this.raid.clock0 + (this.tick / TPS) * this.raid.rate : this.tick / TPS;`,
+  now: `    return this.raid ? this.raid.clock0 + (this.tick / TPS) * this.raid.rate : this.city ? this.city.clock0 + this.tick / TPS : this.tick / TPS;`,
+}, {
+  file: 'world.ts',
+  why: 'the sky cities: the late afternoon, and a full moon',
+  was: `    return this.raid ? this.raid.moon : Math.floor(this.clockSeconds() / (DAY_SECONDS + NIGHT_SECONDS)) % MOON_PHASES.length;`,
+  now: `    return this.raid ? this.raid.moon : this.city ? this.city.moon : Math.floor(this.clockSeconds() / (DAY_SECONDS + NIGHT_SECONDS)) % MOON_PHASES.length;`,
+}, {
+  file: 'index.ts',
+  why: 'the sky cities: what the client starts one with and reads of it',
+  was: `export * from './raid-map.js';`,
+  now: `export * from './raid-map.js';
+export * from './city-map.js';`,
+});
+
 /** The house rules' own files, laid into the sim's source as if they were netstorm-web's (named as
  * the changes name files): they are TypeScript of the simulation, and import its modules as its own
  * modules do. */
 export const EXTRA_FILES = {
   'rules/raid.ts': 'sim/raid.ts',
   'raid-map.ts': 'sim/raid-map.ts',
+  'city-map.ts': 'sim/city-map.ts',
 };
 
 /** The files of the sim's source that are changed, named from packages/sim/src as the changes name them. */

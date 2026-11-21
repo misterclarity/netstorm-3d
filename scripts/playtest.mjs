@@ -2100,6 +2100,73 @@ SCENARIOS.combahee = async () => {
   return errors;
 };
 
+/**
+ * The sky cities (sim/city-map.ts, src/components/ns-city.js, src/city-hud.js): each opened from the
+ * main menu, briefed, and drawn (houses, lamps, movers, townsfolk), with no bottom bar, Storm Power
+ * or fog; walked through his eyes with W, never onto a blocked cell; a sight reached ticked in the
+ * goal panel; the night lighting the lamps; in Altamar, the lifts drawn and ridden up to the hall.
+ */
+SCENARIOS.cities = async () => {
+  const { page, errors } = await open();
+  const enter = async (city, title, sights) => {
+    await page.evaluate(() => window.NS3D.game.start(window.NS3D.G.setup, { menu: true }));
+    await page.waitForSelector(`[data-city="${city}"]`, { timeout: 20000 });
+    await page.click(`[data-city="${city}"]`);
+    await page.waitForFunction((t) => document.querySelector('#modal h2')?.textContent.startsWith(t), title, { timeout: 30000 });
+    const told = await page.evaluate(() => ({ sights: document.querySelectorAll('#modal ol.objectives li').length, how: document.querySelectorAll('#modal ul.how li').length }));
+    if (told.sights !== sights || told.how < 3) throw new Error(`${city}'s briefing: ${JSON.stringify(told)}`);
+    await page.click('#modal button.main');
+    await page.waitForTimeout(1500);
+    const drawn = await page.evaluate(() => {
+      const { G, FOG } = window.NS3D, c = document.getElementById('city').components['ns-city'];
+      return { city: G.city, meshes: c.group.children.length, folk: c.folk.length, movers: c.movers.length, markers: c.markers.length,
+        bar: document.getElementById('bar').style.display, storm: document.getElementById('storm').hidden, fog: FOG.on, listed: document.querySelectorAll('#goalList li').length };
+    });
+    if (drawn.city !== city || drawn.meshes < 8 || drawn.folk < 10 || !drawn.movers || drawn.markers !== sights || drawn.bar !== 'none' || !drawn.storm || drawn.fog || drawn.listed !== sights) throw new Error(`${city}, drawn: ${JSON.stringify(drawn)}`);
+    return drawn;
+  };
+  const where = () => page.evaluate(() => {
+    const { G, NS } = window.NS3D, w = G.world, p = w.priestOf(NS.ME), i = p.y * NS.W + p.x;
+    return { x: p.x, y: p.y, level: w.level[i], blocked: w.city.blocked[i], done: document.querySelectorAll('#goalList li.done').length };
+  });
+  // Concord: through his eyes, east and on with W
+  const concord = await enter('concord', 'Concord', 5);
+  await page.evaluate(() => { const { G, NS } = window.NS3D; G.selected = G.world.priestOf(NS.ME).id; });
+  await page.keyboard.press('v');
+  await page.waitForFunction(() => window.NS3D.G.fp?.active, null, { timeout: 10000 });
+  await page.evaluate(() => { document.querySelector('a-scene').systems['ns-fp'].yaw = -Math.PI / 2; });
+  const from = await where();
+  const seen = [];
+  await page.keyboard.down('w');
+  for (let i = 0; i < 12; i++) { await page.waitForTimeout(250); seen.push(await where()); }
+  await page.keyboard.up('w');
+  const line = await page.evaluate(() => document.getElementById('fpInfo')?.textContent ?? '');
+  if (seen.at(-1).x <= from.x || seen.some((c) => c.blocked) || !/Next: /.test(line) || /build/.test(line)) throw new Error(`walked east through his eyes: ${JSON.stringify({ from, to: seen.at(-1), line })}`);
+  await page.keyboard.press('v');
+  // to the Sun quarter's market: ticked
+  await page.evaluate(() => window.NS3D.submit({ t: 'movePriest', x: 165, y: 127 }));
+  await fastForward(page, 400);
+  await page.waitForFunction(() => document.querySelectorAll('#goalList li.done').length === 1, null, { timeout: 10000 })
+    .catch(async () => { throw new Error(`the Sun quarter's market, reached: ${JSON.stringify(await where())}`); });
+  // the night: the lamps lit, and told of
+  await page.evaluate(() => { window.NS3D.G.world.tick += 100 * window.NS3D.NS.TPS; });
+  await page.waitForFunction(() => document.getElementById('city').components['ns-city'].lamps.material.opacity > 0.5, null, { timeout: 15000 })
+    .catch(() => { throw new Error('the lamps not lit at night'); });
+  const night = await page.evaluate(() => [...document.querySelectorAll('#logList li')].some((li) => /Night falls over Concord/.test(li.textContent)));
+  if (!night) throw new Error('the nightfall over Concord not told');
+  // Altamar: three levels, the lifts drawn, and ridden up to the domed hall
+  const altamar = await enter('altamar', 'Altamar', 6);
+  const lifts = await page.evaluate(() => ({ tiered: window.NS3D.G.world.tiered, posts: document.getElementById('terrain').components['ns-terrain'].liftPost.count }));
+  if (!lifts.tiered || lifts.posts < 8) throw new Error(`Altamar's lifts: ${JSON.stringify(lifts)}`);
+  await page.evaluate(() => window.NS3D.submit({ t: 'movePriest', x: 128, y: 99 }));
+  await fastForward(page, 600);
+  await page.waitForTimeout(800);
+  const up = await where();
+  if (up.level !== 1 || up.y !== 99 || up.done < 2) throw new Error(`ridden up to the domed hall: ${JSON.stringify(up)}`);
+  console.log(`  Concord: ${concord.meshes} meshes, ${concord.folk} townsfolk; walked ${seen.at(-1).x - from.x} cells east through his eyes; the Sun market ticked; the lamps lit at night. Altamar: ${altamar.meshes} meshes, ${lifts.posts / 4} lifts, ridden up to the domed hall`);
+  return errors;
+};
+
 for (const [name, run] of Object.entries(SCENARIOS)) {
   if (only && name !== only) continue;
   const started = Date.now();

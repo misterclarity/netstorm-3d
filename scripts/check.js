@@ -1313,6 +1313,71 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   console.log(`fog of war: the home island and its shore explored and the enemy Temple hidden at the start, his sight of ${SIGHT.priest} cells, explored staying explored, a bridge's ${SIGHT.bridge}, a gun firing on the player seen, a shot's landing seen about, off with the setting; the raid: the estates known, ${hid} buildings of the Sun-lords hidden`);
 }
 
+// The sky cities (sim/city-map.ts): two maps with no battle, to be walked. Each part would fail
+// on the rule it is about.
+{
+  const S = NS.WALK_SUB, at = (x, y) => y * NS.W + x, told = [];
+  for (const name of ['concord', 'altamar']) {
+    const w = NS.createCity(defs, name), c = w.city, him = w.priestOf(NS.ME);
+    // he begins on an open street, by day, under a full moon; night falls a minute and a half on
+    if (c.blocked[at(him.x, him.y)] || !w.walkable(NS.ME, him.x, him.y)) fail(`${name}: the Priest begins on a blocked cell`);
+    if (w.isNight() || w.moonPhase() !== 2) fail(`${name}: it does not begin by day under a full moon`);
+    const morning = w.tick;
+    w.tick = morning + 100 * NS.TPS;
+    if (!w.isNight()) fail(`${name}: no night a minute and a half on`);
+    w.tick = morning;
+    // the cells of everything solid are blocked, and nobody walks on a blocked cell
+    for (const p of c.props) {
+      if (!p.solid) continue;
+      for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) if (!c.blocked[at(x, y)]) fail(`${name}: the ${p.k} at ${p.x},${p.y} leaves ${x},${y} open`);
+    }
+    let blocked = 0;
+    for (let i = 0; i < NS.W * NS.H; i++) {
+      if (!c.blocked[i]) continue;
+      blocked++;
+      if (w.walkable(NS.ME, i % NS.W, Math.floor(i / NS.W))) fail(`${name}: the blocked cell ${i % NS.W},${Math.floor(i / NS.W)} is walkable`);
+    }
+    // every sight is reached on foot from where he begins, by the lifts where the levels differ
+    for (const sight of c.sights) {
+      if (!w.findPath(NS.ME, him.x, him.y, ([x, y]) => Math.hypot(x + 0.5 - sight.x, y + 0.5 - sight.y) <= sight.r, true)) fail(`${name}: no way on foot to ${sight.name}`);
+    }
+    const levels = new Set(c.sights.map((sight) => w.level[at(Math.floor(sight.x), Math.floor(sight.y))]));
+    if (name === 'altamar' ? levels.size !== 3 || !w.tiered : levels.size !== 1 || w.tiered) fail(`${name}: the sights on the levels ${[...levels]}`);
+    // nothing is built, laid or prayed for there: only walking
+    w.step([{ t: 'build', player: NS.ME, type: 'sunfactory', x: him.x + 2, y: him.y }, { t: 'prayHover', player: NS.ME }]);
+    const no = w.drainEvents().filter((e) => e.what === 'rejected').map((e) => e.data.err);
+    if (no.length !== 2 || no.some((err) => err !== 'not here')) fail(`${name}: building and praying, answered ${JSON.stringify(no)}`);
+    // walked by hand at a house's wall from the street before it, he stops at the wall
+    let wall = null;
+    for (const p of c.props) {
+      if (wall || p.k !== 'house' || !p.solid) continue;
+      for (let x = p.x; x < p.x + p.w && !wall; x++) {
+        const y = p.y + p.h;
+        if (!c.blocked[at(x, y)] && w.walkable(NS.ME, x, y) && !w.treeAt(x, y) && !w.houseAt(x, y) && w.level[at(x, y)] === w.level[at(x, p.y)]) wall = { x, y, p };
+      }
+    }
+    if (!wall) fail(`${name}: no house with an open street before it`);
+    Object.assign(him, { x: wall.x, y: wall.y, path: [], goal: 'idle' });
+    w.step([{ t: 'steerPriest', player: NS.ME, vx: 0, vy: -100, lead: 0 }]);
+    for (let i = 0; i < 40; i++) {
+      w.step([]);
+      if (c.blocked[at(him.x, him.y)]) fail(`${name}: walked by hand into the ${wall.p.k} at ${wall.p.x},${wall.p.y}`);
+    }
+    const s = w.walking.get(him.id);
+    if (him.y !== wall.y || !s || s.y < wall.y * S) fail(`${name}: walked at a house's wall from ${wall.x},${wall.y}, he is at ${him.x},${him.y}`);
+    w.step([{ t: 'steerPriest', player: NS.ME, vx: 0, vy: 0, lead: 0 }]);
+    // a long while, night and day, and nobody has won or lost; no tree has grown
+    const trees = (() => { let n = 0; for (let y = 0; y < NS.H; y++) for (let x = 0; x < NS.W; x++) if (w.treeAt(x, y)) n++; return n; })();
+    for (let i = 0; i < 400 * NS.TPS; i++) w.step([]);
+    let grown = 0;
+    for (let y = 0; y < NS.H; y++) for (let x = 0; x < NS.W; x++) if (w.treeAt(x, y)) grown++;
+    if (w.winner !== null && w.winner !== undefined) fail(`${name}: ${w.winner} has won`);
+    if (grown !== trees) fail(`${name}: the trees ${trees} became ${grown}`);
+    told.push(`${name} ${c.props.length} props, ${blocked} blocked cells, ${c.sights.length} sights on ${levels.size} level${levels.size > 1 ? 's' : ''}`);
+  }
+  console.log(`sky cities: ${told.join('; ')}: every sight walked to from the start, the blocked cells not walked on by order or by hand, nothing built, nobody wins, night falls a minute and a half on`);
+}
+
 // Every name of the engine that the client's code uses is one the engine has (one was not: the
 // shrine's ward, and its toast said "undefined").
 {

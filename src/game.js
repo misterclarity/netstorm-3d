@@ -33,11 +33,13 @@ export function newGame(setup = G.setup) {
   G.mission = setup.mode === 'mission' ? MISSION : null;
   // the raid's battle: 'scout' or 'raid' (the map and the rules are sim/raid-map.ts, sim/raid.ts)
   G.raid = setup.mode === 'raid' ? setup.mission : null;
+  // a sky city to stroll through: 'concord' or 'altamar' (sim/city-map.ts), no battle in it
+  G.city = setup.mode === 'city' ? setup.city : null;
   const base = { ...NS.DEFAULT_OPTIONS, lang: 'en', difficulty: 'normal' };
   const options = G.mission
     ? { ...base, mode: 'mission', mission: MISSION.id, storm: MISSION.storm, difficulty: setup.difficulty ?? 'normal' }
-    : G.raid
-      ? { ...base, mode: 'skirmish', opponent: 'ai', difficulty: setup.difficulty ?? 'normal', seed: NS.RAID_SEED, storm: 0 }
+    : G.raid || G.city
+      ? { ...base, mode: 'skirmish', opponent: 'ai', difficulty: setup.difficulty ?? 'normal', seed: G.raid ? NS.RAID_SEED : 1704, storm: 0 }
       : {
         ...base, mode: 'skirmish', opponent: 'ai', theme: setup.theme, enemyTheme: setup.enemyTheme, islands: setup.islands,
         difficulty: setup.difficulty, storm: setup.storm, seed: setup.seed, spells: setup.spells ?? 'none',
@@ -46,23 +48,26 @@ export function newGame(setup = G.setup) {
   if (G.raid) {
     // the sky mines he found at the scouting are known at the raid
     G.world = NS.createRaid(defs, G.raid, options.difficulty, G.raid === 'raid' ? progress().known : []);
+  } else if (G.city) {
+    G.world = NS.createCity(defs, G.city);
   } else {
     const known = G.mission ? [] : furyKnowledge(setup.theme);
     G.world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known, altarLevel: 1 });
   }
   // a random map's islands get the Residences a mission's map has (src/residences.js)
-  if (!G.mission && !G.raid) settleResidences(G.world, options.seed);
+  if (!G.mission && !G.raid && !G.city) settleResidences(G.world, options.seed);
   // and a dungeon under the player's starting island (the house rules' digDungeon)
   // (each side's island has one; tunnels join them)
-  if (!G.mission && !G.raid) for (const id of [...G.world.players.keys()].sort((a, b) => a - b)) NS.digDungeon(G.world, id, options.seed + id - ME);
+  if (!G.mission && !G.raid && !G.city) for (const id of [...G.world.players.keys()].sort((a, b) => a - b)) NS.digDungeon(G.world, id, options.seed + id - ME);
   G.view = G.world.view();
   // the player's settings that are rules: day and night (src/settings.js); the raid keeps its own
   if (!G.raid) applySettings(G.world);
-  // islands on three levels, if the skirmish was set up so (src/heights.js)
-  resetHeights(!G.mission && !G.raid && setup.tiers === 'tiered', setup.seed, setup.difficulty);
+  // islands on three levels, if the skirmish was set up so (src/heights.js); Altamar's are laid out so
+  resetHeights(G.city ? G.world.tiered : !G.mission && !G.raid && setup.tiers === 'tiered', setup.seed, setup.difficulty);
   // the fog of war, if the settings have it (src/fog.js): at the raid the estates are known from
   // the scouting
-  startFog(G.world, loadSettings().fog, G.raid === 'raid' ? raidKnown(G.world) : []);
+  // the scouting; a city is there to be seen
+  startFog(G.world, !G.city && loadSettings().fog, G.raid === 'raid' ? raidKnown(G.world) : []);
   G.schedule = new NS.AiSchedule(TPS);
   G.pending.clear();
   G.memories.clear();

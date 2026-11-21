@@ -182,7 +182,10 @@ AFRAME.registerSystem('ns-game', {
     const temple = G.world.templeOf(ME);
     // the raid: from above Windgate, where the Wayfinder stands at the start, up the Combahee
     const him = G.raid ? G.world.priestOf(ME) : null;
-    if (him) rig.setHome(new THREE.Vector3(wx(him.x - 8), groundAt(him.x + 0.5, him.y + 0.5), wz(him.y - 6)), 78);
+    // a sky city: over its middle, near enough to see the streets, his Priest below
+    const visitor = G.city ? G.world.priestOf(ME) : null;
+    if (visitor) rig.setHome(new THREE.Vector3(wx(visitor.x + 0.5), groundAt(visitor.x + 0.5, visitor.y + 0.5), wz(visitor.y - 3)), 46);
+    else if (him) rig.setHome(new THREE.Vector3(wx(him.x - 8), groundAt(him.x + 0.5, him.y + 0.5), wz(him.y - 6)), 78);
     else if (G.mission || !temple) rig.setHome(new THREE.Vector3(-7, 0, 7), 82);
     else rig.setHome(new THREE.Vector3(wx(temple.x + temple.fx / 2), groundAt(temple.x + 0.5, temple.y + 0.5), wz(temple.y + temple.fy / 2) + 6), 70);
   },
@@ -199,6 +202,10 @@ AFRAME.registerSystem('ns-game', {
     this.wasNight = night;
     const chained = [...G.view.entities.values()].some((e) => e.kind === 'priest' && e.state === 'chained');
     const fury = furyText(w);
+    if (G.city) {
+      this.hud.toast(night ? `${MOON_ICON[w.moonPhase()]} Night falls over ${w.city.title.split(',')[0]}: the lamps are lit` : '☀ Dawn over the city');
+      return;
+    }
     this.hud.toast(night
       ? `${MOON_ICON[w.moonPhase()]} Night falls under ${moonName(w)}: ${reachText(w).replace(/ \(.*\)/, '')}${fury ? `, ${fury}` : ''}${chained ? '; the Sacrifice waits for the dawn' : ''}`
       : `☀ Dawn: guns reach as far as ever${fury ? `, ${fury}` : ''}${chained ? ', and the Sacrifice goes on' : ''}`);

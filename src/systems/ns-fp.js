@@ -24,6 +24,7 @@ import { submit } from '../game.js';
 import { groundCell, toScene } from '../space.js';
 import { spellName } from '../spells.js';
 import * as RAID from '../raid-hud.js';
+import * as CITY from '../city-hud.js';
 import { groundAt } from '../heights.js';
 import { seenAt } from '../fog.js';
 
@@ -510,10 +511,15 @@ AFRAME.registerSystem('ns-fp', {
       const prayers = this.prayers();
       if (!p.spell && !(p.praying > 0) && prayers.length) lines.push(`<kbd>R</kbd> pray for the ${spellName(prayers[this.prayer % prayers.length])}${prayers.length > 1 ? ' · <kbd>Shift</kbd>+<kbd>R</kbd> another' : ''}`);
     }
-    if (p) lines.push(this.hoverLine());
-    const build = G.tool.kind === 'build' ? defs.get(G.tool.type) : null;
-    lines.push(build ? `Laying a ${build.name} (⚡${build.cost}): click to lay it · wheel or <kbd>Tab</kbd> for another · right-click to put it away`
-      : 'Wheel or <kbd>Tab</kbd>: something to build');
+    // a sky city: nothing to pray for or build, the way to the next sight instead
+    if (G.city) {
+      lines.push(CITY.eyesLine());
+    } else {
+      if (p) lines.push(this.hoverLine());
+      const build = G.tool.kind === 'build' ? defs.get(G.tool.type) : null;
+      lines.push(build ? `Laying a ${build.name} (⚡${build.cost}): click to lay it · wheel or <kbd>Tab</kbd> for another · right-click to put it away`
+        : 'Wheel or <kbd>Tab</kbd>: something to build');
+    }
     lines.push(document.pointerLockElement === this.el.canvas
       ? '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · mouse look · click act · <kbd>Esc</kbd> free the mouse · <kbd>V</kbd> view from above'
       : '<b>Click the view to look about with the mouse</b> · <kbd>V</kbd> view from above');

@@ -65,6 +65,13 @@ export function resetHeights(on, seed = 0, difficulty = 'normal') {
   H.low = H.high = 0;
   if (!H.on) return;
   w.tiered = true;
+  // a sky city's levels are laid out with it (sim/city-map.ts): he starts on his own
+  if (w.city) {
+    const p = w.priestOf(ME);
+    H.active = p ? w.level[p.y * WORLD + p.x] : 0;
+    updateHeights();
+    return;
+  }
   const t = w.terrain, seen = new Uint8Array(N), pieces = [];
   for (let i = 0; i < N; i++) {
     if (!isLand(t[i]) || seen[i]) continue;
