@@ -175,7 +175,7 @@ AFRAME.registerComponent('ns-city', {
     // the fountains' jets
     const jets = of('jet');
     if (jets.length) {
-      const mesh = new THREE.InstancedMesh(jet(), new THREE.MeshLambertMaterial({ color: '#cdeeff', transparent: true, opacity: 0.62, depthWrite: false, side: THREE.DoubleSide }), jets.length);
+      const mesh = new THREE.InstancedMesh(jet(), new THREE.MeshLambertMaterial({ color: '#dff6ff', emissive: '#3a6a88', transparent: true, opacity: 0.5, depthWrite: false }), jets.length);
       mesh.frustumCulled = false;
       this.group.add(mesh);
       this.movers.push({ kind: 'jet', mesh, list: jets });

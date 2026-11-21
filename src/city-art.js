@@ -619,11 +619,11 @@ export function rim(k, med, v, vines) {
   }
 }
 
-/** A fountain's jet: a thin column of water, and the spray falling back from its top. */
+/** A fountain's jet: a thin column of water, thinning as it rises, rounded at its top. */
 export function jet() {
   const b = new Batch(), k = new Kit(b, b, [], []);
-  k.part('cyl', 0, 0, 0, 0.1, 0.92, 0.1, '#ffffff');
-  k.part('dome', 0, 0.78, 0, 0.8, 0.32, 0.8, '#ffffff');
+  k.part('taper', 0, 0, 0, 0.13, 0.92, 0.13, '#ffffff');
+  k.part('ball', 0, 0.85, 0, 0.13, 0.16, 0.13, '#ffffff');
   return b.geometry();
 }
 
