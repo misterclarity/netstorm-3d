@@ -22,6 +22,11 @@ export const G = {
   raid: null,
   /** A sky city to stroll through: 'concord' or 'altamar' (sim/city-map.ts), or null. */
   city: null,
+  /** A battle of the tower defense campaign: its id (sim/td-map.ts), or null. */
+  td: null,
+  /** The Spell being aimed in a battle, and the reach shown (src/td-hud.js). */
+  tdCast: null,
+  tdPreview: null,
   world: null,
   view: null,
   options: null,

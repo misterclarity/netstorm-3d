@@ -50,6 +50,17 @@ const ROCKS = ['#8a8478', '#9a9286', '#7a7268', '#a39a8c'];
 const TRUNK = '#6b4a2c';
 const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), C = new THREE.Color();
 
+/** Whether a cell lies within a cell of a tower defense battle's road or a platform. */
+function tdNear(i) {
+  const paint = G.world.td.paint, x = i % 256;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (x + dx >= 0 && x + dx < 256 && paint[i + dy * 256 + dx]) return true;
+    }
+  }
+  return false;
+}
+
 AFRAME.registerComponent('ns-decor', {
   init() {
     this.group = new THREE.Group();
@@ -118,6 +129,8 @@ AFRAME.registerComponent('ns-decor', {
         // paving and its houses are the city's (ns-city.js)
         const city = G.world?.city;
         if (city && (city.paint[i] !== 3 || city.blocked[i])) continue;
+        // nor on a tower defense battle's road or platforms, nor beside its way (sim/td-map.ts)
+        if (G.world?.td && (G.world.td.paint[i] || tdNear(i))) continue;
         // near the rim the trees stand thicker
         let rim = 0;
         for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [1, 1], [-1, -1], [1, -1], [-1, 1]]) if (!island(x + dx, y + dy)) rim++;

@@ -1378,6 +1378,165 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   console.log(`sky cities: ${told.join('; ')}: every sight walked to from the start, the blocked cells not walked on by order or by hand, nothing built, nobody wins, night falls a minute and a half on`);
 }
 
+// The tower defense campaign (sim/td.ts, sim/td-map.ts): each battle laid out so that it can be
+// played, won by a careful player and lost by one who raises nothing; and its rules, each part of
+// which would fail on the rule it is about.
+{
+  const at = (x, y) => y * NS.W + x, told = [];
+  // a careful player's order for each battle: platform (letter) and gun, ^ for a rank up; then every
+  // gun ranked up, the cheapest first; the first wave called once two guns stand; a Spell on a knot
+  const GUN = { disc: 'sunarcher', bow: 'windarcher', ice: 'raincannon', van: 'thunderarcher', sun: 'suncannon', arc: 'thunderfence', thu: 'thundercannon', man: 'rainaviary' };
+  const PLANS = {
+    mossbridge: 'C bow, D disc, H disc, J bow, F disc, L disc, ^C, ^J, M bow, I disc, N disc, ^D, ^H, E disc, B disc, ^M, ^F, ^L',
+    ferries: 'G ice, H disc, J ice, I bow, L disc, O ice, ^G, ^J, M disc, C disc, D disc, ^O, E bow, F bow, ^H, ^I, N disc, K disc',
+    cloudwatch: 'D ice, E van, K ice, G disc, I disc, H bow, ^D, ^K, ^E, L disc, F van, M bow, O disc, ^G, ^H, J disc, C van',
+    skaters: 'A ice, B ice, D disc, I disc, E van, O arc, P arc, ^A, ^B, K sun, N bow, L van, Q arc, ^E, M bow, ^K',
+    bulfback: 'C ice, F ice, D disc, G van, P arc, H thu, ^C, ^F, L thu, Q arc, R arc, O van, E bow, I bow, ^H, ^L, ^G, J man',
+    hollowgate: 'C ice, D ice, G van, E disc, F disc, H van, ^C, ^D, K thu, L thu, R arc, S arc, ^G, ^H, O bow, P bow, T arc, U arc, ^K, ^L, Q bow, I man',
+  };
+  const play = (id, plan) => {
+    const w = NS.createTd(defs, id), td = w.td, side = w.players.get(NS.TD_ME), steps = plan ? plan.split(', ').map((x) => x.split(' ')) : [];
+    let step = 0, guns = 0;
+    for (let tick = 0; tick < 40 * 60 * NS.TPS && !td.over; tick++) {
+      const cmds = [];
+      if (tick % NS.TPS === 0) {
+        const [a, b] = steps[step] ?? [];
+        if (a?.[0] === '^') {
+          const s = td.spots['ABCDEFGHIJKLMNOPQRSTU'.indexOf(a[1])], gun = w.entities.get(s.tower);
+          if (side.storm >= NS.TD_TOWERS[gun.type].ranks[td.ranks.get(gun.id) - 1]) { cmds.push({ t: 'tdUpgrade', player: 1, tower: gun.id }); step++; }
+        } else if (a) {
+          if (side.storm >= NS.TD_TOWERS[GUN[b]].cost) { cmds.push({ t: 'tdBuild', player: 1, spot: 'ABCDEFGHIJKLMNOPQRSTU'.indexOf(a), type: GUN[b] }); step++; guns++; }
+        } else if (plan) {
+          let up = null;
+          for (const [gid, rank] of td.ranks) { const gun = w.entities.get(gid); if (!gun || rank >= 3 || !td.spent.has(gid)) continue; const c = NS.TD_TOWERS[gun.type].ranks[rank - 1]; if (!up || c < up.c) up = { c, gid }; }
+          if (up && side.storm >= up.c) cmds.push({ t: 'tdUpgrade', player: 1, tower: up.gid });
+        }
+        if (td.wave === 0 && (guns >= 2 || !plan)) cmds.push({ t: 'tdWave', player: 1 });
+        for (const spell of plan ? td.spells : []) {
+          if ((td.cooldown.get(spell) ?? 0) > 0) continue;
+          let best = null;
+          for (const [eid] of td.enemies) { const e = w.entities.get(eid); if (!e) continue; let n = 0; for (const [j] of td.enemies) { const u = w.entities.get(j); if (u && Math.hypot(u.x - e.x, u.y - e.y) <= 2.5) n++; } if (!best || n > best.n) best = { n, x: e.x, y: e.y }; }
+          if (best && best.n >= 4) cmds.push({ t: 'tdCast', player: 1, spell, x: best.x, y: best.y });
+        }
+      }
+      w.step(cmds);
+      for (const ev of w.drainEvents()) {
+        if (ev.what === 'rejected') fail(`${id}: the careful player's ${ev.data.cmd} refused: ${ev.data.err}`);
+        if (ev.what === 'destroyed' && ev.who === NS.TD_ME) fail(`${id}: the player's ${ev.data.type} destroyed`);
+      }
+    }
+    return { w, td };
+  };
+  for (const id of NS.TD_LEVELS) {
+    const w = NS.createTd(defs, id), td = w.td, temple = w.templeOf(NS.TD_ME);
+    // the platforms on no way and on no other platform; the ways walkable, each to the Temple's door
+    const platformAt = new Map();
+    td.spots.forEach((s, k) => {
+      for (const [x, y] of [[s.x, s.y], ...(s.pair ? [s.pair] : [])]) {
+        for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) {
+          const i = at(x + dx, y + dy);
+          if (platformAt.has(i)) fail(`${id}: platforms ${platformAt.get(i)} and ${k} overlap at ${x + dx},${y + dy}`);
+          platformAt.set(i, k);
+          if (w.terrain[i] === 0) fail(`${id}: platform ${k} over the sky at ${x + dx},${y + dy}`);
+        }
+      }
+      // a gate's two posts on one row or column, within an Arc Spire's reach of each other
+      if (s.pair && ((s.x !== s.pair[0] && s.y !== s.pair[1]) || Math.abs(s.x - s.pair[0]) + Math.abs(s.y - s.pair[1]) > w.def('thunderfence').range)) fail(`${id}: gate ${k}'s posts are not joined`);
+      // every platform worth a gun: one of the battle's covers five cells of a way from it
+      if (!s.pair && !td.towers.some((t) => !NS.TD_TOWERS[t].gate && NS.tdCover(w, t, s.x, s.y, NS.tdFacing(w, t, s.x, s.y)) >= 5)) fail(`${id}: platform ${k} covers no way`);
+    });
+    for (const [r, route] of td.routes.entries()) {
+      for (const [x, y] of route.cells) {
+        if (!route.air && !w.walkable(NS.TD_FOE, x, y)) fail(`${id}: way ${r} not walkable at ${x},${y}`);
+        if (!route.air && platformAt.has(at(x, y))) fail(`${id}: way ${r} crosses platform ${platformAt.get(at(x, y))} at ${x},${y}`);
+      }
+      const [dx, dy] = route.cells.at(-1);
+      if (Math.max(temple.x - dx, 0, dx - (temple.x + temple.fx - 1)) + Math.max(temple.y - dy, 0, dy - (temple.y + temple.fy - 1)) !== 1) fail(`${id}: way ${r} ends at ${dx},${dy}, not at the Temple's door`);
+    }
+    // won by the careful player; lost with nothing raised
+    const careful = play(id, PLANS[id]), idle = play(id, null);
+    if (careful.td.over !== 'won') fail(`${id}: the careful player ${careful.td.over ?? 'did not finish'} (${careful.td.lives} lives, wave ${careful.td.wave})`);
+    if (idle.td.over !== 'lost') fail(`${id}: with nothing raised the battle was ${idle.td.over ?? 'not over'}`);
+    told.push(`${id} ${careful.td.lives}/${careful.td.livesMax}`);
+  }
+
+  // the rules, on the second battle
+  const fresh = () => { const w = NS.createTd(defs, 'ferries'); w.players.get(NS.TD_ME).storm = 5000; return [w, w.td, w.players.get(NS.TD_ME)]; };
+  const foe = (w, td, type, hp = 1, route = 0) => { td.due.push({ at: w.tick, group: { foe: type, n: 1, every: 1, at: 0, route, hp } }); w.step([]); return [...td.enemies.keys()].at(-1); };
+  {
+    // a gun raised, the platform taken; what the rules leave alone refused; a rank and its price
+    const [w, td, side] = fresh();
+    w.step([{ t: 'tdBuild', player: 1, spot: 6, type: 'raincannon' }, { t: 'tdBuild', player: 1, spot: 6, type: 'sunarcher' }, { t: 'build', player: 1, type: 'sunarcher', x: 100, y: 100 }, { t: 'tdBuild', player: 1, spot: 7, type: 'thundercannon' }]);
+    const no = w.drainEvents().filter((e) => e.what === 'rejected').map((e) => e.data.err);
+    if (JSON.stringify(no) !== JSON.stringify(['blocked', 'not here', 'not here'])) fail(`td: a second gun, a world's own building and a gun not of the battle answered ${JSON.stringify(no)}`);
+    const gun = td.spots[6].tower;
+    if (side.storm !== 5000 - NS.TD_TOWERS.raincannon.cost || w.entities.get(gun)?.type !== 'raincannon') fail('td: the Ice Cannon not raised for its price');
+    w.step([{ t: 'tdUpgrade', player: 1, tower: gun }]);
+    if (td.ranks.get(gun) !== 2 || NS.tdHit(w, w.entities.get(gun)) !== NS.TD_TOWERS.raincannon.power * NS.TD_RANK_HIT[1]) fail('td: the rank does not raise the hit');
+    // sold for its share of what was spent on it
+    const paid = side.storm;
+    w.step([{ t: 'tdSell', player: 1, tower: gun }]);
+    if (side.storm - paid !== Math.floor((NS.TD_TOWERS.raincannon.cost + NS.TD_TOWERS.raincannon.ranks[0]) * NS.TD_REFUND) || td.spots[6].tower !== null || w.entities.has(gun)) fail('td: the sale did not pay back its share');
+  }
+  {
+    // a walker that reaches the Temple costs its lives, a Crab Storm Power as well; one brought down
+    // pays its bounty; the rules pay nothing of their own for it, and no geyser rises
+    const [w, td, side] = fresh();
+    const crab = foe(w, td, 'rainwalker');
+    w.entities.get(crab).path = [];
+    side.storm = 100;
+    w.step([]);
+    if (td.lives !== td.livesMax - 1 || side.storm !== 100 - NS.TD_FOES.rainwalker.steals || td.leaked !== 1) fail(`td: a Crab at the Temple left ${td.lives} lives and ⚡${side.storm}`);
+    const walker = foe(w, td, 'sunwalker');
+    w.entities.get(walker).hp = 0;
+    const storm = side.storm, geysers = [...w.entities.values()].filter((e) => e.kind === 'geyser').length;
+    w.step([]);
+    w.step([]);
+    if (side.storm !== storm + NS.TD_FOES.sunwalker.bounty || td.killed !== 1 || [...w.entities.values()].filter((e) => e.kind === 'geyser').length !== geysers) fail(`td: a Golem brought down paid ⚡${side.storm - storm}`);
+  }
+  {
+    // an Ice Cannon's shell chills the walker it strikes, and its ricochet spares the player's guns
+    const [w, td] = fresh();
+    w.step([{ t: 'tdBuild', player: 1, spot: 6, type: 'raincannon' }, { t: 'tdBuild', player: 1, spot: 7, type: 'sunarcher' }, { t: 'tdBuild', player: 1, spot: 8, type: 'sunarcher' }]);
+    for (let i = 0; i < 20; i++) w.step([]);
+    let chilled = false;
+    for (let i = 0; i < 8; i++) foe(w, td, 'bulf', 20);
+    for (let i = 0; i < 60 * NS.TPS; i++) {
+      w.step([]);
+      for (const [eid, enemy] of td.enemies) {
+        if (enemy.chill > 0) { chilled = true; const t = w.entities.get(eid); if (t && NS.tdSpeed(w, t) >= NS.TD_FOES.bulf.speed) fail('td: a chilled walker is not slowed'); }
+      }
+    }
+    if (!chilled) fail('td: no walker chilled by the Ice Cannon');
+    for (const s of [6, 7, 8]) { const g = w.entities.get(td.spots[s].tower); if (!g || g.hp < g.hpMax) fail(`td: the gun on platform ${s} was struck by a ricochet`); }
+  }
+  {
+    // a Spell: Thunder Strike hurts the horde about the spot, then must wait; Paralysis holds it
+    const [w, td] = fresh();
+    const a = foe(w, td, 'bulf'), e = w.entities.get(a);
+    w.step([{ t: 'tdCast', player: 1, spell: 'bomblightingzap', x: e.x, y: e.y }]);
+    w.step([{ t: 'tdCast', player: 1, spell: 'bomblightingzap', x: e.x, y: e.y }, { t: 'tdCast', player: 1, spell: 'bombparalyze', x: e.x, y: e.y }]);
+    if (e.hp !== e.hpMax - NS.TD_STRIKE || e.paralyzed <= 0) fail(`td: Thunder Strike left ${e.hp} of ${e.hpMax}, Paralysis ${e.paralyzed} ticks`);
+    if (!w.drainEvents().some((ev) => ev.what === 'rejected' && ev.data.err === 'not ready')) fail('td: a Spell cast again before it was ready');
+  }
+  {
+    // the flagship holds the guns about it still; at the Temple it takes every life
+    const [w, td] = fresh();
+    w.step([{ t: 'tdBuild', player: 1, spot: 0, type: 'sunarcher' }]);
+    for (let i = 0; i < 20; i++) w.step([]);
+    td.due.push({ at: w.tick, group: { foe: 'windballoon', n: 1, every: 1, at: 0, route: 0, hp: 50, flagship: true } });
+    let held = false;
+    // over the gun first, then on to the Temple's door
+    for (let i = 0; i < 12 * NS.TPS; i++) { w.step([]); if (w.entities.get(td.spots[0].tower)?.paralyzed > 0) held = true; }
+    const ship = w.entities.get([...td.enemies.keys()][0]);
+    if (ship) ship.path = td.routes[0].cells.slice(-8).map(([x, y]) => [x, y]);
+    for (let i = 0; i < 40 * NS.TPS && !td.over; i++) { w.step([]); if (w.entities.get(td.spots[0].tower)?.paralyzed > 0) held = true; }
+    if (!held) fail('td: the flagship held no gun still');
+    if (td.over !== 'lost' || td.lives !== 0) fail(`td: the flagship at the Temple left ${td.lives} lives (${td.over})`);
+  }
+  console.log(`tower defense: ${NS.TD_LEVELS.length} battles laid out, each won by a careful player (lives left: ${told.join(', ')}) and lost with nothing raised; a gun raised, ranked and sold, a Crab stealing, a bounty paid, an Ice Cannon chilling and sparing the guns, the Spells, the flagship's hold`);
+}
+
 // Every name of the engine that the client's code uses is one the engine has (one was not: the
 // shrine's ward, and its toast said "undefined").
 {

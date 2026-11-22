@@ -18,6 +18,7 @@ import { reachOf } from '../reach.js';
 import { FOG, seenAt, seenArea, seenEntity } from '../fog.js';
 import * as models from '../models.js';
 import * as RAID from '../raid-hud.js';
+import * as TD from '../td-hud.js';
 
 const AIR_BOX = new THREE.Box3(), AIR_HIT = new THREE.Vector3();
 
@@ -165,6 +166,8 @@ AFRAME.registerSystem('ns-game', {
     // the raid's battles show no building; the scouting no bridge either
     document.body.classList.toggle('raid', !!G.raid);
     document.body.classList.toggle('scouting', G.raid === 'scout');
+    document.body.classList.toggle('td', !!G.td);
+    TD.hide();
     this.shadowsNow = true;
     this.frameView();
     this.hud.reset();
@@ -184,7 +187,18 @@ AFRAME.registerSystem('ns-game', {
     const him = G.raid ? G.world.priestOf(ME) : null;
     // a sky city: over its middle, near enough to see the streets, his Priest below
     const visitor = G.city ? G.world.priestOf(ME) : null;
-    if (visitor) rig.setHome(new THREE.Vector3(wx(visitor.x + 0.5), groundAt(visitor.x + 0.5, visitor.y + 0.5), wz(visitor.y - 3)), 46);
+    // a tower defense battle: the whole of it, from the storm gates to the Temple
+    const battle = G.td ? G.world.td : null;
+    if (battle) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const route of battle.routes) for (const [x, y] of route.cells) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      // (the Temple's island reaches past the door)
+      x1 += 10;
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      // (a narrow screen, a phone's upright, stands further back, so as to see across)
+      const canvas = this.el.canvas, aspect = canvas?.clientHeight ? canvas.clientWidth / canvas.clientHeight : 1.6;
+      rig.setHome(new THREE.Vector3(wx(cx), 0, wz(cy + 4)), Math.max(80, (x1 - x0) * 1.12 * Math.min(1.8, Math.max(1, 1.6 / aspect)), (y1 - y0) * 1.9));
+    } else if (visitor) rig.setHome(new THREE.Vector3(wx(visitor.x + 0.5), groundAt(visitor.x + 0.5, visitor.y + 0.5), wz(visitor.y - 3)), 46);
     else if (him) rig.setHome(new THREE.Vector3(wx(him.x - 8), groundAt(him.x + 0.5, him.y + 0.5), wz(him.y - 6)), 78);
     else if (G.mission || !temple) rig.setHome(new THREE.Vector3(-7, 0, 7), 82);
     else rig.setHome(new THREE.Vector3(wx(temple.x + temple.fx / 2), groundAt(temple.x + 0.5, temple.y + 0.5), wz(temple.y + temple.fy / 2) + 6), 70);
@@ -343,6 +357,7 @@ AFRAME.registerSystem('ns-game', {
         case 'lurker': if (mine) hud.toast('Something bit your Priest in the dark! Shade the light (L) or outrun it (the Hover)', 'bad'); break;
         case 'pit': if (mine) hud.toast('The Hover gave out over the pit: your Priest fell, and was washed back to the stairs', 'bad'); break;
         case 'raid': RAID.hear(this, ev); break;
+        case 'td': TD.hear(this, ev); break;
         case 'sap':
           if (ev.data.start) hud.toast(mine ? `Your Golem is setting a charge under the Altar: ${NS.SAP_SECONDS} s by the portal` : 'An enemy Golem at your dungeon’s portal is setting a charge under your Altar!', mine ? 'good' : 'bad');
           else if (ev.data.broken) hud.toast(mine ? 'The charge was not set: your Golem left the portal' : 'The charge under your Altar was not set');
@@ -450,6 +465,8 @@ AFRAME.registerSystem('ns-game', {
     if (d.button === 2) { this.cancel(); return; }
     const cell = ray && groundCell(ray);
     if (!cell) return;
+    // a tower defense battle: a platform's or a gun's menu, or a Spell cast (src/td-hud.js)
+    if (G.td) { TD.tap(this.hud, cell.x, cell.y); return; }
     if (d.touch && G.tool.kind !== 'select') {
       // on a touch screen the first tap shows where it goes, the second lays it
       const same = G.hover && G.hover.x === cell.x && G.hover.y === cell.y;
@@ -922,6 +939,8 @@ AFRAME.registerSystem('ns-game', {
     // in the Priest's eyes his keys come first (ns-fp.js)
     if (G.fp?.active && this.fp().onKey(e)) return;
     const k = e.key.toLowerCase();
+    // a tower defense battle's keys: N, the Spells' 1 and 2, Escape (src/td-hud.js)
+    if (G.td && G.started && TD.onKey(this.hud, k)) return;
     if (k >= '1' && k <= '6') {
       const i = Number(k) - 1;
       if (G.world.players.get(ME).hand[i]) this.setTool({ kind: 'piece', hand: i });

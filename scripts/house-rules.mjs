@@ -4521,6 +4521,179 @@ import type { City } from './city-map.js';`,
 export * from './city-map.js';`,
 });
 
+// The Bridges of Nimbus (netstorm-3d): a tower defense campaign of six battles, whose rules are a
+// module of their own, sim/td.ts, laid in as rules/td.ts, and whose maps are sim/td-map.ts, laid
+// in as td-map.ts (EXTRA_FILES, below). Here they are hooked in: the battle on the world, and a
+// step of its rules after the world's own; its commands, and none of the world's own in it but the
+// Priest's walking; a gun's rank in its hit and its reach (a flyer's in its base's); an Ice Cannon's
+// shell chilling the walker it strikes; the horde's pace, the battle's own; nothing paid by the
+// rules for what is brought down (the battle pays its own bounty), and no geyser fed by it; and no
+// tree growing.
+CHANGES.push({
+  file: 'world.ts',
+  why: 'tower defense: its rules',
+  was: `import type { City } from './city-map.js';`,
+  now: `import type { City } from './city-map.js';
+import { tdCommand, tickTd, type Td } from './rules/td.js';`,
+}, {
+  file: 'world.ts',
+  why: 'tower defense: its state',
+  was: `  /** (netstorm-3d) A sky city to stroll through (city-map.ts), or null. */
+  city: City | null = null;`,
+  now: `  /** (netstorm-3d) A sky city to stroll through (city-map.ts), or null. */
+  city: City | null = null;
+  /** (netstorm-3d) A battle of the tower defense campaign (rules/td.ts), or null. */
+  td: Td | null = null;`,
+}, {
+  file: 'world.ts',
+  why: 'tower defense: a step of its rules',
+  was: `    // (netstorm-3d) the raid's rules, after the world's own
+    if (this.raid) {
+      tickRaid(this);
+    }`,
+  now: `    // (netstorm-3d) the raid's rules, after the world's own
+    if (this.raid) {
+      tickRaid(this);
+    }
+
+    // (netstorm-3d) a tower defense battle's rules, after the world's own
+    if (this.td) {
+      tickTd(this);
+    }`,
+}, {
+  file: 'world.ts',
+  why: 'tower defense: nothing done there but its own commands and walking',
+  was: `    // (netstorm-3d) in a sky city nothing is done but walking: the Priest by order or by hand, his`,
+  now: `    // (netstorm-3d) in a tower defense battle nothing is done but its own commands (rules/td.ts)
+    // and the Priest's walking, by order or by hand
+    if (this.td && !c.t.startsWith('td') && c.t !== 'movePriest' && c.t !== 'steerPriest' && c.t !== 'lamp') {
+      return 'not here';
+    }
+
+    // (netstorm-3d) in a sky city nothing is done but walking: the Priest by order or by hand, his`,
+}, {
+  file: 'world.ts',
+  why: 'tower defense: its commands',
+  was: `      case 'raidHome':
+        return raidCommand(this, c);`,
+  now: `      case 'raidHome':
+        return raidCommand(this, c);
+      case 'tdBuild':
+      case 'tdUpgrade':
+      case 'tdSell':
+      case 'tdTurn':
+      case 'tdWave':
+      case 'tdCast':
+        return this.td ? tdCommand(this, c) : 'not here';`,
+}, {
+  file: 'world.ts',
+  why: 'tower defense: no tree grows on its islands',
+  was: `  treeGrows(x: number, y: number): boolean {
+    if (this.city) {`,
+  now: `  treeGrows(x: number, y: number): boolean {
+    if (this.city || this.td) {`,
+}, {
+  file: 'commands.ts',
+  why: 'tower defense, declared: its commands',
+  was: `  | { t: 'raidHome'; player: number; };`,
+  now: `  | { t: 'raidHome'; player: number; }
+  // (netstorm-3d) a tower defense battle's (rules/td.ts): a gun raised on a platform, raised a
+  // rank, sold, turned; the next wave called; a Spell cast at a cell
+  | { t: 'tdBuild'; player: number; spot: number; type: string; facing?: Facing; }
+  | { t: 'tdUpgrade'; player: number; tower: number; }
+  | { t: 'tdSell'; player: number; tower: number; }
+  | { t: 'tdTurn'; player: number; tower: number; facing?: Facing; }
+  | { t: 'tdWave'; player: number; }
+  | { t: 'tdCast'; player: number; spell: string; x: number; y: number; };`,
+}, {
+  file: 'events.ts',
+  why: 'tower defense, declared: its event',
+  was: `  raid: { kind: string; id?: number; n?: number; x?: number; y?: number; ship?: number; won?: boolean; why?: string; };`,
+  now: `  raid: { kind: string; id?: number; n?: number; x?: number; y?: number; ship?: number; won?: boolean; why?: string; };
+  /** Of a tower defense battle (rules/td.ts): what happened (\`kind\`), to what, how many, how much. */
+  td: { kind: string; id?: number; n?: number; x?: number; y?: number; type?: string; amount?: number; won?: boolean; flagship?: boolean; };`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tower defense: a gun\'s rank, and the Ice Cannon\'s chill',
+  was: `import type { World } from '../world.js';`,
+  now: `import type { World } from '../world.js';
+import { tdChill, tdFurther, tdHit } from './td.js';`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tower defense: a gun hits harder at its rank, and an Ice Cannon\'s shell chills',
+  was: `  damage(world, by, target, amount * hitFactor(world, gun, target), shot.ricochet ? undefined : gun);`,
+  now: `  damage(world, by, target, amount * hitFactor(world, gun, target) * tdHit(world, gun), shot.ricochet ? undefined : gun);
+
+  // (netstorm-3d) tower defense: an Ice Cannon's shell chills the walker it strikes (rules/td.ts)
+  if (world.td && gun.type === ICE_CANNON && !shot.ricochet) {
+    tdChill(world, target.id);
+  }`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tower defense: an Ice Cannon\'s ricochet strikes the horde only, not the guns beside the bridge',
+  was: `    if (!('hp' in e) || e.id === target.id || e.hp <= 0 || airborne(world, e)) {`,
+  now: `    if (!('hp' in e) || e.id === target.id || e.hp <= 0 || airborne(world, e) || (world.td !== null && !world.hostile(b.owner, e.owner))) {`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tower defense: an Arc Spire shocks harder at its rank',
+  was: `        damage(world, b.owner, entity, fenceDamage(world, b, def, entity, seconds), b);`,
+  now: `        damage(world, b.owner, entity, fenceDamage(world, b, def, entity, seconds) * tdHit(world, b), b);`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tower defense: a gun reaches further at its rank',
+  was: `  return reach === range ? range : Math.max(1, Math.round(reach));`,
+  now: `  return (reach === range ? range : Math.max(1, Math.round(reach))) + tdFurther(world, b);`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tower defense: a gun looks further at its rank',
+  was: `  for (let r = 0; r < farthest(world, def.range) && world.inside(x, y); r++, x += dx, y += dy) {`,
+  now: `  for (let r = 0; r < farthest(world, def.range) + tdFurther(world, b) && world.inside(x, y); r++, x += dx, y += dy) {`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tower defense: a gun looks further at its rank',
+  was: `  for (let r = 1; r <= farthest(world, def.range); r++) {`,
+  now: `  for (let r = 1; r <= farthest(world, def.range) + tdFurther(world, b); r++) {`,
+}, {
+  file: 'rules/combat.ts',
+  why: 'tower defense: the battle pays its own bounty, and feeds no geyser',
+  was: `  const value = unitValue(world, entity);`,
+  now: `  // (netstorm-3d) a tower defense battle pays its own bounty (rules/td.ts), and feeds no geyser
+  if (world.td) {
+    return;
+  }
+
+  const value = unitValue(world, entity);`,
+}, {
+  file: 'rules/flyers.ts',
+  why: 'tower defense: a Whirligig hits harder at its base\'s rank',
+  was: `import type { World } from '../world.js';`,
+  now: `import type { World } from '../world.js';
+import { tdHit } from './td.js';`,
+}, {
+  file: 'rules/flyers.ts',
+  why: 'tower defense: a Whirligig hits harder at its base\'s rank',
+  was: `  damage(world, f.owner, target, def.dps * seconds * world.furyStrength(def.theme), undefined, true);`,
+  now: `  damage(world, f.owner, target, def.dps * seconds * world.furyStrength(def.theme) * (f.home === null ? 1 : tdHit(world, { id: f.home })), undefined, true);`,
+}, {
+  file: 'rules/movement.ts',
+  why: 'tower defense: the horde\'s pace, the battle\'s own',
+  was: `import type { World } from '../world.js';`,
+  now: `import type { World } from '../world.js';
+import { tdSpeed } from './td.js';`,
+}, {
+  file: 'rules/movement.ts',
+  why: 'tower defense: the horde\'s pace, the battle\'s own',
+  was: `  const speed = world.def(t.type).speed;`,
+  now: `  const speed = world.td ? tdSpeed(world, t) : world.def(t.type).speed;`,
+}, {
+  file: 'index.ts',
+  why: 'tower defense: what the client starts a battle with and reads of it',
+  was: `export * from './city-map.js';`,
+  now: `export * from './city-map.js';
+export * from './td-map.js';
+export * from './rules/td.js';`,
+});
+
 /** The house rules' own files, laid into the sim's source as if they were netstorm-web's (named as
  * the changes name files): they are TypeScript of the simulation, and import its modules as its own
  * modules do. */
@@ -4528,6 +4701,8 @@ export const EXTRA_FILES = {
   'rules/raid.ts': 'sim/raid.ts',
   'raid-map.ts': 'sim/raid-map.ts',
   'city-map.ts': 'sim/city-map.ts',
+  'rules/td.ts': 'sim/td.ts',
+  'td-map.ts': 'sim/td-map.ts',
 };
 
 /** The files of the sim's source that are changed, named from packages/sim/src as the changes name them. */

@@ -2167,6 +2167,93 @@ SCENARIOS.cities = async () => {
   return errors;
 };
 
+/**
+ * The tower defense campaign (sim/td.ts, src/td-hud.js, src/components/ns-td.js): its map from the
+ * main menu, the first battle alone open; the first battle's briefing and its bar, with no bottom
+ * bar, goal panel or fog; a platform clicked, its menu, a gun's reach shown as it is pointed at and
+ * the gun raised; the first wave called with N and the horde brought down for bounties; the gun's
+ * menu and a rank up, its stars over it; Thunder Strike aimed with 1 and cast; and the battle won,
+ * its stars kept, the next battle open on the map.
+ */
+SCENARIOS.td = async () => {
+  const { page, errors } = await open();
+  const screenOf = (x, y) => page.evaluate(([cx, cy]) => {
+    const { wx, wz } = window.NS3D, scene = document.querySelector('a-scene'), THREE = AFRAME.THREE;
+    const v = new THREE.Vector3(wx(cx), 0.4, wz(cy)).project(scene.camera), r = scene.canvas.getBoundingClientRect();
+    return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
+  }, [x, y]);
+  const state = () => page.evaluate(() => {
+    const { G } = window.NS3D, td = G.world.td;
+    return { wave: td.wave, killed: td.killed, lives: td.lives, storm: G.world.players.get(1).storm, over: td.over, tower: td.spots[2].tower, rank: td.ranks.get(td.spots[2].tower) ?? 0 };
+  });
+  await page.waitForSelector('[data-td-open]', { timeout: 20000 });
+  await page.click('[data-td-open]');
+  await page.waitForSelector('svg.td-map');
+  const map = await page.evaluate(() => ({ isles: document.querySelectorAll('.td-isle').length, locked: document.querySelectorAll('.td-isle.locked').length }));
+  if (map.isles !== 6 || map.locked !== 5) throw new Error(`the campaign map: ${JSON.stringify(map)}`);
+  await page.click('.td-isle[data-battle="mossbridge"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent.includes('Mossbridge'), null, { timeout: 30000 });
+  await page.click('#modal button.main');
+  await page.waitForTimeout(1500);
+  const drawn = await page.evaluate(() => {
+    const c = document.getElementById('td').components['ns-td'];
+    return { frames: c.frames.length, gates: c.gates.length, bar: !document.getElementById('tdBar').hidden, bottom: document.getElementById('bar').style.display, goal: document.getElementById('goal').hidden, fog: window.NS3D.FOG.on };
+  });
+  if (drawn.frames !== 14 || drawn.gates !== 1 || !drawn.bar || drawn.bottom !== 'none' || !drawn.goal || drawn.fog) throw new Error(`the battle drawn: ${JSON.stringify(drawn)}`);
+  // a platform's menu: a Crossbow pointed at shows its reach, and is raised
+  await cameraStill(page);
+  const spot = await page.evaluate(() => window.NS3D.G.world.td.spots[2]);
+  let p = await screenOf(spot.x + 1.5, spot.y + 1.5);
+  await page.mouse.click(p.x, p.y);
+  await page.waitForSelector('#tdMenu:not([hidden]) [data-build="windarcher"]', { timeout: 5000 });
+  await page.hover('#tdMenu [data-build="windarcher"]');
+  await page.waitForFunction(() => document.getElementById('td').components['ns-td'].cells.count > 10, null, { timeout: 5000 })
+    .catch(() => { throw new Error('no reach shown for the Crossbow pointed at'); });
+  await page.click('#tdMenu [data-build="windarcher"]');
+  await page.waitForFunction(() => window.NS3D.G.world.td.spots[2].tower !== null, null, { timeout: 5000 })
+    .catch(() => { throw new Error('the Crossbow not raised from the menu'); });
+  // the first wave, called with N; the horde brought down for bounties
+  await page.keyboard.press('n');
+  await page.waitForFunction(() => window.NS3D.G.world.td.wave === 1, null, { timeout: 5000 }).catch(() => { throw new Error('N called no wave'); });
+  const before = await state();
+  await fastForward(page, 600);
+  const after = await state();
+  if (after.killed < 1 || after.storm <= before.storm) throw new Error(`no bounty: ${JSON.stringify({ before, after })}`);
+  // the gun's menu: a rank up, its stars over it
+  await page.evaluate(() => { window.NS3D.G.world.players.get(1).storm += 500; });
+  p = await screenOf(spot.x + 1.5, spot.y + 1.5);
+  await page.mouse.click(p.x, p.y);
+  await page.waitForSelector('#tdMenu:not([hidden]) [data-up]', { timeout: 5000 });
+  await page.click('#tdMenu [data-up]');
+  await page.waitForFunction(() => { const { G } = window.NS3D, td = G.world.td; return td.ranks.get(td.spots[2].tower) === 2 && document.getElementById('td').components['ns-td'].badges.size === 1; }, null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`no rank up from the menu: ${JSON.stringify(await state())}`); });
+  await page.keyboard.press('Escape');
+  // Thunder Strike, aimed with 1 and cast with a click
+  await page.keyboard.press('1');
+  const aimed = await page.evaluate(() => window.NS3D.G.tdCast);
+  p = await screenOf(spot.x - 2, spot.y + 2);
+  await page.mouse.click(p.x, p.y);
+  await page.waitForFunction(() => (window.NS3D.G.world.td.cooldown.get('bomblightingzap') ?? 0) > 0, null, { timeout: 5000 })
+    .catch(() => { throw new Error(`Thunder Strike not cast (aimed: ${aimed})`); });
+  // the battle won: its stars kept, the next battle open
+  await page.evaluate(() => {
+    const { G, submit, stepWorld } = window.NS3D, w = G.world, td = w.td;
+    w.players.get(1).storm += 5000;
+    td.spots.forEach((s, k) => { if (s.tower === null) submit({ t: 'tdBuild', spot: k, type: 'sunarcher' }); });
+    for (let i = 0; i < 9000 && !td.over; i++) { stepWorld(); if (td.next > 0 && !td.due.length) submit({ t: 'tdWave' }); }
+  });
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent.includes('held'), null, { timeout: 15000 })
+    .catch(async () => { throw new Error(`the battle not won: ${JSON.stringify(await state())}`); });
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('netstorm-3d:td') ?? '{}').stars?.mossbridge ?? 0);
+  if (kept < 1) throw new Error('the stars not kept');
+  await page.click('#modal .row button');
+  await page.waitForSelector('svg.td-map', { timeout: 20000 });
+  const open2 = await page.evaluate(() => !document.querySelector('.td-isle[data-battle="ferries"]').classList.contains('locked'));
+  if (!open2) throw new Error('the second battle still locked after the first was won');
+  console.log(`  the map, 1 of 6 open; Mossbridge's ${drawn.frames} platforms; a Crossbow raised by its menu, its reach shown; wave 1 called with N, ${after.killed} brought down for ⚡${after.storm - before.storm}; ranked up to II; Thunder Strike cast; won with ${kept} star${kept > 1 ? 's' : ''}, the Twin Ferries open`);
+  return errors;
+};
+
 for (const [name, run] of Object.entries(SCENARIOS)) {
   if (only && name !== only) continue;
   const started = Date.now();

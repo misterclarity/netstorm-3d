@@ -5,6 +5,7 @@
 import { NS, G, MISSION, TPS, ME, defs, BUILDABLE, PRIEST_BUILT, HARDEN, SPEEDS, facingText, OWNER_COLOR, FURY_COLOR, playerTheme, errorText, escapeHtml, PLAY, setPlay } from './state.js';
 import * as RAID from './raid-hud.js';
 import * as CITY from './city-hud.js';
+import * as TD from './td-hud.js';
 import { showObjectives } from './objectives.js';
 import { needOf, needText, iconsHtml, iconName, sourceOf } from './energy.js';
 import { submit, SKIRMISH_DEFAULTS } from './game.js';
@@ -122,7 +123,7 @@ export class Hud {
     $('storm').innerHTML = `⚡ <b>${me ? Math.floor(me.storm) : 0}</b>`;
     $('storm').hidden = !!G.raid || !!G.city; // the raid is fought with what its airships carry; a city has no battle
     // (nor are there enemy guns to show the reach of)
-    $('rangesToggle').style.display = G.city ? 'none' : '';
+    $('rangesToggle').style.display = G.city || G.td ? 'none' : '';
     // (nor, in Altamar, a Temple of his to look at)
     $('camTemple').style.display = G.city && !G.world.templeOf(ME) ? 'none' : '';
     const secs = Math.floor((G.world?.tick ?? 0) / TPS);
@@ -199,7 +200,8 @@ export class Hud {
   frame(dt) {
     this.acc += dt;
     const me = G.world.players.get(ME);
-    if (me.storm > G.lastStorm + 1) {
+    // (a tower defense battle shows its bounties where the horde falls: src/td-hud.js)
+    if (me.storm > G.lastStorm + 1 && !G.td) {
       const temple = G.world.templeOf(ME), el = temple && this.game.units()?.byId.get(temple.id);
       if (el) this.floater(`+${Math.round(me.storm - G.lastStorm)}`, el.object3D.position.clone().setY(5));
     }
@@ -234,8 +236,8 @@ export class Hud {
 
   renderBar() {
     // a sky city: nothing to lay or build
-    $('bar').style.display = G.city ? 'none' : '';
-    if (G.city) return;
+    $('bar').style.display = G.city || G.td ? 'none' : '';
+    if (G.city || G.td) return;
     const me = G.world.players.get(ME), tool = G.tool;
     const units = this.unitCards(), priest = this.priestCards(), locked = this.lockedUnits();
     const cool = (id) => me.refresh.find((r) => r.type === id);
@@ -546,6 +548,10 @@ export class Hud {
 
   /* ------------------------ the next step, read off the battle --------------------------- */
   renderGoal() {
+    // a tower defense battle has its own bar (src/td-hud.js) in place of the goal panel
+    $('goal').hidden = !!G.td;
+    if (G.td) { TD.panel(this); return; }
+    TD.hide();
     if (G.raid) { RAID.goal(); return; }
     if (G.city) { CITY.goal(this); return; }
     const v = G.view, w = G.world, me = w.players.get(ME);
@@ -706,6 +712,7 @@ export class Hud {
           <button class="main" data-start="skirmish">Start skirmish</button></section>
         ${RAID.menuSection()}
         ${CITY.menuSection()}
+        ${TD.menuSection()}
       </div>`, [{ label: 'Settings', act: () => this.settings(() => this.menu()) }, { label: 'How to play', act: () => this.howToPlay(() => this.menu()) }]);
     const box = $('modalBox');
     box.querySelector('#skDice').onclick = () => { box.querySelector('#skSeed').value = String(Math.floor(Math.random() * 100000)); };
@@ -718,6 +725,7 @@ export class Hud {
     }
     RAID.wireMenu(box, this.game);
     CITY.wireMenu(box, this.game);
+    TD.wireMenu(box, this);
     box.querySelector('[data-start="mission"]').onclick = () => {
       const difficulty = box.querySelector('#msLevel').value;
       try { localStorage.setItem('netstorm-3d:mission-level', difficulty); } catch { /* no storage */ }
@@ -779,6 +787,7 @@ export class Hud {
   briefing() {
     if (G.raid) return RAID.briefing(this);
     if (G.city) return CITY.briefing(this);
+    if (G.td) return TD.briefing(this);
     if (!G.mission) return this.skirmishBriefing();
     const mission = G.mission;
     const text = (mission.pages['a.']?.text ?? mission.briefing).replace(/^The War Begins!\s*/, '');

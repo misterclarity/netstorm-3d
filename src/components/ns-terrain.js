@@ -194,8 +194,13 @@ AFRAME.registerComponent('ns-terrain', {
         const theme = owner ? playerTheme(owner) : 'sun';
         const set = tiles?.[owner ? FURY_TILES[theme] : 'rgrass'];
         const paved = G.world?.city?.paint[y * WORLD + x];
+        // a tower defense battle's road over its islands, and its stone platforms (sim/td-map.ts):
+        // cobbles, and slabs, an Arc gate's of the Thunder's slate
+        const laid = G.world?.td?.paint[y * WORLD + x];
         if (paved) {
           cityGround(g, x, y, cx * T, cy * T, T, paved, G.world.city.name === 'altamar' ? 'med' : owner ? theme : 'none');
+        } else if (laid) {
+          cityGround(g, x, y, cx * T, cy * T, T, laid === 1 ? 1 : 2, laid === 3 ? 'thunder' : 'none');
         } else if (set?.length) {
           g.drawImage(set[Math.floor(hash(x, y, 40) * set.length)], cx * T, cy * T, T, T);
         } else {
