@@ -2167,7 +2167,8 @@ SCENARIOS.cities = async () => {
   if (!lifts.tiered || lifts.posts < 8) throw new Error(`Altamar's lifts: ${JSON.stringify(lifts)}`);
   await page.evaluate(() => window.NS3D.submit({ t: 'movePriest', x: 128, y: 99 }));
   await fastForward(page, 600);
-  await page.waitForTimeout(800);
+  // (the goal list ticks the sight when it is next drawn: under load, later than at once)
+  await page.waitForFunction(() => document.querySelectorAll('#goalList li.done').length >= 2, null, { timeout: 10000 }).catch(() => {});
   const up = await where();
   if (up.level !== 1 || up.y !== 99 || up.done < 2) throw new Error(`ridden up to the domed hall: ${JSON.stringify(up)}`);
   console.log(`  Concord: ${concord.meshes} meshes, ${concord.folk} townsfolk; walked ${seen.at(-1).x - from.x} cells east through his eyes; the Sun market ticked; the lamps lit at night. Altamar: ${altamar.meshes} meshes, ${lifts.posts / 4} lifts, ridden up to the domed hall`);
@@ -2181,7 +2182,8 @@ SCENARIOS.cities = async () => {
  * the gun raised; the first wave called with N and the horde brought down for bounties; the gun's
  * menu and a rank up, its stars over it; Thunder Strike aimed with 1 and cast; the High Priest
  * picked from his portrait and sent along the road with a click, his Rally with 3 and the Storm
- * Hammer aimed with 4 and cast with a click; the battle won, its stars kept and told as points for
+ * Hammer aimed with 4 and cast with a click; the Temple Guard aimed with 5, where its Golems would
+ * stand shown, called with a click on the road, and standing there; the battle won, its stars kept and told as points for
  * the Priest; on the map the next battle open and a skill of his raised with a point, his in the
  * next battle.
  */
@@ -2272,8 +2274,29 @@ SCENARIOS.td = async () => {
   await page.mouse.click(p.x, p.y);
   await page.waitForFunction(() => window.NS3D.G.world.td.hero.cooldown.hammer > 0, null, { timeout: 5000 })
     .catch(async () => { throw new Error(`the Storm Hammer not cast (aimed: ${aiming}): ${JSON.stringify(await hero())}`); });
+  // the Temple Guard: aimed with 5, the cells its Golems would stand on shown, called with a click
+  // on the road, standing there gilded
+  await page.keyboard.press('5');
+  const road = await page.evaluate(() => { const r = window.NS3D.G.world.td.routes.find((x) => !x.air); return r.cells[Math.floor(r.cells.length / 2)]; });
+  p = await screenOf(road[0] + 0.5, road[1] + 0.5);
+  await page.mouse.move(p.x, p.y);
+  await page.waitForFunction(() => document.getElementById('td').components['ns-td'].guard.cells.count > 0, null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`no cells shown for the Temple Guard aimed: ${JSON.stringify(await page.evaluate(() => ({ cast: window.NS3D.G.tdCast, hover: window.NS3D.G.hover })))}`); });
+  await page.mouse.click(p.x, p.y);
+  await page.waitForFunction(() => window.NS3D.G.world.td.allies.size > 0, null, { timeout: 5000 })
+    .catch(() => { throw new Error('the Temple Guard did not come'); });
+  const drawnGuard = () => {
+    const { G } = window.NS3D, td = G.world.td, units = document.querySelector('[ns-units]').components['ns-units'];
+    return { n: td.allies.size, rings: document.getElementById('td').components['ns-td'].guard.rings.count, drawn: [...td.allies.keys()].filter((id) => units.byId.has(id)).length };
+  };
+  await page.waitForFunction(() => {
+    const td = window.NS3D.G.world.td, units = document.querySelector('[ns-units]').components['ns-units'];
+    return td.allies.size > 0 && document.getElementById('td').components['ns-td'].guard.rings.count === td.allies.size && [...td.allies.keys()].every((id) => units.byId.has(id));
+  }, null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`the Temple Guard drawn: ${JSON.stringify(await page.evaluate(drawnGuard))}`); });
+  const guard = await page.evaluate(drawnGuard);
   const bar = await page.evaluate(() => document.querySelector('#tdBar .td-hero-bar')?.textContent.replace(/\s+/g, ' ').trim());
-  if (!/Rally \d+ s/.test(bar) || !/Storm Hammer \d+ s/.test(bar)) throw new Error(`the bar does not count down his acts: ${bar}`);
+  if (!/Rally \d+ s/.test(bar) || !/Hammer \d+ s/.test(bar) || !/Guard \d+ s/.test(bar)) throw new Error(`the bar does not count down his acts: ${bar}`);
   // the battle won: its stars kept and told as points for the Priest, the next battle open
   await page.evaluate(() => {
     const { G, submit, stepWorld } = window.NS3D, w = G.world, td = w.td;
@@ -2299,7 +2322,7 @@ SCENARIOS.td = async () => {
   await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent.includes('Ferries') && window.NS3D.G.world.td, null, { timeout: 30000 });
   const carried = await page.evaluate(() => window.NS3D.G.world.td.hero.skills.bless);
   if (carried !== 1) throw new Error(`the Blessing raised but not his in the next battle (${carried})`);
-  console.log(`  the map, 1 of 6 open; Mossbridge's ${drawn.frames} platforms; a Crossbow raised by its menu, its reach shown; wave 1 called with N, ${after.killed} brought down for ⚡${after.storm - before.storm}; ranked up to II; Thunder Strike cast; the Priest picked and sent ${Math.round(Math.hypot(sent.x - from.x, sent.y - from.y))} cells, his Rally and Storm Hammer cast; won with ${kept} star${kept > 1 ? 's' : ''} (+${kept} point${kept > 1 ? 's' : ''}), the Twin Ferries open; the Blessing raised and his there`);
+  console.log(`  the map, 1 of 6 open; Mossbridge's ${drawn.frames} platforms; a Crossbow raised by its menu, its reach shown; wave 1 called with N, ${after.killed} brought down for ⚡${after.storm - before.storm}; ranked up to II; Thunder Strike cast; the Priest picked and sent ${Math.round(Math.hypot(sent.x - from.x, sent.y - from.y))} cells, his Rally and Storm Hammer cast, the Temple Guard called (${guard.n}); won with ${kept} star${kept > 1 ? 's' : ''} (+${kept} point${kept > 1 ? 's' : ''}), the Twin Ferries open; the Blessing raised and his there`);
   return errors;
 };
 

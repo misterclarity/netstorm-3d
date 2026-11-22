@@ -58,6 +58,19 @@ const RITE = { rune: new THREE.Vector3(), from: new THREE.Vector3(), way: new TH
  * stands about. A soft shadow under it shows where it is.
  */
 const AIR = { aloft: 44 / PX, landed: 1.3 };
+
+/**
+ * A tower defense battle's High Priest drawn as a sprite (rules/td.ts): a hero, larger than the
+ * art's Priest. His walk shows a frame for so much ground covered (the art's eight frames to 1.44
+ * cells: a Priest's pace of 1.8 cells a second at a frame a tick), for he walks faster than a Priest
+ * and frames by the tick would slide him along. His acts play the frames of his chant at an altar
+ * (`CHANT` of netstorm-web's animations.ts: 18 to each of five stages from slot 77), quicker: the
+ * staff raised for the Temple Guard, whirled up for a Rally, swung down for the Storm Hammer,
+ * thrust out for a bolt ([first slot, seconds]).
+ */
+const HERO_SPRITE = { scale: 1.35, stride: 1.44 / 8, acts: { call: [77, 1.1], rally: [95, 1.1], hammer: [113, 0.9], bolt: [149, 0.7] } };
+/** The Temple Guard of a tower defense battle is drawn gilded, not to be taken for the horde's own. */
+const ALLY_TINT = '#ffe08a';
 const AIR_SHADOW = { geo: new THREE.CircleGeometry(1, 24), mat: new THREE.MeshBasicMaterial({ color: '#0a1020', transparent: true, opacity: 0.3, depthWrite: false }) };
 const cards = new WeakMap();
 /** A sprite's texture, plane and material, made once per picture and shared by every card of it. */
@@ -247,6 +260,8 @@ AFRAME.registerComponent('ns-unit', {
       const k = 1 - Math.exp(-dt / 90);
       this.pos.x += dx * k;
       this.pos.z += dz * k;
+      // the ground covered, in cells (a battle's High Priest's stride: HERO_SPRITE)
+      this.stride = (this.stride ?? 0) + dd * k;
     }
     // with tiered islands (heights.js): on the ground where it is going, or what flies at the
     // height of the land round about, rising and sinking to it smoothly
@@ -335,12 +350,17 @@ AFRAME.registerComponent('ns-unit', {
       rep.lift = (rep.alt - AIR.landed) / (AIR.aloft - AIR.landed); // the 3D model's height follows
     }
 
+    // a battle's High Priest at an act: when it was first drawn, and turned to where it was at
+    const hero = G.world.td?.hero.id === e.id ? G.world.td.hero : null;
+    if (hero?.act) this.heroAct(e, hero.act, t, dt);
+
     // in "Sprites" mode: the frame of its animation where it has one, else its still sprite, else
     // the model
-    const frame = this.art.frameOf(e);
+    const frame = this.art.frameOf(e, hero ? (slot) => this.heroSlot(e, slot, hero, t) : null);
     if (this.shadow) this.shadow.visible = false;
     if (frame) {
       this.showFrame(e, frame, visible, t, s);
+      this.gild(this.animMesh, e);
       this.model.visible = false;
       if (this.card) this.card.visible = false;
       this.healthBar(e, t);
@@ -350,6 +370,7 @@ AFRAME.registerComponent('ns-unit', {
     const key = spriteKey(e, cameraLook(this.el.sceneEl, t)), img = this.art.sprite(key);
     if (img) {
       if (this.cardKey !== key) this.setCard(e, key, img);
+      this.gild(this.card.children[0], e);
       this.card.visible = visible;
       this.model.visible = false;
       if (e.kind === 'flyer') this.card.position.y = 3.6 + Math.sin(s * 2 + rep.id) * 0.15;
@@ -360,6 +381,50 @@ AFRAME.registerComponent('ns-unit', {
       this.model.visible = visible;
     }
     this.healthBar(e, t);
+  },
+
+  /**
+   * A battle's High Priest's last act (rules/td.ts `TdAct`): when it was first drawn, so that its
+   * frames or pose play from then; standing, he turns to where it was at (a Rally is all about him).
+   */
+  heroAct(e, act, t, dt) {
+    const key = `${act.kind}:${act.tick}`;
+    if (this.actKey !== key) {
+      this.actKey = key;
+      this.actAt = t;
+    }
+    if (e.state !== 'normal' || e.path?.length || act.kind === 'rally' || t - this.actAt > 1200) return;
+    const dx = act.x - e.x, dy = act.y - e.y;
+    if (!dx && !dy) return;
+    const rep = this.rep;
+    let turn = Math.atan2(wx(act.x) - wx(e.x), wz(act.y) - wz(e.y)) - rep.yaw;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    rep.yaw += turn * Math.min(1, dt / 90);
+    this.model.rotation.y = rep.yaw;
+    // as a sprite, he stands facing it: the nearest of the art's eight headings (north, clockwise)
+    this.art.scene?.headings.set(e.id, (Math.round(Math.atan2(dx, -dy) / (Math.PI / 4)) + 8) % 8);
+  },
+
+  /** The slot a battle's High Priest shows (HERO_SPRITE): his stride's, his act's, or the engine's. */
+  heroSlot(e, slot, hero, t) {
+    const [type, n] = slot;
+    if (type !== 'priest' || e.state !== 'normal') return slot;
+    if (e.path?.length) return n < 64 ? [type, Math.floor(n / 8) * 8 + (Math.floor((this.stride ?? 0) / HERO_SPRITE.stride) % 8)] : slot;
+    const play = hero.act && HERO_SPRITE.acts[hero.act.kind];
+    const k = play ? (t - this.actAt) / 1000 / play[1] : 1;
+    return k < 1 ? [type, play[0] + Math.min(17, Math.floor(k * 18))] : slot;
+  },
+
+  /** The Temple Guard of a battle (rules/td.ts), gilded: its own copy of a shared card's material. */
+  gild(mesh, e) {
+    const ally = !!G.world.td?.allies.has(e.id);
+    if (!mesh || (mesh.userData.gilt ?? false) === ally) return;
+    if (ally && mesh !== this.animMesh) {
+      mesh.material = mesh.material.clone();
+      this.rep.own.push(mesh.material);
+    }
+    mesh.material.color.set(ally ? ALLY_TINT : '#ffffff');
+    mesh.userData.gilt = ally;
   },
 
   /**
@@ -385,10 +450,10 @@ AFRAME.registerComponent('ns-unit', {
       hx = foot.x + foot.w - fx - mx;
       hy = foot.y + foot.h - fy - my;
     }
-    const across = (f.w / 2 - f.hx) / PX;
+    const big = G.world.td?.hero.id === e.id ? HERO_SPRITE.scale : 1, across = ((f.w / 2 - f.hx) / PX) * big;
     if (e.kind === 'flyer') this.anim.position.set(across, 3.6 + Math.sin(s * 2 + this.rep.id) * 0.15, 0);
-    else this.anim.position.set(hx + across, this.rep.flies ? this.airLift(visible, s) : 0.06, hy + (f.h - f.hy) / 11);
-    this.anim.scale.y = e.kind === 'building' && e.rising > 0 ? Math.max(0.06, 1 - e.rising / (NS.BUILD_SECONDS * TPS)) : 1;
+    else this.anim.position.set(hx + across, this.rep.flies ? this.airLift(visible, s) : 0.06, hy + ((f.h - f.hy) / 11) * big);
+    this.anim.scale.set(big, big * (e.kind === 'building' && e.rising > 0 ? Math.max(0.06, 1 - e.rising / (NS.BUILD_SECONDS * TPS)) : 1), big);
     this.anim.visible = visible;
     this.anim.quaternion.copy(cameraTurn(this.el.sceneEl, t));
   },

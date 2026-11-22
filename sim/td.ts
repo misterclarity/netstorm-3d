@@ -23,7 +23,7 @@
  * Rally (the guns about him hit far harder for a while) and the Storm Hammer (a blow on the horde
  * about a spot in his reach). His skills are bought with the campaign's stars (src/td-hud.js).
  */
-import { TPS, type Building, type Facing, type Priest, type Transport } from '../state.js';
+import { H, TPS, Terrain, W, type Building, type Facing, type Priest, type Transport } from '../state.js';
 import type { World } from '../world.js';
 import type { Command, CommandError } from '../commands.js';
 import { removeBuilding } from './combat.js';
@@ -117,8 +117,12 @@ export interface TdSkills {
   hammer: number;
   /** Stand: his hit points, how many walkers he holds up, how fast he mends and rises again. */
   stand: number;
+  /** Temple Guard: who comes at his call, and how long they stay. */
+  call: number;
+  /** Swift Summons: how soon the Temple Guard may be called again. */
+  muster: number;
 }
-export const TD_NO_SKILLS: TdSkills = { bolt: 0, bless: 0, rally: 0, hammer: 0, stand: 0 };
+export const TD_NO_SKILLS: TdSkills = { bolt: 0, bless: 0, rally: 0, hammer: 0, stand: 0, call: 0, muster: 0 };
 
 /** What each level of a skill gives, levels 0 to 3. */
 export const TD_HERO = {
@@ -129,8 +133,42 @@ export const TD_HERO = {
   stand: { hp: [320, 400, 490, 600], holds: [1, 2, 2, 3], regen: [5, 6, 8, 10], down: [15, 13, 11, 9] },
 } as const;
 
+/**
+ * The Temple Guard the Priest calls to a spot: Golems on the ground nearest it, standing there and
+ * hurling stones at the walkers going by; from Temple Guard's third level a Balloon over them too,
+ * dropping fire on the horde on the ground and in the air. None of them moves; they stay so long
+ * (by Temple Guard's level), then are gone, and the Guard comes again only once the wait (by Swift
+ * Summons's level) is over.
+ */
+export const TD_GUARD = {
+  golems: [1, 2, 2, 3],
+  balloons: [0, 0, 1, 1],
+  stay: [12, 13, 14, 15],
+  wait: [40, 34, 28, 22],
+  golem: { type: 'sunwalker', damage: 12, every: 1, reach: 3.5 },
+  balloon: { type: 'sunballoon', damage: 20, every: 0.8, reach: 5 },
+} as const;
+
+/** One of the Temple Guard: in the air or not, its ticks left, and the ticks to its next blow. */
+export interface TdAlly {
+  readonly air: boolean;
+  left: number;
+  next: number;
+}
+
 /** The High Priest's pace in a battle, cells a second: a hero's, quicker than a Priest's own. */
 export const TD_HERO_PACE = 3.2;
+
+/** How long the client draws the Priest at an act (src/models.js, ns-units.js: 1.1 s at most). */
+const ACT_TICKS = 12;
+
+/** What the Priest did last and when, and where at (for the client, to draw him at it). */
+export interface TdAct {
+  readonly kind: 'bolt' | 'rally' | 'hammer' | 'call';
+  readonly tick: number;
+  readonly x: number;
+  readonly y: number;
+}
 
 /** The High Priest in a battle: his own hit points (the rules keep his full, else they would lay
  * him down at half), how long he lies beaten down, his next bolt, the Rally, his acts' waits, and
@@ -143,8 +181,9 @@ export interface TdHero {
   down: number;
   strike: number;
   rally: number;
-  readonly cooldown: { rally: number; hammer: number; };
+  readonly cooldown: { rally: number; hammer: number; call: number; };
   readonly holding: Set<number>;
+  act: TdAct | null;
 }
 
 /** How long a chilled walker is slowed, and to what share of its pace. */
@@ -222,7 +261,12 @@ export interface Td {
   /** The ground of each cell as the client draws it (td-map.ts): the road, a platform. */
   readonly paint: Uint8Array;
   readonly hero: TdHero;
+  /** The Temple Guard standing now, by id. */
+  readonly allies: Map<number, TdAlly>;
 }
+
+/** What `paint` holds where a gun stands (td-map.ts lays them): a platform, an Arc gate's. */
+const PLATFORM_PAINT = 2, GATE_PAINT = 3;
 
 /** A step north, east, south and west. */
 const STEPS: readonly (readonly [number, number])[] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -361,7 +405,7 @@ export function tdFurther(world: World, b: unknown): number {
 
 /** A walker's or airship's pace now, cells a second: its own here, slower while chilled. */
 export function tdSpeed(world: World, t: Transport): number {
-  if (world.td?.hero.holding.has(t.id)) {
+  if (world.td?.hero.holding.has(t.id) || world.td?.allies.has(t.id)) {
     return 0;
   }
 
@@ -423,7 +467,7 @@ function tickHero(world: World): void {
     return;
   }
 
-  for (const act of ['rally', 'hammer'] as const) {
+  for (const act of ['rally', 'hammer', 'call'] as const) {
     if (hero.cooldown[act] > 0) {
       hero.cooldown[act]--;
     }
@@ -524,8 +568,162 @@ function tickHero(world: World): void {
   if (target) {
     target.hp = Math.max(0, +(target.hp - TD_HERO.bolt.damage[k.bolt]!).toFixed(4));
     hero.strike = Math.round(TD_HERO.bolt.every[k.bolt]! * TPS);
+
+    // (a bolt does not cut short the drawing of a greater act just done)
+    if (!hero.act || hero.act.kind === 'bolt' || world.tick - hero.act.tick > ACT_TICKS) {
+      hero.act = { kind: 'bolt', tick: world.tick, x: target.x, y: target.y };
+    }
+
     world.emit({ what: 'td', who: TD_ME, data: { kind: 'bolt', id: target.id } });
   }
+}
+
+/** The Temple Guard's tick: each one's blow at the nearest of the horde in its reach (a Golem's at
+ * the walkers only, a Balloon's at all), struck harder about the Priest; gone when its time is up. */
+function tickGuard(world: World): void {
+  const td = world.td!;
+
+  for (const [id, ally] of td.allies) {
+    const a = world.entities.get(id);
+
+    if (a?.kind !== 'transport') {
+      td.allies.delete(id);
+      continue;
+    }
+
+    if (--ally.left <= 0) {
+      td.allies.delete(id);
+      removeTransport(world, a);
+      world.emit({ what: 'td', who: TD_ME, data: { kind: 'dismissed', id, x: a.x, y: a.y, air: ally.air } });
+      continue;
+    }
+
+    if (ally.next > 0) {
+      ally.next--;
+      continue;
+    }
+
+    const arm = ally.air ? TD_GUARD.balloon : TD_GUARD.golem;
+    let target: Transport | null = null, nearest = Infinity;
+
+    for (const [eid, enemy] of td.enemies) {
+      const t = world.entities.get(eid);
+
+      if (t?.kind !== 'transport' || t.hp <= 0 || (!ally.air && TD_FOES[enemy.type]?.air)) {
+        continue;
+      }
+
+      const d = Math.hypot(t.x - a.x, t.y - a.y);
+
+      if (d <= arm.reach && d < nearest) {
+        nearest = d;
+        target = t;
+      }
+    }
+
+    if (target) {
+      target.hp = Math.max(0, +(target.hp - arm.damage * tdBlessing(world, a.x + 0.5, a.y + 0.5)).toFixed(4));
+      ally.next = Math.round(arm.every * TPS);
+      world.emit({ what: 'td', who: TD_ME, data: { kind: 'shot', id, to: target.id, air: ally.air } });
+    }
+  }
+}
+
+/** The ground about a spot the Temple Guard's Golems may stand on, nearest first: the islands and
+ * bridges, not a gun's platform nor under a building. */
+function guardGround(world: World, cx: number, cy: number): [number, number, number][] {
+  const td = world.td!, taken = new Set<number>(), ground: [number, number, number][] = [];
+
+  for (const e of world.entities.values()) {
+    if (e.kind === 'building') {
+      for (let y = e.y; y < e.y + e.fy; y++) {
+        for (let x = e.x; x < e.x + e.fx; x++) {
+          taken.add(world.at(x, y));
+        }
+      }
+    }
+  }
+
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const x = cx + dx, y = cy + dy;
+
+      if (x < 0 || y < 0 || x >= W || y >= H) {
+        continue;
+      }
+
+      const i = world.at(x, y), t = world.terrain[i];
+
+      if ((t === Terrain.Island || t === Terrain.HardBridge) && td.paint[i] !== PLATFORM_PAINT && td.paint[i] !== GATE_PAINT && !taken.has(i)) {
+        ground.push([x, y, Math.hypot(dx, dy)]);
+      }
+    }
+  }
+
+  return ground.sort((a, b) => a[2] - b[2]);
+}
+
+/** Where the Temple Guard's Golems would stand, called to a cell: none if it may not be called
+ * there (no ground on or beside it). */
+export function tdGuardCells(world: World, cx: number, cy: number): [number, number][] {
+  const ground = cx >= 0 && cy >= 0 && cx < W && cy < H ? guardGround(world, cx, cy) : [];
+
+  if (!ground.length || ground[0]![2] > 1.5) {
+    return [];
+  }
+
+  return ground.slice(0, TD_GUARD.golems[world.td!.hero.skills.call]!).map(([x, y]) => [x, y]);
+}
+
+/** The Temple Guard called to a spot on or beside the ground: its Golems on the ground nearest the
+ * spot, its Balloon over it. It comes whether the Priest stands or lies beaten down. */
+function callGuard(world: World, tx: number | undefined, ty: number | undefined): CommandError | null {
+  const td = world.td!, hero = td.hero, k = hero.skills;
+
+  if (tx === undefined || ty === undefined) {
+    return 'bad target';
+  }
+
+  const cx = Math.floor(tx), cy = Math.floor(ty);
+
+  if (cx < 0 || cy < 0 || cx >= W || cy >= H) {
+    return 'bad coordinates';
+  }
+
+  if (hero.cooldown.call > 0) {
+    return 'not ready';
+  }
+
+  const cells = tdGuardCells(world, cx, cy);
+
+  if (!cells.length) {
+    return 'bad target';
+  }
+
+  hero.cooldown.call = TD_GUARD.wait[k.muster]! * TPS;
+  const stay = TD_GUARD.stay[k.call]! * TPS, golems = cells.length;
+
+  for (let n = 0; n < golems; n++) {
+    const [x, y] = cells[n]!;
+    const t = world.spawnTransport(TD_GUARD.golem.type, TD_ME, x, y);
+    // their first blows a little apart
+    td.allies.set(t.id, { air: false, left: stay, next: n * 3 });
+  }
+
+  for (let n = 0; n < TD_GUARD.balloons[k.call]!; n++) {
+    const t = world.spawnTransport(TD_GUARD.balloon.type, TD_ME, cx, cy);
+    t.aloft = true;
+    td.allies.set(t.id, { air: true, left: stay, next: 0 });
+  }
+
+  const p = world.entities.get(hero.id);
+
+  if (p?.kind === 'priest' && hero.down === 0) {
+    hero.act = { kind: 'call', tick: world.tick, x: cx, y: cy };
+  }
+
+  world.emit({ what: 'td', who: TD_ME, data: { kind: 'guard', x: cx, y: cy, n: golems + TD_GUARD.balloons[k.call]! } });
+  return null;
 }
 
 /** One tick of the battle, after the world's own: the horde comes, reaches the Temple or falls. */
@@ -543,6 +741,7 @@ export function tickTd(world: World): void {
   }
 
   tickHero(world);
+  tickGuard(world);
 
   // the next wave, when its countdown runs out
   if (td.next > 0 && --td.next === 0) {
@@ -788,6 +987,10 @@ export function tdCommand(world: World, c: TdCommand): CommandError | null {
     case 'tdHero': {
       const hero = td.hero, k = hero.skills, p = world.entities.get(hero.id);
 
+      if (c.act === 'call') {
+        return callGuard(world, c.tx, c.ty);
+      }
+
       if (p?.kind !== 'priest' || hero.down > 0) {
         return 'priest unavailable';
       }
@@ -799,6 +1002,7 @@ export function tdCommand(world: World, c: TdCommand): CommandError | null {
 
         hero.rally = TD_HERO.rally.seconds[k.rally]! * TPS;
         hero.cooldown.rally = TD_HERO.rally.cooldown[k.rally]! * TPS;
+        hero.act = { kind: 'rally', tick: world.tick, x: p.x, y: p.y };
         world.emit({ what: 'td', who: TD_ME, data: { kind: 'rally', id: p.id } });
         return null;
       }
@@ -816,6 +1020,7 @@ export function tdCommand(world: World, c: TdCommand): CommandError | null {
       }
 
       hero.cooldown.hammer = TD_HERO.hammer.cooldown[k.hammer]! * TPS;
+      hero.act = { kind: 'hammer', tick: world.tick, x: c.tx, y: c.ty };
 
       for (const [id] of td.enemies) {
         const t = world.entities.get(id);

@@ -65,12 +65,14 @@ AFRAME.registerSystem('ns-art', {
     this.scene = { world: G.view, headings: new Map(), aims: new Map(), states: new NS.VisualStates(), guns: new Map() };
   },
 
-  /** The frame an entity shows this tick ({ tex, geo, w, h, hx, hy }), or null for none yet. */
-  frameOf(e) {
+  /** The frame an entity shows this tick ({ tex, geo, w, h, hx, hy }), or null for none yet; `adjust`
+   * may change the engine's slot (a tower defense battle's High Priest: ns-units.js). */
+  frameOf(e, adjust = null) {
     if (this.mode !== 'sprites' || !this.images) return null;
     if (this.scene.world !== G.view) this.resetScene();
     let slot;
     try { slot = NS.slotOf(e, G.world.tick, this.scene); } catch { return null; }
+    if (slot && adjust) slot = adjust(slot);
     return slot ? this.frame(slot[0], slot[1]) : null;
   },
 

@@ -9,7 +9,7 @@ const KEY = 'netstorm-3d:td';
 
 /** What a skill's levels cost, to level 1, 2 and 3. */
 export const SKILL_COST = [1, 2, 2];
-export const SKILLS = ['bolt', 'bless', 'rally', 'hammer', 'stand'];
+export const SKILLS = ['bolt', 'bless', 'rally', 'hammer', 'stand', 'call', 'muster'];
 
 export function progress() {
   try {

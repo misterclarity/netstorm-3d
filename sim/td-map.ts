@@ -477,7 +477,7 @@ export function createTd(defs: DefTable, id: TdLevelId, skills: TdSkills = TD_NO
   const [hx, hy] = routes.find((r) => !r.air)!.cells.at(-5)!;
   const priest = w.addPriest(TD_ME, hx, hy);
   const level = (n: number | undefined) => Math.max(0, Math.min(3, Math.floor(n ?? 0)));
-  const own: TdSkills = { bolt: level(skills.bolt), bless: level(skills.bless), rally: level(skills.rally), hammer: level(skills.hammer), stand: level(skills.stand) };
+  const own: TdSkills = { bolt: level(skills.bolt), bless: level(skills.bless), rally: level(skills.rally), hammer: level(skills.hammer), stand: level(skills.stand), call: level(skills.call), muster: level(skills.muster) };
 
   const td: Td = {
     level: id,
@@ -509,9 +509,11 @@ export function createTd(defs: DefTable, id: TdLevelId, skills: TdSkills = TD_NO
       down: 0,
       strike: 0,
       rally: 0,
-      cooldown: { rally: 0, hammer: 0 },
+      cooldown: { rally: 0, hammer: 0, call: 0 },
       holding: new Set(),
+      act: null,
     },
+    allies: new Map(),
   };
   w.td = td;
   w.invalidateTerrain();

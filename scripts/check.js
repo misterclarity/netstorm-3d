@@ -1395,7 +1395,7 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     hollowgate: 'C ice, D ice, G van, E disc, F disc, H van, ^C, ^D, K thu, L thu, R arc, S arc, ^G, ^H, O bow, P bow, T arc, U arc, ^K, ^L, Q bow, I man',
   };
   // the Priest's skills as bought with two points a battle before this one, in this order
-  const ORDER = ['bless', 'bolt', 'stand', 'hammer', 'rally', 'bless', 'bolt', 'stand', 'hammer', 'rally', 'bless', 'bolt', 'stand', 'hammer', 'rally'];
+  const ORDER = ['bless', 'call', 'bolt', 'stand', 'muster', 'hammer', 'rally', 'call', 'bless', 'bolt', 'stand', 'hammer', 'muster', 'rally', 'call', 'bless', 'bolt', 'stand', 'hammer', 'muster', 'rally'];
   const skillsFor = (left) => {
     const k = { ...NS.TD_NO_SKILLS }, cost = [1, 2, 2];
     for (const s of ORDER) if (k[s] < 3 && left >= cost[k[s]]) { left -= cost[k[s]]; k[s]++; }
@@ -1442,6 +1442,18 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
           }
           if (near >= 4 && hero.cooldown.rally === 0) cmds.push({ t: 'tdHero', player: 1, act: 'rally' });
           if (knot && knot.n >= 2 && hero.cooldown.hammer === 0) cmds.push({ t: 'tdHero', player: 1, act: 'hammer', tx: knot.x, ty: knot.y });
+        }
+        // the Temple Guard, once a few walkers come, a few cells ahead of the one nearest the Temple
+        if (plan && hero.cooldown.call === 0) {
+          let lead = null, walkers = 0;
+          for (const [eid, en] of td.enemies) {
+            const e = w.entities.get(eid);
+            if (!e || NS.TD_FOES[en.type]?.air || !e.path.length) continue;
+            walkers++;
+            if (!lead || e.path.length < lead.path.length) lead = e;
+          }
+          const ahead = lead?.path[Math.min(lead.path.length - 1, 3)];
+          if (ahead && walkers >= 3) cmds.push({ t: 'tdHero', player: 1, act: 'call', tx: ahead[0], ty: ahead[1] });
         }
       }
       w.step(cmds);
@@ -1598,6 +1610,7 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     if (!same(blessed, plain * NS.TD_HERO.bless.hit[0])) fail(`td: the gun beside the Priest hits ×${blessed / plain}`);
     w.step([{ t: 'tdHero', player: 1, act: 'rally' }]);
     if (!same(NS.tdHit(w, near), plain * NS.TD_HERO.rally.hit[0]) || !same(NS.tdHit(w, far), plain)) fail('td: the Rally did not raise the guns about him');
+    if (hero.act?.kind !== 'rally') fail(`td: his Rally not kept as his act (${JSON.stringify(hero.act)})`);
     const a = foe(w, td, 'bulf', 20), e = w.entities.get(a);
     const refused = (err) => w.drainEvents().some((ev) => ev.what === 'rejected' && ev.data.err === err);
     // beyond his reach it is refused and nothing spent; within it, it falls; at once again, it is not ready
@@ -1609,14 +1622,66 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     const whole = e.hp;
     w.step([{ t: 'tdHero', player: 1, act: 'hammer', tx: e.x, ty: e.y }]);
     if (whole - e.hp < NS.TD_HERO.hammer.damage[0]) fail(`td: the Storm Hammer took only ${whole - e.hp} off what was in reach`);
+    if (hero.act?.kind !== 'hammer' || hero.act.x !== e.x) fail(`td: the Storm Hammer not kept as his act (${JSON.stringify(hero.act)})`);
     w.drainEvents();
     w.step([{ t: 'tdHero', player: 1, act: 'hammer', tx: e.x, ty: e.y }]);
     if (!refused('not ready')) fail('td: the Storm Hammer again before it was ready');
     // his skills, bought: what each level gives is his
-    const strong = NS.createTd(defs, 'ferries', { bolt: 3, bless: 3, rally: 3, hammer: 3, stand: 3 }).td.hero;
-    if (strong.hpMax !== NS.TD_HERO.stand.hp[3] || strong.skills.bless !== 3) fail('td: the Priest\'s skills not his in the battle');
+    const strong = NS.createTd(defs, 'ferries', { bolt: 3, bless: 3, rally: 3, hammer: 3, stand: 3, call: 3, muster: 3 }).td.hero;
+    if (strong.hpMax !== NS.TD_HERO.stand.hp[3] || strong.skills.bless !== 3 || strong.skills.call !== 3) fail('td: the Priest\'s skills not his in the battle');
   }
-  console.log(`tower defense: ${NS.TD_LEVELS.length} battles laid out, each won by a careful player with the High Priest (lives left: ${told.join(', ')}) and lost with nothing raised; a gun raised, ranked and sold, a Crab stealing, a bounty paid, an Ice Cannon chilling and sparing the guns, the Spells, the flagship's hold; the Priest holding a walker up and beaten down, rising again, his blessing and Rally, the Storm Hammer in his reach, his skills`);
+  {
+    // the Temple Guard: called beside the way, its Golems on the ground nearest the spot and its
+    // Balloon aloft over it (by Temple Guard's level), none of them moving; the Golems' stones at the
+    // walkers only, the Balloon's fire at an airship too; all gone when their time is up; not called
+    // again before the wait (by Swift Summons's level), and called while the Priest lies beaten
+    // down; never over the sky away from the ground
+    const w = NS.createTd(defs, 'cloudwatch', { ...NS.TD_NO_SKILLS, call: 2, muster: 3 }), td = w.td, hero = td.hero;
+    w.players.get(NS.TD_ME).storm = 5000;
+    const refused = (err) => w.drainEvents().some((ev) => ev.what === 'rejected' && ev.data.err === err);
+    const way = td.routes.find((r) => !r.air), spot = way.cells[Math.floor(way.cells.length / 2)];
+    w.step([{ t: 'tdHero', player: 1, act: 'call', tx: spot[0], ty: spot[1] }]);
+    const allies = [...td.allies].map(([id, a]) => ({ id, air: a.air, e: w.entities.get(id) }));
+    const golems = allies.filter((a) => !a.air), balloons = allies.filter((a) => a.air);
+    if (golems.length !== NS.TD_GUARD.golems[2] || balloons.length !== NS.TD_GUARD.balloons[2] || !balloons.every((b) => b.e?.aloft)) fail(`td: the Temple Guard came as ${golems.length} Golems and ${balloons.length} Balloons`);
+    if (golems.some((g) => g.e.owner !== NS.TD_ME || Math.hypot(g.e.x - spot[0], g.e.y - spot[1]) > 1.5)) fail('td: the Guard\'s Golems not on the ground by the spot');
+    if (hero.act?.kind !== 'call' || hero.cooldown.call < NS.TD_GUARD.wait[3] * NS.TPS - 1 || hero.cooldown.call > NS.TD_GUARD.wait[3] * NS.TPS) fail(`td: the call not kept (${JSON.stringify(hero.act)}, wait ${hero.cooldown.call})`);
+    // a walker beside a Golem and an airship at the Balloon, both held still
+    const g0 = golems[0].e, air = td.routes.findIndex((r) => r.air);
+    const walker = w.entities.get(foe(w, td, 'bulf', 20)), ship = w.entities.get(foe(w, td, 'sunballoon', 20, air));
+    walker.x = g0.x + 1;
+    walker.y = g0.y;
+    ship.x = balloons[0].e.x;
+    ship.y = balloons[0].e.y;
+    walker.paralyzed = ship.paralyzed = 10 * NS.TPS;
+    w.drainEvents();
+    const stood = allies.map((a) => [a.e.x, a.e.y]);
+    let byGolem = 0, byBalloon = 0, golemAtShip = 0;
+    for (let i = 0; i < 4 * NS.TPS; i++) {
+      w.step([]);
+      for (const ev of w.drainEvents()) {
+        if (ev.what !== 'td' || ev.data.kind !== 'shot') continue;
+        if (ev.data.air) byBalloon += ev.data.to === ship.id ? 1 : 0;
+        else { byGolem += ev.data.to === walker.id ? 1 : 0; golemAtShip += ev.data.to === ship.id ? 1 : 0; }
+      }
+    }
+    if (byGolem < 4 || golemAtShip || byBalloon < 3) fail(`td: the Guard's blows: Golems ${byGolem} at the walker and ${golemAtShip} at the airship, the Balloon ${byBalloon} at the airship`);
+    if (walker.hp >= walker.hpMax || ship.hp >= ship.hpMax) fail('td: the Guard\'s blows took nothing off');
+    if (allies.some((a, k) => a.e.x !== stood[k][0] || a.e.y !== stood[k][1]) || NS.tdSpeed(w, g0) !== 0) fail('td: the Temple Guard moved');
+    w.step([{ t: 'tdHero', player: 1, act: 'call', tx: spot[0], ty: spot[1] }]);
+    if (!refused('not ready')) fail('td: the Temple Guard called again before the wait');
+    for (let i = 0; i < NS.TD_GUARD.stay[2] * NS.TPS && td.allies.size; i++) w.step([]);
+    if (td.allies.size || allies.some((a) => w.entities.has(a.id))) fail('td: the Temple Guard stayed past its time');
+    // over the sky, away from the ground: never; beaten down, the Priest still calls it
+    while (hero.cooldown.call > 0) w.step([]);
+    const sky = [5, 5];
+    w.step([{ t: 'tdHero', player: 1, act: 'call', tx: sky[0], ty: sky[1] }]);
+    if (NS.tdGuardCells(w, sky[0], sky[1]).length || !refused('bad target')) fail('td: the Temple Guard called over the sky');
+    hero.down = 30 * NS.TPS;
+    w.step([{ t: 'tdHero', player: 1, act: 'call', tx: spot[0], ty: spot[1] }]);
+    if (!td.allies.size) fail('td: the Temple Guard did not come while the Priest lay beaten down');
+  }
+  console.log(`tower defense: ${NS.TD_LEVELS.length} battles laid out, each won by a careful player with the High Priest (lives left: ${told.join(', ')}) and lost with nothing raised; a gun raised, ranked and sold, a Crab stealing, a bounty paid, an Ice Cannon chilling and sparing the guns, the Spells, the flagship's hold; the Priest holding a walker up and beaten down, rising again, his blessing and Rally, the Storm Hammer in his reach, his skills; the Temple Guard standing where called, its Golems at the walkers and its Balloon at an airship, gone in time, its wait`);
 }
 
 // Every name of the engine that the client's code uses is one the engine has (one was not: the

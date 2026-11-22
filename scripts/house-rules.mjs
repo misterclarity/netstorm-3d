@@ -4614,7 +4614,7 @@ import { tdCommand, tickTd, type Td } from './rules/td.js';`,
   was: `  raid: { kind: string; id?: number; n?: number; x?: number; y?: number; ship?: number; won?: boolean; why?: string; };`,
   now: `  raid: { kind: string; id?: number; n?: number; x?: number; y?: number; ship?: number; won?: boolean; why?: string; };
   /** Of a tower defense battle (rules/td.ts): what happened (\`kind\`), to what, how many, how much. */
-  td: { kind: string; id?: number; n?: number; x?: number; y?: number; type?: string; amount?: number; won?: boolean; flagship?: boolean; };`,
+  td: { kind: string; id?: number; n?: number; x?: number; y?: number; type?: string; amount?: number; won?: boolean; flagship?: boolean; to?: number; air?: boolean; };`,
 }, {
   file: 'rules/combat.ts',
   why: 'tower defense: a gun\'s rank, and the Ice Cannon\'s chill',
@@ -4685,9 +4685,14 @@ import { tdHit } from './td.js';`,
 import { tdSpeed } from './td.js';`,
 }, {
   file: 'rules/movement.ts',
-  why: 'tower defense: the horde\'s pace, the battle\'s own',
+  why: 'tower defense: the horde\'s pace, the battle\'s own; the Temple Guard standing where called',
   was: `  const speed = world.def(t.type).speed;`,
-  now: `  const speed = world.td ? tdSpeed(world, t) : world.def(t.type).speed;`,
+  now: `  const speed = world.td ? tdSpeed(world, t) : world.def(t.type).speed;
+
+  // the Temple Guard (rules/td.ts) neither moves nor lands: a Balloon of it hangs where it was called
+  if (world.td?.allies.has(t.id)) {
+    return;
+  }`,
 }, {
   file: 'rules/priest.ts',
   why: 'tower defense: the High Priest walks at a hero\'s pace in a battle',

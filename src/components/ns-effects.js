@@ -272,6 +272,25 @@ AFRAME.registerComponent('ns-effects', {
     } });
   },
 
+  /** A stone, or a ball of fire, thrown from one point to another in an arc (a stone higher, the
+   * further it goes), with a puff where it lands: a blow of the tower defense's Temple Guard. */
+  lob(from, to, color, size, fire = false) {
+    const m = new THREE.Mesh(fire ? BALL_GEO : ROCK_GEO, new THREE.MeshBasicMaterial({ color }));
+    m.scale.setScalar(fire ? size : size / 0.35);
+    m.position.copy(from);
+    this.root.add(m);
+    const far = from.distanceTo(to), high = fire ? 0.15 : 0.5 + far * 0.18;
+    this.fx.push({ obj: m, own: true, age: 0, life: 0.3 + far * 0.035, update: (f, k, s) => {
+      m.position.lerpVectors(from, to, k);
+      m.position.y += Math.sin(Math.PI * k) * high;
+      m.rotation.x += s * 9;
+      if (k >= 1 && !f.landed) {
+        f.landed = true;
+        this.puff(to.clone(), fire ? '#ffb347' : '#8a7a66', fire ? 0.9 : 0.55, 0.4);
+      }
+    } });
+  },
+
   /** A crackling bolt from one point to another: a few jagged strokes that fade within a moment. */
   zap(from, to, color) {
     const bolt = new THREE.Group(), material = new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false });

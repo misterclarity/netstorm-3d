@@ -260,7 +260,7 @@ AFRAME.registerComponent('ns-td', {
       return m;
     };
     const back = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.26), new THREE.MeshBasicMaterial({ color: '#1c1408', transparent: true, opacity: 0.85, depthTest: false }));
-    const fill = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.16), new THREE.MeshBasicMaterial({ color: '#ffd04a', depthTest: false }));
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.16), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, depthTest: false }));
     fill.position.z = 0.001;
     back.renderOrder = 13;
     fill.renderOrder = 14;
@@ -276,12 +276,39 @@ AFRAME.registerComponent('ns-td', {
       glow: new THREE.InstancedMesh(new THREE.RingGeometry(1.2, 1.65, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.55, depthWrite: false }), 64),
       holds: new THREE.InstancedMesh(new THREE.RingGeometry(0.34, 0.5, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.9, depthWrite: false }), 8),
     };
-    for (const m of [this.hero.glow, this.hero.holds]) {
+    // the Temple Guard's: a ring at each one's feet (under a Balloon, on the ground), blinking as
+    // their time runs out; as it is aimed, the cells its Golems would stand on
+    this.guard = {
+      rings: new THREE.InstancedMesh(new THREE.RingGeometry(0.42, 0.6, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.9, depthWrite: false }), 16),
+      cells: new THREE.InstancedMesh(new THREE.PlaneGeometry(0.86, 0.86).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.7, depthWrite: false }), 8),
+    };
+    for (const m of [this.hero.glow, this.hero.holds, this.guard.rings, this.guard.cells]) {
       m.count = 0;
       m.frustumCulled = false;
       m.renderOrder = 4;
       this.group.add(m);
     }
+  },
+
+  /** The Temple Guard's rings, and where its Golems would stand as it is aimed. */
+  guardTick(t, w, td) {
+    const g = this.guard;
+    let n = 0, left = Infinity;
+    for (const [id, ally] of td.allies) {
+      const e = w.entities.get(id);
+      if (!e || n >= 16) continue;
+      left = Math.min(left, ally.left);
+      g.rings.setMatrixAt(n++, this.m4.compose(this.at(e.x + 0.5, e.y + 0.5, 0.14), this.q.identity(), this.s.setScalar(ally.air ? 1.7 : 1)));
+    }
+    g.rings.count = n;
+    g.rings.instanceMatrix.needsUpdate = true;
+    g.rings.material.opacity = left < 3 * NS.TPS ? 0.3 + 0.6 * (0.5 + 0.5 * Math.sin(t / 80)) : 0.9;
+    n = 0;
+    if (G.tdCast === 'call' && G.hover && !td.over) {
+      for (const [x, y] of NS.tdGuardCells(w, G.hover.x, G.hover.y)) g.cells.setMatrixAt(n++, this.m4.compose(this.at(x + 0.5, y + 0.5, 0.32), this.q.identity(), this.s.setScalar(1)));
+    }
+    g.cells.count = n;
+    g.cells.instanceMatrix.needsUpdate = true;
   },
 
   /** The High Priest's rings, bar and glows, as he stands, is picked or aims. */
@@ -304,7 +331,10 @@ AFRAME.registerComponent('ns-td', {
       h.reach.scale.setScalar(G.tdCast === 'hammer' ? NS.TD_HERO.hammer.range + 0.5 : NS.TD_HERO.bolt.reach[k.bolt] + 0.5);
       // his hit points over him, facing the camera
       const f = Math.max(0, hero.hp / hero.hpMax);
-      h.bar.position.set(at.x, at.y + 3.1, at.z);
+      // over his head: his model's height, or as a sprite, drawn larger (ns-units.js HERO_SPRITE),
+      // the 21 pixels his frames stand above his feet
+      const sprite = this.el.sceneEl.systems['ns-art'].mode === 'sprites';
+      h.bar.position.set(at.x, at.y + (sprite ? (21 / 16) * 1.35 + 0.55 : (el.components['ns-unit']?.rep.height ?? 2.2) + 0.4), at.z);
       h.bar.quaternion.copy(this.el.sceneEl.camera.getWorldQuaternion(this.q));
       h.fill.scale.x = Math.max(0.001, hero.down > 0 ? 0 : f);
       h.fill.position.x = -0.9 * (1 - (hero.down > 0 ? 0 : f));
@@ -420,9 +450,10 @@ AFRAME.registerComponent('ns-td', {
 
     // a Spell being aimed, or the Priest's Storm Hammer: its reach about the cell under the cursor
     if (G.tdCast && G.hover) {
-      const hammer = G.tdCast === 'hammer', p = hammer ? NS.tdPriest(w) : null;
-      const r = hammer ? NS.TD_HERO.hammer.reach[td.hero.skills.hammer] : NS.TD_SPELLS[G.tdCast]?.reach ?? 2;
-      const far = p && Math.hypot(G.hover.x - p.x, G.hover.y - p.y) > NS.TD_HERO.hammer.range;
+      const hammer = G.tdCast === 'hammer', call = G.tdCast === 'call', p = hammer ? NS.tdPriest(w) : null;
+      const r = hammer ? NS.TD_HERO.hammer.reach[td.hero.skills.hammer] : call ? 1.5 : NS.TD_SPELLS[G.tdCast]?.reach ?? 2;
+      // red where it may not be: the Storm Hammer out of his reach, the Guard with no ground there
+      const far = (p && Math.hypot(G.hover.x - p.x, G.hover.y - p.y) > NS.TD_HERO.hammer.range) || (call && !NS.tdGuardCells(w, G.hover.x, G.hover.y).length);
       this.ring.visible = true;
       this.ring.position.copy(this.at(G.hover.x + 0.5, G.hover.y + 0.5, 0.25));
       this.ring.scale.setScalar(r + 0.5);
@@ -434,6 +465,7 @@ AFRAME.registerComponent('ns-td', {
     // ranks over the guns
     const units = this.el.sceneEl.querySelector('[ns-units]')?.components['ns-units'];
     if (this.hero) this.heroTick(t, w, td, units);
+    if (this.guard) this.guardTick(t, w, td);
     const alive = new Set();
     for (const [id, rank] of td.ranks) {
       if (rank < 2 || td.spent.get(id) === undefined) continue;

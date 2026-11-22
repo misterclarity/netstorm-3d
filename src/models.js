@@ -1665,22 +1665,44 @@ export const MODELS = {
       lit(part(runes, box(0.16, 0.03, 0.08), glow('#fff3c0', '#ffd24a', 1.6), Math.cos(a) * 0.62, 0, Math.sin(a) * 0.62)).rotation.y = -a;
     }
     runes.visible = false;
+    // a battle's High Priest at his acts (rules/td.ts): the staff thrust out at a bolt's mark, raised
+    // high and swung down for the Storm Hammer, both hands up in a Rally and to call the Temple
+    // Guard ([seconds, the pose at k from 0 to 1: arms, the staff's tilt, a lean, a hop, its light])
+    const bump = (k) => Math.sin(Math.PI * Math.min(1, Math.max(0, k)));
+    const ACTS = {
+      bolt: [0.5, (k) => ({ right: -0.15 - 1.45 * bump(k), light: bump(k) })],
+      hammer: [0.9, (k) => (k < 0.55
+        ? { right: -0.15 - 2.75 * (k / 0.55), left: -2.6 * (k / 0.55), light: k }
+        : { right: -2.9 + 2.5 * Math.min(1, (k - 0.55) / 0.15), left: -2.6 + 2.2 * Math.min(1, (k - 0.55) / 0.15), tilt: -1.1 * bump((k - 0.55) / 0.45), lean: 0.3 * bump((k - 0.55) / 0.45), light: 1 - k })],
+      rally: [1.1, (k) => ({ right: -0.15 - 2.5 * bump(k), left: -2.4 * bump(k), hop: 0.12 * Math.abs(Math.sin(k * Math.PI * 2)), light: bump(k) })],
+      call: [1.1, (k) => ({ right: -0.15 - 2.4 * bump(k), left: -1.2 * bump(k), leftZ: 0.1 + 0.8 * bump(k), light: bump(k) })],
+    };
     rep.anim.push((s, e) => {
       const prays = (e?.praying > 0 || e?.casting > 0 || rep.ritual) && e.state === 'normal';
       // the Combahee Raid's Wayfinder: in disguise, or singing at a landing, his staff raised
       const raid = G.world?.raid, his = !!raid && e?.id === raid.guide && e.state === 'normal';
       const disguised = his && G.world.tick < raid.disguise.until, sings = his && raid.singing >= 0 && !e.path?.length;
+      const hero = G.world?.td?.hero, act = hero && hero.id === e?.id && e.state === 'normal' ? hero.act : null;
+      if (act && rep.actKey !== `${act.kind}:${act.tick}`) {
+        rep.actKey = `${act.kind}:${act.tick}`;
+        rep.actAt = s;
+      }
+      const play = act && ACTS[act.kind], k = play ? (s - rep.actAt) / play[0] : 1, pose = k < 1 ? play[1](k) : null;
+      // walking: a step's bob, a sway and a lean, his arms swinging, the staff carried upright
+      const walking = !!e?.path?.length && e?.state === 'normal', step = walking ? Math.sin(rep.phase ?? 0) : 0;
       guise.visible = disguised;
       crown.visible = !disguised;
-      figure.rotation.x = disguised ? 0.22 : 0;
+      figure.rotation.x = disguised ? 0.22 : (pose?.lean ?? 0) + (walking ? 0.1 : 0);
+      figure.rotation.z = step * 0.07;
       runes.visible = prays;
       runes.rotation.y = s * 1.2;
-      right.rotation.x = prays || sings ? -2.4 : -0.15;
-      staff.rotation.x = -right.rotation.x;
-      left.rotation.set(prays ? -2.2 : sings ? -1.2 + Math.sin(s * 2) * 0.25 : 0, 0, prays ? 0.3 : 0.1);
-      light.material.emissiveIntensity = prays || sings ? 2 + Math.sin(s * (sings ? 3 : 8)) * 0.8 : 1 + Math.sin(s * 2 + rep.id) * 0.3;
-      light.scale.setScalar(prays || sings ? 1.6 : 1);
-      figure.position.y = Math.abs(Math.sin((rep.phase ?? 0) * 1.0)) * 0.04;
+      right.rotation.x = pose?.right ?? (prays || sings ? -2.4 : -0.15 - step * 0.45);
+      staff.rotation.x = -right.rotation.x + (pose?.tilt ?? 0);
+      left.rotation.set(pose?.left ?? (prays ? -2.2 : sings ? -1.2 + Math.sin(s * 2) * 0.25 : step * 0.45), 0, pose?.leftZ ?? (prays ? 0.3 : 0.1));
+      const shine = pose?.light ?? 0;
+      light.material.emissiveIntensity = prays || sings ? 2 + Math.sin(s * (sings ? 3 : 8)) * 0.8 : 1 + Math.sin(s * 2 + rep.id) * 0.3 + shine * 2.5;
+      light.scale.setScalar(prays || sings ? 1.6 : 1 + shine * 0.8);
+      figure.position.y = (walking ? Math.abs(Math.sin(rep.phase ?? 0)) * 0.08 : 0) + (pose?.hop ?? 0);
     });
     body.scale.setScalar(1.3);
     rep.body = body;

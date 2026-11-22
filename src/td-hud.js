@@ -80,7 +80,16 @@ const SKILL = {
   rally: { name: 'Rally', key: '3', say: (l) => `for ${NS.TD_HERO.rally.seconds[l]} s the guns within ${NS.TD_HERO.rally.reach} cells hit ×${NS.TD_HERO.rally.hit[l]}; again after ${NS.TD_HERO.rally.cooldown[l]} s` },
   hammer: { name: 'Storm Hammer', key: '4', say: (l) => `${NS.TD_HERO.hammer.damage[l]} to the horde within ${NS.TD_HERO.hammer.reach[l]} cells of a spot up to ${NS.TD_HERO.hammer.range} from him; again after ${NS.TD_HERO.hammer.cooldown[l]} s` },
   stand: { name: 'Stand Fast', say: (l) => `${NS.TD_HERO.stand.hp[l]} hit points, holds up ${NS.TD_HERO.stand.holds[l]} walker${NS.TD_HERO.stand.holds[l] > 1 ? 's' : ''}, mends ${NS.TD_HERO.stand.regen[l]} a second, rises after ${NS.TD_HERO.stand.down[l]} s` },
+  call: { name: 'Temple Guard', key: '5', say: (l) => guardSay(l) },
+  muster: { name: 'Swift Summons', say: (l) => `the Temple Guard may be called again ${NS.TD_GUARD.wait[l]} s after it was called` },
 };
+
+/** Who the Temple Guard sends at a level of its skill, and for how long. */
+function guardSay(l) {
+  const g = NS.TD_GUARD, n = g.golems[l], b = g.balloons[l];
+  const who = `${n === 1 ? 'a Golem' : `${n} Golems`}${b ? ` and ${b === 1 ? 'a Balloon' : `${b} Balloons`}` : ''}`;
+  return `calls ${who} to a spot for ${g.stay[l]} s, standing there and hurling stones at the walkers going by${b ? '; the Balloon drops fire on airships too' : ''}`;
+}
 
 export const towerName = (type) => defs.get(type)?.name ?? type;
 export const foeName = (type) => defs.get(type)?.name ?? type;
@@ -190,7 +199,7 @@ export function briefing(hud) {
     ...L.foes.filter((f) => !before.foes.includes(f)).map((f) => `<li class="foe"><b>${escapeHtml(foeName(f))}</b>: ${escapeHtml(NS.TD_FOES[f].note)}</li>`),
   ];
   const how = [
-    'Your <b>High Priest</b> fights beside the guns: click him, then where he should go. He strikes the horde about him with lightning, his blessing makes the guns near him hit harder, and where he stands his ground he holds up the walkers that reach him. <b>Rally</b> (3) and the <b>Storm Hammer</b> (4, then a spot near him) are his own.',
+    'Your <b>High Priest</b> fights beside the guns: click him, then where he should go. He strikes the horde about him with lightning, his blessing makes the guns near him hit harder, and where he stands his ground he holds up the walkers that reach him. <b>Rally</b> (3) and the <b>Storm Hammer</b> (4, then a spot near him) are his own, and he calls the <b>Temple Guard</b> (5, then a spot on or beside a bridge): Golems that stand there a while and strike the horde going by.',
     'Click a <b>stone platform</b> beside a bridge to raise a gun on it; click a gun to rank it up (to III), turn it or sell it. Pointing at a gun in the menu shows its reach.',
     'A <b>cannon</b> fires down one straight line: raise it on a platform in line with a bridge. The <b>Crossbow</b> shoots into an arc ahead of it; the archers all about them.',
     'The first wave comes when you call it; then each follows after a countdown. <b>Call the next wave early</b> (N) for Storm Power.',
@@ -200,7 +209,7 @@ export function briefing(hud) {
     <p class="text">${escapeHtml(b.story)}</p>
     ${fresh.length ? `<h3 class="objectives-head">New in this battle</h3><ul class="td-new">${fresh.join('')}</ul>` : ''}
     ${i === 0 ? `<h3 class="objectives-head">How</h3><ul class="how">${how.map((t) => `<li>${t}</li>`).join('')}</ul>`
-      : '<p class="note">Click a platform to raise a gun, a gun to rank it up, turn or sell it; click your Priest, then where he should go; <b>3</b> his Rally, <b>4</b> his Storm Hammer; <b>N</b> calls the next wave early, for Storm Power.</p>'}
+      : '<p class="note">Click a platform to raise a gun, a gun to rank it up, turn or sell it; click your Priest, then where he should go; <b>3</b> his Rally, <b>4</b> his Storm Hammer, <b>5</b> the Temple Guard; <b>N</b> calls the next wave early, for Storm Power.</p>'}
     <p class="note">${L.waves} waves · ${L.lives} lives · ⚡${L.storm} to begin with · your Priest’s skills: ${SKILLS.map((k) => `${SKILL[k].name} ${'●'.repeat(G.world.td.hero.skills[k])}${'○'.repeat(3 - G.world.td.hero.skills[k])}`).join(', ')}</p>`,
   [{ label: 'Campaign map', act: () => { hud.game.start(G.setup, { menu: true }); campaignMap(hud); } },
     { label: 'Controls', act: () => hud.help(true) },
@@ -255,7 +264,8 @@ export function panel(hud) {
   const fallen = hero.down > 0, life = Math.max(0, Math.round((hero.hp / hero.hpMax) * 100));
   const heroHtml = `<span class="td-hero-bar"><button data-hero="pick" class="td-portrait${G.tdHero ? ' on' : ''}" title="Your High Priest: click to send him somewhere">✦<span class="td-life"><i style="width:${life}%"></i></span><small>${fallen ? `down · ${Math.ceil(hero.down / TPS)} s` : G.tdHero ? 'where to?' : hero.holding.size ? `holding ${hero.holding.size}` : 'Priest'}</small></button>
     <button data-hero="rally" class="spell${hero.rally > 0 ? ' on' : ''}" ${fallen || wait('rally') ? 'disabled' : ''} title="Rally: ${escapeHtml(SKILL.rally.say(k.rally))} (key 3)">✶ Rally${wait('rally') ? ` <small>${wait('rally')} s</small>` : ' <kbd>3</kbd>'}</button>
-    <button data-hero="hammer" class="spell${G.tdCast === 'hammer' ? ' on' : ''}" ${fallen || wait('hammer') ? 'disabled' : ''} title="Storm Hammer: ${escapeHtml(SKILL.hammer.say(k.hammer))} (key 4)">⚒ Storm Hammer${wait('hammer') ? ` <small>${wait('hammer')} s</small>` : ' <kbd>4</kbd>'}</button></span>`;
+    <button data-hero="hammer" class="spell${G.tdCast === 'hammer' ? ' on' : ''}" ${fallen || wait('hammer') ? 'disabled' : ''} title="Storm Hammer: ${escapeHtml(SKILL.hammer.say(k.hammer))} (key 4)">⚒ Hammer${wait('hammer') ? ` <small>${wait('hammer')} s</small>` : ' <kbd>4</kbd>'}</button>
+    <button data-hero="call" class="spell${G.tdCast === 'call' || td.allies.size ? ' on' : ''}" ${wait('call') ? 'disabled' : ''} title="Temple Guard: ${escapeHtml(SKILL.call.say(k.call))}; again after ${NS.TD_GUARD.wait[k.muster]} s (key 5)">⚑ Guard${wait('call') ? ` <small>${wait('call')} s</small>` : ' <kbd>5</kbd>'}</button></span>`;
   const html = `<span class="td-lives" title="Your Temple's lives: what the horde takes when it reaches it">♥ <b>${td.lives}</b>/${td.livesMax}</span>
     <span class="td-wave" title="Waves begun, of the battle's">Wave <b>${td.wave}</b>/${n}</span>${call}<span class="td-spells">${spells}</span>${heroHtml}`;
   if (el.dataset.sig !== html) {
@@ -283,13 +293,25 @@ export function pickHero(hud, on = true) {
   bar(hud).dataset.sig = '';
 }
 
-/** One of the Priest's acts: the Rally at once; the Storm Hammer aimed, the next click its spot. */
+/** One of the Priest's acts: the Rally at once; the Storm Hammer or the Temple Guard aimed, the next
+ * click its spot. The Guard comes even while he lies beaten down. */
 export function heroAct(hud, act) {
   const td = G.world?.td, hero = td?.hero;
-  if (!hero || td.over || hero.down > 0 || hero.cooldown[act] > 0) return;
+  if (!hero || td.over || (hero.down > 0 && act !== 'call') || hero.cooldown[act] > 0) return;
   closeMenu();
   if (act === 'rally') {
     submit({ t: 'tdHero', act: 'rally' });
+  } else if (act === 'call') {
+    G.tdHero = false;
+    G.tdCast = G.tdCast === 'call' ? null : 'call';
+    // through his own eyes, beside him
+    const p = NS.tdPriest(G.world);
+    if (G.tdCast && G.fp?.active && p) {
+      G.tdCast = null;
+      submit({ t: 'tdHero', act: 'call', tx: p.x, ty: p.y });
+    } else if (G.tdCast) {
+      hud.toast('Click where the Temple Guard should stand: on or beside a bridge or an island');
+    }
   } else {
     G.tdHero = false;
     G.tdCast = G.tdCast === 'hammer' ? null : 'hammer';
@@ -343,6 +365,13 @@ export function tap(hud, x, y) {
   const td = G.world.td;
   if (td.over) return;
   const p = NS.tdPriest(G.world);
+  if (G.tdCast === 'call') {
+    if (!NS.tdGuardCells(G.world, x, y).length) { hud.toast('The Guard cannot stand there: click on or beside a bridge or an island', 'bad'); return; }
+    submit({ t: 'tdHero', act: 'call', tx: x, ty: y });
+    G.tdCast = null;
+    bar(hud).dataset.sig = '';
+    return;
+  }
   if (G.tdCast === 'hammer') {
     if (p && Math.hypot(x - p.x, y - p.y) > NS.TD_HERO.hammer.range) { hud.toast('Too far from your Priest: closer to him', 'bad'); return; }
     submit({ t: 'tdHero', act: 'hammer', tx: x, ty: y });
@@ -495,11 +524,15 @@ export function onKey(hud, k) {
   if (spell) { aim(hud, spell); return true; }
   if (k === '3') { heroAct(hud, 'rally'); return true; }
   if (k === '4') { heroAct(hud, 'hammer'); return true; }
+  if (k === '5') { heroAct(hud, 'call'); return true; }
   if (k === 'escape' && (G.tdCast || G.tdHero || menu)) { G.tdCast = null; G.tdHero = false; closeMenu(); bar(hud).dataset.sig = ''; return true; }
   return false;
 }
 
 /* ----------------------------------------- the events ----------------------------------------- */
+
+/** How high an airship is drawn over its cell (src/components/ns-units.js: 44 pixels). */
+const AIR_UP = 44 / 16;
 
 /** A cell's middle in the scene. */
 function cellPos(x, y, up = 0) {
@@ -573,6 +606,28 @@ export function hear(game, ev) {
       fx?.zap(spot.clone().setY(spot.y + 16), spot, '#fff3c4');
       break;
     }
+    // the Temple Guard: come at the call, each blow a stone (a Golem's) or fire (a Balloon's), gone
+    case 'guard': {
+      let golems = 0, balloons = 0;
+      for (const [id, ally] of td.allies) {
+        const e = G.world.entities.get(id);
+        if (ally.air) balloons++;
+        else golems++;
+        if (e) fx?.puff(cellPos(e.x, e.y, ally.air ? AIR_UP : 0.6), '#fff3c4', ally.air ? 2.2 : 1.4, 0.8);
+      }
+      fx?.wave(cellPos(d.x, d.y, 0.3), 2.5, '#ffd04a');
+      hud.toast(`The Temple Guard answers: ${golems === 1 ? 'a Golem' : `${golems} Golems`}${balloons ? ' and a Balloon' : ''} for ${NS.TD_GUARD.stay[td.hero.skills.call]} s`, 'good');
+      break;
+    }
+    case 'shot': {
+      const from = at(d.id), to = at(d.to), mark = G.world.entities.get(d.to);
+      if (!from || !to) break;
+      from.setY(from.y + (d.air ? AIR_UP - 0.4 : 1.4));
+      to.setY(to.y + (mark?.aloft ? AIR_UP : 0.5));
+      fx?.lob(from, to, d.air ? '#ff7a2e' : '#7d6a55', d.air ? 0.2 : 0.17, d.air);
+      break;
+    }
+    case 'dismissed': fx?.puff(cellPos(d.x, d.y, d.air ? AIR_UP : 0.6), '#fff3c4', d.air ? 2 : 1.3, 0.7); break;
     case 'down': hud.toast(`Your High Priest is beaten down: he rises again in ${d.n} s`, 'bad'); G.tdHero = false; break;
     case 'up': hud.toast('Your High Priest stands again', 'good'); break;
     case 'called': hud.toast(`Called early: +⚡${d.amount}`, 'good'); break;
