@@ -2143,9 +2143,16 @@ SCENARIOS.cities = async () => {
   const line = await page.evaluate(() => document.getElementById('fpInfo')?.textContent ?? '');
   if (seen.at(-1).x <= from.x || seen.some((c) => c.blocked) || !/Next: /.test(line) || /build/.test(line)) throw new Error(`walked east through his eyes: ${JSON.stringify({ from, to: seen.at(-1), line })}`);
   await page.keyboard.press('v');
+  // out of his eyes, and his walking by hand let go of, before he is sent on: else an order to
+  // stop that a slow machine sends late takes the place of the walk
+  await page.waitForFunction(() => !window.NS3D.G.fp?.active, null, { timeout: 10000 });
+  await page.waitForTimeout(800);
   // to the Sun quarter's market: ticked
-  await page.evaluate(() => window.NS3D.submit({ t: 'movePriest', x: 165, y: 127 }));
-  await fastForward(page, 400);
+  for (let tries = 0; tries < 2; tries++) {
+    await page.evaluate(() => window.NS3D.submit({ t: 'movePriest', x: 165, y: 127 }));
+    await fastForward(page, 600);
+    if ((await where()).done === 1) break;
+  }
   await page.waitForFunction(() => document.querySelectorAll('#goalList li.done').length === 1, null, { timeout: 10000 })
     .catch(async () => { throw new Error(`the Sun quarter's market, reached: ${JSON.stringify(await where())}`); });
   // the night: the lamps lit, and told of
