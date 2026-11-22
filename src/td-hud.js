@@ -2,17 +2,19 @@
  * The Bridges of Nimbus (netstorm-3d): a tower defense campaign of six battles in NetStorm's world
  * of islands in the sky (the rules are sim/td.ts, the maps sim/td-map.ts; the scene's part is
  * src/components/ns-td.js). Here: its section of the main menu and its campaign map, each battle's
- * briefing, the bar of the battle (lives, waves, the next wave's call, the Spells), the menus of a
- * platform and of a gun, what the battle's events show, and the end of a battle with its stars,
- * kept in this browser. Its story, its battles and their names are made up here.
+ * briefing, the bar of the battle (lives, waves, the next wave's call, the Spells, the High Priest
+ * and his acts), the menus of a platform and of a gun, the Priest sent about and his Storm Hammer
+ * aimed, what the battle's events show, the end of a battle with its stars, and the Priest's
+ * skills, bought with the stars (src/td-progress.js keeps them in this browser). Its story, its
+ * battles, the Priest's skills and all their names are made up here.
  */
 import { NS, G, ME, TPS, defs, escapeHtml, wx, wz, THREE } from './state.js';
 import { submit } from './game.js';
 import { groundAt } from './heights.js';
 import { toScene } from './space.js';
+import { progress as kept, saveProgress, points, SKILLS, SKILL_COST } from './td-progress.js';
 
 const $ = (id) => document.getElementById(id);
-const KEY = 'netstorm-3d:td';
 
 export const TD_TITLE = 'The Bridges of Nimbus';
 
@@ -71,23 +73,21 @@ const SPELLS = {
 const RANK = ['I', 'II', 'III'];
 const HITS = { ground: 'walkers', air: 'airships', both: 'walkers and airships' };
 
+/** The High Priest's skills as the player reads them, and what each level gives. */
+const SKILL = {
+  bolt: { name: 'Lightning Hand', say: (l) => `bolts of ${NS.TD_HERO.bolt.damage[l]} every ${NS.TD_HERO.bolt.every[l]} s at the horde within ${NS.TD_HERO.bolt.reach[l]} cells` },
+  bless: { name: 'Blessing', say: (l) => `guns within ${NS.TD_HERO.bless.reach[l]} cells of him hit ×${NS.TD_HERO.bless.hit[l]}` },
+  rally: { name: 'Rally', key: '3', say: (l) => `for ${NS.TD_HERO.rally.seconds[l]} s the guns within ${NS.TD_HERO.rally.reach} cells hit ×${NS.TD_HERO.rally.hit[l]}; again after ${NS.TD_HERO.rally.cooldown[l]} s` },
+  hammer: { name: 'Storm Hammer', key: '4', say: (l) => `${NS.TD_HERO.hammer.damage[l]} to the horde within ${NS.TD_HERO.hammer.reach[l]} cells of a spot up to ${NS.TD_HERO.hammer.range} from him; again after ${NS.TD_HERO.hammer.cooldown[l]} s` },
+  stand: { name: 'Stand Fast', say: (l) => `${NS.TD_HERO.stand.hp[l]} hit points, holds up ${NS.TD_HERO.stand.holds[l]} walker${NS.TD_HERO.stand.holds[l] > 1 ? 's' : ''}, mends ${NS.TD_HERO.stand.regen[l]} a second, rises after ${NS.TD_HERO.stand.down[l]} s` },
+};
+
 export const towerName = (type) => defs.get(type)?.name ?? type;
 export const foeName = (type) => defs.get(type)?.name ?? type;
 
-/** What this browser keeps of the campaign: each battle's best stars, and the kinds of the horde
- * already met (a new one is told of once). */
-export function progress() {
-  try {
-    const p = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-    return { stars: p.stars ?? {}, seen: p.seen ?? [] };
-  } catch {
-    return { stars: {}, seen: [] };
-  }
-}
-
-function save(p) {
-  try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* no storage */ }
-}
+/** What this browser keeps of the campaign (src/td-progress.js). */
+export const progress = kept;
+const save = saveProgress;
 
 /** A battle is open once the one before it is won. */
 export function unlocked(id) {
@@ -109,7 +109,7 @@ export function menuSection() {
   const p = progress(), total = Object.values(p.stars).reduce((a, b) => a + b, 0);
   return `<section class="td"><h3>Tower defense</h3>
     <p><b>${escapeHtml(TD_TITLE)}</b>: six battles against the Hollow Priest’s horde. Raise the game’s guns beside the bridges and hold them, wave after wave.</p>
-    <p class="level">${total} of ${NS.TD_LEVELS.length * 3} stars won</p>
+    <p class="level">${total} of ${NS.TD_LEVELS.length * 3} stars won${points(p).left > 0 ? ` · ${points(p).left} point${points(p).left > 1 ? 's' : ''} for your High Priest to spend` : ''}</p>
     <button class="main" data-td-open>Campaign map</button></section>`;
 }
 
@@ -145,13 +145,39 @@ export function campaignMap(hud) {
       <path d="${way}" class="way"/>
       ${isles}
     </svg>
-    <p class="note">${total} of ${ids.length * 3} stars. Each battle won opens the next; three stars for keeping nine tenths of your Temple’s lives.</p>`,
+    <p class="note">${total} of ${ids.length * 3} stars. Each battle won opens the next; three stars for keeping nine tenths of your Temple’s lives.</p>
+    ${skillsHtml(p)}`,
   [{ label: 'Main menu', act: () => hud.menu() }]);
   for (const g of $('modalBox').querySelectorAll('.td-isle:not(.locked)')) {
     const go = () => hud.game.start({ mode: 'td', level: g.dataset.battle });
     g.addEventListener('click', go);
     g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') go(); });
   }
+  for (const b of $('modalBox').querySelectorAll('[data-skill]')) {
+    b.onclick = () => {
+      const q = progress(), s = b.dataset.skill, level = q.skills[s] ?? 0;
+      if (level >= 3 || points(q).left < SKILL_COST[level]) return;
+      q.skills[s] = level + 1;
+      save(q);
+      campaignMap(hud);
+    };
+  }
+  const reset = $('modalBox').querySelector('[data-skills-reset]');
+  if (reset) reset.onclick = () => { const q = progress(); q.skills = { ...NS.TD_NO_SKILLS }; save(q); campaignMap(hud); };
+}
+
+/** The High Priest's skills: each with its level, what it gives now and next, raised with points. */
+function skillsHtml(p) {
+  const pts = points(p);
+  const rows = SKILLS.map((s) => {
+    const l = p.skills[s] ?? 0, cost = SKILL_COST[l];
+    return `<div class="td-skill"><div><b>${SKILL[s].name}</b>${SKILL[s].key ? ` <kbd>${SKILL[s].key}</kbd>` : ''} <span class="td-pips">${'●'.repeat(l)}<i>${'●'.repeat(3 - l)}</i></span></div>
+      <p>${escapeHtml(SKILL[s].say(l))}.${l < 3 ? ` <span class="next">Next: ${escapeHtml(SKILL[s].say(l + 1))}.</span>` : ''}</p>
+      ${l < 3 ? `<button data-skill="${s}" ${pts.left < cost ? 'disabled' : ''}>Raise · ${cost} point${cost > 1 ? 's' : ''}</button>` : '<span class="td-top">Highest</span>'}</div>`;
+  }).join('');
+  return `<section class="td-hero"><h3>Your High Priest</h3>
+    <p class="level">He fights beside the guns in every battle. Each star won is a point to raise his skills with: <b>${pts.left}</b> to spend of ${pts.won} won.${pts.spent ? ' <button class="link" data-skills-reset>Take them all back</button>' : ''}</p>
+    <div class="td-skills">${rows}</div></section>`;
 }
 
 /** A battle's briefing: its story, what is new in it, and how. */
@@ -164,6 +190,7 @@ export function briefing(hud) {
     ...L.foes.filter((f) => !before.foes.includes(f)).map((f) => `<li class="foe"><b>${escapeHtml(foeName(f))}</b>: ${escapeHtml(NS.TD_FOES[f].note)}</li>`),
   ];
   const how = [
+    'Your <b>High Priest</b> fights beside the guns: click him, then where he should go. He strikes the horde about him with lightning, his blessing makes the guns near him hit harder, and where he stands his ground he holds up the walkers that reach him. <b>Rally</b> (3) and the <b>Storm Hammer</b> (4, then a spot near him) are his own.',
     'Click a <b>stone platform</b> beside a bridge to raise a gun on it; click a gun to rank it up (to III), turn it or sell it. Pointing at a gun in the menu shows its reach.',
     'A <b>cannon</b> fires down one straight line: raise it on a platform in line with a bridge. The <b>Crossbow</b> shoots into an arc ahead of it; the archers all about them.',
     'The first wave comes when you call it; then each follows after a countdown. <b>Call the next wave early</b> (N) for Storm Power.',
@@ -173,8 +200,8 @@ export function briefing(hud) {
     <p class="text">${escapeHtml(b.story)}</p>
     ${fresh.length ? `<h3 class="objectives-head">New in this battle</h3><ul class="td-new">${fresh.join('')}</ul>` : ''}
     ${i === 0 ? `<h3 class="objectives-head">How</h3><ul class="how">${how.map((t) => `<li>${t}</li>`).join('')}</ul>`
-      : '<p class="note">Click a platform to raise a gun, a gun to rank it up, turn or sell it; <b>N</b> calls the next wave early, for Storm Power.</p>'}
-    <p class="note">${L.waves} waves · ${L.lives} lives · ⚡${L.storm} to begin with</p>`,
+      : '<p class="note">Click a platform to raise a gun, a gun to rank it up, turn or sell it; click your Priest, then where he should go; <b>3</b> his Rally, <b>4</b> his Storm Hammer; <b>N</b> calls the next wave early, for Storm Power.</p>'}
+    <p class="note">${L.waves} waves · ${L.lives} lives · ⚡${L.storm} to begin with · your Priest’s skills: ${SKILLS.map((k) => `${SKILL[k].name} ${'●'.repeat(G.world.td.hero.skills[k])}${'○'.repeat(3 - G.world.td.hero.skills[k])}`).join(', ')}</p>`,
   [{ label: 'Campaign map', act: () => { hud.game.start(G.setup, { menu: true }); campaignMap(hud); } },
     { label: 'Controls', act: () => hud.help(true) },
     { label: 'Defend', main: true, act: () => hud.begin() }]);
@@ -194,6 +221,8 @@ function bar(hud) {
       if (!b || b.disabled) return;
       if (b.dataset.call !== undefined) callWave(hud);
       else if (b.dataset.spell) aim(hud, b.dataset.spell);
+      else if (b.dataset.hero === 'pick') pickHero(hud, !G.tdHero);
+      else if (b.dataset.hero) heroAct(hud, b.dataset.hero);
     });
   }
   return el;
@@ -205,6 +234,7 @@ export function hide() {
   if (el) el.hidden = true;
   closeMenu();
   G.tdCast = null;
+  G.tdHero = false;
 }
 
 /** The bar of the battle, drawn anew as it changes: lives, the wave, the call, the Spells. */
@@ -221,8 +251,13 @@ export function panel(hud) {
     const left = Math.ceil((td.cooldown.get(s) ?? 0) / TPS), on = G.tdCast === s;
     return `<button data-spell="${s}" class="spell${on ? ' on' : ''}" ${left > 0 ? 'disabled' : ''} title="${escapeHtml(NS.TD_SPELLS[s].note)} (key ${SPELLS[s].key})">${SPELLS[s].icon} ${SPELLS[s].name}${left > 0 ? ` <small>${left} s</small>` : ` <kbd>${SPELLS[s].key}</kbd>`}</button>`;
   }).join('');
+  const hero = td.hero, k = hero.skills, wait = (act) => Math.ceil(hero.cooldown[act] / TPS);
+  const fallen = hero.down > 0, life = Math.max(0, Math.round((hero.hp / hero.hpMax) * 100));
+  const heroHtml = `<span class="td-hero-bar"><button data-hero="pick" class="td-portrait${G.tdHero ? ' on' : ''}" title="Your High Priest: click to send him somewhere">✦<span class="td-life"><i style="width:${life}%"></i></span><small>${fallen ? `down · ${Math.ceil(hero.down / TPS)} s` : G.tdHero ? 'where to?' : hero.holding.size ? `holding ${hero.holding.size}` : 'Priest'}</small></button>
+    <button data-hero="rally" class="spell${hero.rally > 0 ? ' on' : ''}" ${fallen || wait('rally') ? 'disabled' : ''} title="Rally: ${escapeHtml(SKILL.rally.say(k.rally))} (key 3)">✶ Rally${wait('rally') ? ` <small>${wait('rally')} s</small>` : ' <kbd>3</kbd>'}</button>
+    <button data-hero="hammer" class="spell${G.tdCast === 'hammer' ? ' on' : ''}" ${fallen || wait('hammer') ? 'disabled' : ''} title="Storm Hammer: ${escapeHtml(SKILL.hammer.say(k.hammer))} (key 4)">⚒ Storm Hammer${wait('hammer') ? ` <small>${wait('hammer')} s</small>` : ' <kbd>4</kbd>'}</button></span>`;
   const html = `<span class="td-lives" title="Your Temple's lives: what the horde takes when it reaches it">♥ <b>${td.lives}</b>/${td.livesMax}</span>
-    <span class="td-wave" title="Waves begun, of the battle's">Wave <b>${td.wave}</b>/${n}</span>${call}<span class="td-spells">${spells}</span>`;
+    <span class="td-wave" title="Waves begun, of the battle's">Wave <b>${td.wave}</b>/${n}</span>${call}<span class="td-spells">${spells}</span>${heroHtml}`;
   if (el.dataset.sig !== html) {
     el.dataset.sig = html;
     el.innerHTML = html;
@@ -237,11 +272,59 @@ export function callWave() {
   submit({ t: 'tdWave' });
 }
 
+/** Pick the Priest (the next click on the ground sends him there), or let him be. */
+export function pickHero(hud, on = true) {
+  const td = G.world?.td;
+  if (!td || td.over) return;
+  closeMenu();
+  G.tdCast = null;
+  G.tdHero = on && td.hero.down === 0;
+  if (G.tdHero) hud.toast('Click where your Priest should go');
+  bar(hud).dataset.sig = '';
+}
+
+/** One of the Priest's acts: the Rally at once; the Storm Hammer aimed, the next click its spot. */
+export function heroAct(hud, act) {
+  const td = G.world?.td, hero = td?.hero;
+  if (!hero || td.over || hero.down > 0 || hero.cooldown[act] > 0) return;
+  closeMenu();
+  if (act === 'rally') {
+    submit({ t: 'tdHero', act: 'rally' });
+  } else {
+    G.tdHero = false;
+    G.tdCast = G.tdCast === 'hammer' ? null : 'hammer';
+    // through his own eyes, at the thickest knot of the horde within his reach
+    if (G.tdCast && G.fp?.active) {
+      const knot = hammerKnot();
+      G.tdCast = null;
+      if (knot) submit({ t: 'tdHero', act: 'hammer', tx: knot[0], ty: knot[1] });
+      else hud.toast('Nothing of the horde within his reach');
+    } else if (G.tdCast) {
+      hud.toast(`Click where the Storm Hammer falls, within ${NS.TD_HERO.hammer.range} cells of your Priest`);
+    }
+  }
+  bar(hud).dataset.sig = '';
+}
+
+/** Where the Storm Hammer would catch most of the horde, within the Priest's reach. */
+function hammerKnot() {
+  const w = G.world, td = w.td, p = NS.tdPriest(w), r = NS.TD_HERO.hammer.reach[td.hero.skills.hammer];
+  if (!p) return null;
+  const foes = [...td.enemies.keys()].map((id) => w.entities.get(id)).filter((e) => e && Math.hypot(e.x - p.x, e.y - p.y) <= NS.TD_HERO.hammer.range);
+  let best = null;
+  for (const e of foes) {
+    const n = foes.filter((u) => Math.hypot(u.x - e.x, u.y - e.y) <= r).length;
+    if (!best || n > best.n) best = { n, at: [e.x, e.y] };
+  }
+  return best?.at ?? null;
+}
+
 /** Take up a Spell to cast: the next click on the battlefield casts it there. */
 export function aim(hud, spell) {
   const td = G.world.td;
   if (!td.spells.includes(spell) || (td.cooldown.get(spell) ?? 0) > 0) return;
   closeMenu();
+  G.tdHero = false;
   G.tdCast = G.tdCast === spell ? null : spell;
   if (G.tdCast) hud.toast(`Click where to cast the ${SPELLS[spell].name}`);
   bar(hud).dataset.sig = '';
@@ -259,16 +342,54 @@ export function spotAt(x, y) {
 export function tap(hud, x, y) {
   const td = G.world.td;
   if (td.over) return;
+  const p = NS.tdPriest(G.world);
+  if (G.tdCast === 'hammer') {
+    if (p && Math.hypot(x - p.x, y - p.y) > NS.TD_HERO.hammer.range) { hud.toast('Too far from your Priest: closer to him', 'bad'); return; }
+    submit({ t: 'tdHero', act: 'hammer', tx: x, ty: y });
+    G.tdCast = null;
+    bar(hud).dataset.sig = '';
+    return;
+  }
   if (G.tdCast) {
     submit({ t: 'tdCast', spell: G.tdCast, x, y });
     G.tdCast = null;
     bar(hud).dataset.sig = '';
     return;
   }
+  // the Priest: a click on him picks him (or lets him be); picked, a click sends him there
+  if (p && Math.max(Math.abs(x - p.x), Math.abs(y - p.y)) <= 1) { pickHero(hud, !G.tdHero); return; }
   const k = spotAt(x, y);
+  if (G.tdHero && (k < 0 || td.spots[k].tower === null)) {
+    if (td.hero.down > 0) { hud.toast('Your Priest is down: he cannot go yet', 'bad'); return; }
+    // a bridge is a cell wide: a click beside it means the way, or the nearest ground he can stand on
+    const to = standAt(x, y);
+    if (!to) { hud.toast('He cannot stand there: click a bridge or an island', 'bad'); return; }
+    submit({ t: 'movePriest', x: to[0], y: to[1] });
+    G.tdHero = false;
+    bar(hud).dataset.sig = '';
+    return;
+  }
+  G.tdHero = false;
   if (k < 0) { closeMenu(); return; }
   const s = td.spots[k];
   openMenu(hud, k, s.tower !== null && G.world.entities.has(s.tower) ? s.tower : null);
+}
+
+/** The cell nearest a click (within three) that the Priest can stand on: a cell of the horde's
+ * way first, else any ground clear of a gun. */
+function standAt(x, y) {
+  const w = G.world, td = w.td, ways = new Set();
+  for (const r of td.routes) if (!r.air) for (const [cx, cy] of r.cells) ways.add(cy * 256 + cx);
+  let best = null;
+  for (let dy = -3; dy <= 3; dy++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const cx = x + dx, cy = y + dy, d = Math.hypot(dx, dy);
+      if (d > 3.2 || !w.walkable(ME, cx, cy) || w.terrain[cy * 256 + cx] === 0) continue;
+      const score = d - (ways.has(cy * 256 + cx) ? 1.5 : 0);
+      if (!best || score < best.score) best = { score, at: [cx, cy] };
+    }
+  }
+  return best?.at ?? null;
 }
 
 let menu = null;
@@ -372,7 +493,9 @@ export function onKey(hud, k) {
   if (k === 'n') { callWave(hud); return true; }
   const spell = Object.keys(SPELLS).find((s) => SPELLS[s].key === k);
   if (spell) { aim(hud, spell); return true; }
-  if (k === 'escape' && (G.tdCast || menu)) { G.tdCast = null; closeMenu(); bar(hud).dataset.sig = ''; return true; }
+  if (k === '3') { heroAct(hud, 'rally'); return true; }
+  if (k === '4') { heroAct(hud, 'hammer'); return true; }
+  if (k === 'escape' && (G.tdCast || G.tdHero || menu)) { G.tdCast = null; G.tdHero = false; closeMenu(); bar(hud).dataset.sig = ''; return true; }
   return false;
 }
 
@@ -432,6 +555,26 @@ export function hear(game, ev) {
       break;
     }
     case 'sold': hud.floater(`+${d.amount}`, cellPos(d.x + 1, d.y + 1, 2.5)); break;
+    // the High Priest's: his bolt, his acts, his fall and rising
+    case 'bolt': {
+      const p = NS.tdPriest(G.world), from = p && at(p.id), to = at(d.id);
+      if (from && to) fx?.zap(from.setY(from.y + 1.6), to.setY(to.y + 0.6), '#ffe9a0');
+      break;
+    }
+    case 'rally': {
+      const from = at(d.id);
+      if (from) fx?.wave(from.setY(from.y + 0.3), NS.TD_HERO.rally.reach + 0.5, '#ffd04a');
+      hud.toast('Rally! The guns about your Priest hit far harder', 'good');
+      break;
+    }
+    case 'hammer': {
+      const spot = cellPos(d.x, d.y, 0.2);
+      fx?.cast(spot, 'bombexplodemedium');
+      fx?.zap(spot.clone().setY(spot.y + 16), spot, '#fff3c4');
+      break;
+    }
+    case 'down': hud.toast(`Your High Priest is beaten down: he rises again in ${d.n} s`, 'bad'); G.tdHero = false; break;
+    case 'up': hud.toast('Your High Priest stands again', 'good'); break;
     case 'called': hud.toast(`Called early: +⚡${d.amount}`, 'good'); break;
     case 'over': result(hud, d.won); break;
     default: break;
@@ -447,8 +590,10 @@ export function result(hud, won) {
   hide();
   const id = G.td, td = G.world.td, i = NS.TD_LEVELS.indexOf(id), next = NS.TD_LEVELS[i + 1];
   const stars = won ? starsFor(td.lives, td.livesMax) : 0;
+  let gained = 0;
   if (won) {
     const p = progress();
+    gained = Math.max(0, stars - (p.stars[id] ?? 0));
     p.stars[id] = Math.max(p.stars[id] ?? 0, stars);
     save(p);
   }
@@ -456,6 +601,7 @@ export function result(hud, won) {
   if (won) {
     hud.modal(`<h2>${escapeHtml(BATTLES[id].title)} held</h2><div class="td-won">${starsHtml(stars)}</div>
       <p class="text">${td.lives} of ${td.livesMax} lives kept; ${td.killed} of the horde brought down.${stars < 3 ? ` Keep ${Math.ceil(td.livesMax * (stars < 2 ? 0.5 : 0.9))} lives for ${stars < 2 ? 'two stars' : 'three'}.` : ''}</p>
+      ${gained ? `<p class="text td-gain">+${gained} point${gained > 1 ? 's' : ''} for your High Priest: raise his skills on the campaign map.</p>` : ''}
       ${next ? '' : `<p class="text">${escapeHtml(EPILOGUE)}</p>`}`,
     [map, { label: 'Again', act: () => hud.game.start() },
       ...(next ? [{ label: `Next: ${BATTLES[next].title}`, main: true, act: () => hud.game.start({ mode: 'td', level: next }) }] : [])]);

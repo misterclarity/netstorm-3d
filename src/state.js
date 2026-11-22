@@ -27,6 +27,8 @@ export const G = {
   /** The Spell being aimed in a battle, and the reach shown (src/td-hud.js). */
   tdCast: null,
   tdPreview: null,
+  /** Whether the High Priest is picked in a battle, the next click on the ground sending him there. */
+  tdHero: false,
   world: null,
   view: null,
   options: null,

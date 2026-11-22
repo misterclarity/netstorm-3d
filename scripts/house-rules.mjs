@@ -4584,6 +4584,7 @@ import { tdCommand, tickTd, type Td } from './rules/td.js';`,
       case 'tdTurn':
       case 'tdWave':
       case 'tdCast':
+      case 'tdHero':
         return this.td ? tdCommand(this, c) : 'not here';`,
 }, {
   file: 'world.ts',
@@ -4604,7 +4605,9 @@ import { tdCommand, tickTd, type Td } from './rules/td.js';`,
   | { t: 'tdSell'; player: number; tower: number; }
   | { t: 'tdTurn'; player: number; tower: number; facing?: Facing; }
   | { t: 'tdWave'; player: number; }
-  | { t: 'tdCast'; player: number; spell: string; x: number; y: number; };`,
+  | { t: 'tdCast'; player: number; spell: string; x: number; y: number; }
+  // (netstorm-3d) and the High Priest's acts in it: the Rally, the Storm Hammer at a cell
+  | { t: 'tdHero'; player: number; act: string; tx?: number; ty?: number; };`,
 }, {
   file: 'events.ts',
   why: 'tower defense, declared: its event',
@@ -4685,6 +4688,17 @@ import { tdSpeed } from './td.js';`,
   why: 'tower defense: the horde\'s pace, the battle\'s own',
   was: `  const speed = world.def(t.type).speed;`,
   now: `  const speed = world.td ? tdSpeed(world, t) : world.def(t.type).speed;`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'tower defense: the High Priest walks at a hero\'s pace in a battle',
+  was: `import { flies } from '../defs.js';`,
+  now: `import { flies } from '../defs.js';
+import { TD_HERO_PACE } from './td.js';`,
+}, {
+  file: 'rules/priest.ts',
+  why: 'tower defense: the High Priest walks at a hero\'s pace in a battle',
+  was: `  advance(world, p, PRIEST_SPEED * (p.path.length ? hoverPace(world, p) : 1));`,
+  now: `  advance(world, p, (world.td ? TD_HERO_PACE : PRIEST_SPEED) * (p.path.length ? hoverPace(world, p) : 1));`,
 }, {
   file: 'index.ts',
   why: 'tower defense: what the client starts a battle with and reads of it',

@@ -1379,8 +1379,8 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
 }
 
 // The tower defense campaign (sim/td.ts, sim/td-map.ts): each battle laid out so that it can be
-// played, won by a careful player and lost by one who raises nothing; and its rules, each part of
-// which would fail on the rule it is about.
+// played, won by a careful player who uses the High Priest and lost by one who raises nothing; and
+// its rules and the Priest's, each part of which would fail on the rule it is about.
 {
   const at = (x, y) => y * NS.W + x, told = [];
   // a careful player's order for each battle: platform (letter) and gun, ^ for a rank up; then every
@@ -1394,8 +1394,15 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     bulfback: 'C ice, F ice, D disc, G van, P arc, H thu, ^C, ^F, L thu, Q arc, R arc, O van, E bow, I bow, ^H, ^L, ^G, J man',
     hollowgate: 'C ice, D ice, G van, E disc, F disc, H van, ^C, ^D, K thu, L thu, R arc, S arc, ^G, ^H, O bow, P bow, T arc, U arc, ^K, ^L, Q bow, I man',
   };
+  // the Priest's skills as bought with two points a battle before this one, in this order
+  const ORDER = ['bless', 'bolt', 'stand', 'hammer', 'rally', 'bless', 'bolt', 'stand', 'hammer', 'rally', 'bless', 'bolt', 'stand', 'hammer', 'rally'];
+  const skillsFor = (left) => {
+    const k = { ...NS.TD_NO_SKILLS }, cost = [1, 2, 2];
+    for (const s of ORDER) if (k[s] < 3 && left >= cost[k[s]]) { left -= cost[k[s]]; k[s]++; }
+    return k;
+  };
   const play = (id, plan) => {
-    const w = NS.createTd(defs, id), td = w.td, side = w.players.get(NS.TD_ME), steps = plan ? plan.split(', ').map((x) => x.split(' ')) : [];
+    const w = NS.createTd(defs, id, plan ? skillsFor(2 * NS.TD_LEVELS.indexOf(id)) : NS.TD_NO_SKILLS), td = w.td, side = w.players.get(NS.TD_ME), steps = plan ? plan.split(', ').map((x) => x.split(' ')) : [];
     let step = 0, guns = 0;
     for (let tick = 0; tick < 40 * 60 * NS.TPS && !td.over; tick++) {
       const cmds = [];
@@ -1417,6 +1424,24 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
           let best = null;
           for (const [eid] of td.enemies) { const e = w.entities.get(eid); if (!e) continue; let n = 0; for (const [j] of td.enemies) { const u = w.entities.get(j); if (u && Math.hypot(u.x - e.x, u.y - e.y) <= 2.5) n++; } if (!best || n > best.n) best = { n, x: e.x, y: e.y }; }
           if (best && best.n >= 4) cmds.push({ t: 'tdCast', player: 1, spell, x: best.x, y: best.y });
+        }
+        // the Priest, guarding the Temple's door: the Rally on a crowd about him, the Storm Hammer on
+        // the thickest knot within his reach
+        const priest = NS.tdPriest(w), hero = td.hero;
+        if (plan && priest && hero.down === 0) {
+          let near = 0, knot = null;
+          for (const [eid] of td.enemies) {
+            const e = w.entities.get(eid);
+            if (!e) continue;
+            const d = Math.hypot(e.x - priest.x, e.y - priest.y);
+            if (d <= NS.TD_HERO.rally.reach) near++;
+            if (d > NS.TD_HERO.hammer.range) continue;
+            let n = 0;
+            for (const [j] of td.enemies) { const u = w.entities.get(j); if (u && Math.hypot(u.x - e.x, u.y - e.y) <= NS.TD_HERO.hammer.reach[hero.skills.hammer]) n++; }
+            if (!knot || n > knot.n) knot = { n, x: e.x, y: e.y };
+          }
+          if (near >= 4 && hero.cooldown.rally === 0) cmds.push({ t: 'tdHero', player: 1, act: 'rally' });
+          if (knot && knot.n >= 2 && hero.cooldown.hammer === 0) cmds.push({ t: 'tdHero', player: 1, act: 'hammer', tx: knot.x, ty: knot.y });
         }
       }
       w.step(cmds);
@@ -1453,7 +1478,7 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
       const [dx, dy] = route.cells.at(-1);
       if (Math.max(temple.x - dx, 0, dx - (temple.x + temple.fx - 1)) + Math.max(temple.y - dy, 0, dy - (temple.y + temple.fy - 1)) !== 1) fail(`${id}: way ${r} ends at ${dx},${dy}, not at the Temple's door`);
     }
-    // won by the careful player; lost with nothing raised
+    // won by the careful player with the Priest; lost with nothing raised
     const careful = play(id, PLANS[id]), idle = play(id, null);
     if (careful.td.over !== 'won') fail(`${id}: the careful player ${careful.td.over ?? 'did not finish'} (${careful.td.lives} lives, wave ${careful.td.wave})`);
     if (idle.td.over !== 'lost') fail(`${id}: with nothing raised the battle was ${idle.td.over ?? 'not over'}`);
@@ -1534,7 +1559,64 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     if (!held) fail('td: the flagship held no gun still');
     if (td.over !== 'lost' || td.lives !== 0) fail(`td: the flagship at the Temple left ${td.lives} lives (${td.over})`);
   }
-  console.log(`tower defense: ${NS.TD_LEVELS.length} battles laid out, each won by a careful player (lives left: ${told.join(', ')}) and lost with nothing raised; a gun raised, ranked and sold, a Crab stealing, a bounty paid, an Ice Cannon chilling and sparing the guns, the Spells, the flagship's hold`);
+  {
+    // the High Priest: a walker beside him held up, beating at him, struck by his bolts; beaten down
+    // he lies, his acts refused and his walk too, and rises again where he fell with part of his
+    // hit points; the guns about him blessed, and more in a Rally; the Storm Hammer within his reach
+    // only, and not again before it is ready
+    const [w, td] = fresh(), hero = td.hero, priest = NS.tdPriest(w);
+    const bulf = foe(w, td, 'bulf', 50), b = w.entities.get(bulf);
+    b.x = priest.x + 1;
+    b.y = priest.y;
+    w.step([]);
+    if (!hero.holding.has(bulf) || NS.tdSpeed(w, b) !== 0) fail('td: the Priest does not hold up the walker beside him');
+    const hp = hero.hp, its = b.hp;
+    for (let i = 0; i < 2 * NS.TPS; i++) w.step([]);
+    if (hero.hp >= hp || b.hp >= its) fail(`td: held, the Bulf took ${its - b.hp} and dealt ${hp - hero.hp}`);
+    for (let i = 0; i < 60 * NS.TPS && hero.down === 0; i++) w.step([]);
+    if (hero.down === 0 || priest.state !== 'down' || hero.holding.size) fail('td: beaten to nothing, the Priest is not down');
+    w.step([{ t: 'tdHero', player: 1, act: 'rally' }, { t: 'movePriest', player: 1, x: priest.x - 3, y: priest.y }]);
+    const no = w.drainEvents().filter((e) => e.what === 'rejected').map((e) => e.data.err);
+    if (JSON.stringify(no) !== JSON.stringify(['priest unavailable', 'priest unavailable'])) fail(`td: down, his Rally and his walk answered ${JSON.stringify(no)}`);
+    for (let i = 0; i < 30 * NS.TPS && hero.down > 0; i++) w.step([]);
+    w.step([]);
+    if (hero.down > 0 || priest.state !== 'normal' || hero.hp < hero.hpMax * 0.5) fail(`td: the Priest did not rise again (${priest.state}, ${hero.hp})`);
+  }
+  {
+    const [w, td] = fresh(), priest = NS.tdPriest(w), hero = td.hero;
+    // a Disc Thrower on the platform nearest him, another on the farthest
+    const order = td.spots.map((s, k) => [k, Math.hypot(s.x + 1.5 - priest.x, s.y + 1.5 - priest.y)]).filter(([k]) => !td.spots[k].pair).sort((a, b) => a[1] - b[1]);
+    const [nk] = order[0], [fk] = order.at(-1);
+    // he stands just south of the nearer platform
+    priest.x = td.spots[nk].x + 1;
+    priest.y = td.spots[nk].y + 3;
+    w.step([{ t: 'tdBuild', player: 1, spot: nk, type: 'sunarcher' }, { t: 'tdBuild', player: 1, spot: fk, type: 'sunarcher' }]);
+    const near = w.entities.get(td.spots[nk].tower), far = w.entities.get(td.spots[fk].tower);
+    const same = (a, b) => Math.abs(a - b) < 1e-9, within = Math.hypot(near.x + 1.5 - priest.x - 0.5, near.y + 1.5 - priest.y - 0.5) <= NS.TD_HERO.bless.reach[0];
+    const blessed = NS.tdHit(w, near), plain = NS.tdHit(w, far);
+    if (!within) fail('td: the platform beside the Priest is not within his blessing');
+    if (!same(blessed, plain * NS.TD_HERO.bless.hit[0])) fail(`td: the gun beside the Priest hits ×${blessed / plain}`);
+    w.step([{ t: 'tdHero', player: 1, act: 'rally' }]);
+    if (!same(NS.tdHit(w, near), plain * NS.TD_HERO.rally.hit[0]) || !same(NS.tdHit(w, far), plain)) fail('td: the Rally did not raise the guns about him');
+    const a = foe(w, td, 'bulf', 20), e = w.entities.get(a);
+    const refused = (err) => w.drainEvents().some((ev) => ev.what === 'rejected' && ev.data.err === err);
+    // beyond his reach it is refused and nothing spent; within it, it falls; at once again, it is not ready
+    w.drainEvents();
+    w.step([{ t: 'tdHero', player: 1, act: 'hammer', tx: priest.x + NS.TD_HERO.hammer.range + 2, ty: priest.y }]);
+    if (!refused('too far') || hero.cooldown.hammer !== 0) fail('td: the Storm Hammer fell beyond his reach');
+    e.x = priest.x + 3;
+    e.y = priest.y;
+    const whole = e.hp;
+    w.step([{ t: 'tdHero', player: 1, act: 'hammer', tx: e.x, ty: e.y }]);
+    if (whole - e.hp < NS.TD_HERO.hammer.damage[0]) fail(`td: the Storm Hammer took only ${whole - e.hp} off what was in reach`);
+    w.drainEvents();
+    w.step([{ t: 'tdHero', player: 1, act: 'hammer', tx: e.x, ty: e.y }]);
+    if (!refused('not ready')) fail('td: the Storm Hammer again before it was ready');
+    // his skills, bought: what each level gives is his
+    const strong = NS.createTd(defs, 'ferries', { bolt: 3, bless: 3, rally: 3, hammer: 3, stand: 3 }).td.hero;
+    if (strong.hpMax !== NS.TD_HERO.stand.hp[3] || strong.skills.bless !== 3) fail('td: the Priest\'s skills not his in the battle');
+  }
+  console.log(`tower defense: ${NS.TD_LEVELS.length} battles laid out, each won by a careful player with the High Priest (lives left: ${told.join(', ')}) and lost with nothing raised; a gun raised, ranked and sold, a Crab stealing, a bounty paid, an Ice Cannon chilling and sparing the guns, the Spells, the flagship's hold; the Priest holding a walker up and beaten down, rising again, his blessing and Rally, the Storm Hammer in his reach, his skills`);
 }
 
 // Every name of the engine that the client's code uses is one the engine has (one was not: the

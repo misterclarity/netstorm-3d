@@ -15,8 +15,15 @@
  * an Ice Cannon's shell chills a walker, slowing it, and the horde's walkers and airships have hit
  * points and paces of their own. What reaches the Temple costs it lives (a Crystal Crab steals
  * Storm Power as well); with none left the battle is lost, and with every wave held off, won.
+ *
+ * The player's High Priest fights in the battle: sent about by the player, he strikes the horde
+ * about him with lightning, blesses the guns near him (they hit harder), and where he stands his
+ * ground he holds up the walkers that come up to him, as many as he can, while they beat at him;
+ * beaten down, he lies a while, then stands again where he fell. He has two acts of his own, the
+ * Rally (the guns about him hit far harder for a while) and the Storm Hammer (a blow on the horde
+ * about a spot in his reach). His skills are bought with the campaign's stars (src/td-hud.js).
  */
-import { TPS, type Building, type Facing, type Transport } from '../state.js';
+import { TPS, type Building, type Facing, type Priest, type Transport } from '../state.js';
 import type { World } from '../world.js';
 import type { Command, CommandError } from '../commands.js';
 import { removeBuilding } from './combat.js';
@@ -69,6 +76,8 @@ export interface TdFoe {
   readonly speed: number;
   readonly bounty: number;
   readonly lives: number;
+  /** What a walker deals a second to the Priest who holds it up. */
+  readonly strike?: number;
   /** Storm Power it carries off from the Temple as well. */
   readonly steals?: number;
   readonly air?: boolean;
@@ -76,11 +85,11 @@ export interface TdFoe {
 }
 
 export const TD_FOES: Readonly<Record<string, TdFoe>> = {
-  sunwalker: { hp: 90, speed: 1.3, bounty: 10, lives: 1, note: 'A lumbering Golem of sandstone: slow, and never alone' },
-  firewalker: { hp: 45, speed: 2.2, bounty: 6, lives: 1, note: 'Fire Ants come quick, in swarms' },
-  rainwalker: { hp: 240, speed: 1.8, bounty: 26, lives: 1, steals: 40, note: 'A Crystal Crab that reaches the Temple steals Storm Power as well' },
-  windwalker: { hp: 150, speed: 2.8, bounty: 20, lives: 1, note: 'Sail Skaters are the fastest on the bridges' },
-  bulf: { hp: 1100, speed: 1.0, bounty: 90, lives: 3, note: 'A shaggy Bulf takes long to bring down, and three lives' },
+  sunwalker: { hp: 90, speed: 1.3, bounty: 10, lives: 1, strike: 8, note: 'A lumbering Golem of sandstone: slow, and never alone' },
+  firewalker: { hp: 45, speed: 2.2, bounty: 6, lives: 1, strike: 6, note: 'Fire Ants come quick, in swarms' },
+  rainwalker: { hp: 240, speed: 1.8, bounty: 26, lives: 1, strike: 14, steals: 40, note: 'A Crystal Crab that reaches the Temple steals Storm Power as well' },
+  windwalker: { hp: 150, speed: 2.8, bounty: 20, lives: 1, strike: 9, note: 'Sail Skaters are the fastest on the bridges' },
+  bulf: { hp: 1100, speed: 1.0, bounty: 90, lives: 3, strike: 32, note: 'A shaggy Bulf takes long to bring down, and three lives' },
   sunballoon: { hp: 140, speed: 1.6, bounty: 22, lives: 1, air: true, note: 'A Balloon flies over the bridges: only guns that shoot at the air can hit it' },
   rainballoon: { hp: 220, speed: 1.7, bounty: 36, lives: 2, air: true, note: 'Half the shots at a Cloud Floater pass through it' },
   windballoon: { hp: 1000, speed: 1.1, bounty: 110, lives: 3, air: true, note: 'The Air Ship, the heaviest of the air' },
@@ -95,6 +104,48 @@ export const TD_SPELLS: Readonly<Record<string, { readonly reach: number; readon
 /** Thunder Strike's hit, and how long Paralysis holds. */
 export const TD_STRIKE = 220;
 export const TD_HOLD_SECONDS = 5;
+
+/** The High Priest's skills, each from 0 to 3, bought with the campaign's stars. */
+export interface TdSkills {
+  /** Lightning Hand: his bolts at the horde about him. */
+  bolt: number;
+  /** Blessing: the guns about him hit harder. */
+  bless: number;
+  /** Rally: for a while the guns about him hit far harder. */
+  rally: number;
+  /** Storm Hammer: a blow on the horde about a spot in his reach. */
+  hammer: number;
+  /** Stand: his hit points, how many walkers he holds up, how fast he mends and rises again. */
+  stand: number;
+}
+export const TD_NO_SKILLS: TdSkills = { bolt: 0, bless: 0, rally: 0, hammer: 0, stand: 0 };
+
+/** What each level of a skill gives, levels 0 to 3. */
+export const TD_HERO = {
+  bolt: { damage: [16, 24, 34, 46], every: [1.4, 1.3, 1.2, 1.1], reach: [5, 5.5, 6, 6.5] },
+  bless: { reach: [5, 6, 7, 8], hit: [1.12, 1.2, 1.28, 1.36] },
+  rally: { seconds: [6, 7, 8, 9], hit: [1.5, 1.6, 1.75, 1.9], reach: 7, cooldown: [30, 27, 24, 20] },
+  hammer: { damage: [150, 210, 280, 360], reach: [1.6, 1.8, 2.0, 2.3], range: 8, cooldown: [22, 20, 17, 14] },
+  stand: { hp: [320, 400, 490, 600], holds: [1, 2, 2, 3], regen: [5, 6, 8, 10], down: [15, 13, 11, 9] },
+} as const;
+
+/** The High Priest's pace in a battle, cells a second: a hero's, quicker than a Priest's own. */
+export const TD_HERO_PACE = 3.2;
+
+/** The High Priest in a battle: his own hit points (the rules keep his full, else they would lay
+ * him down at half), how long he lies beaten down, his next bolt, the Rally, his acts' waits, and
+ * the walkers he holds up. */
+export interface TdHero {
+  readonly id: number;
+  readonly skills: TdSkills;
+  hp: number;
+  readonly hpMax: number;
+  down: number;
+  strike: number;
+  rally: number;
+  readonly cooldown: { rally: number; hammer: number; };
+  readonly holding: Set<number>;
+}
 
 /** How long a chilled walker is slowed, and to what share of its pace. */
 export const TD_CHILL_SECONDS = 2;
@@ -170,6 +221,7 @@ export interface Td {
   leaked: number;
   /** The ground of each cell as the client draws it (td-map.ts): the road, a platform. */
   readonly paint: Uint8Array;
+  readonly hero: TdHero;
 }
 
 /** A step north, east, south and west. */
@@ -266,16 +318,38 @@ export function tdFacing(world: World, type: string, x: number, y: number): Faci
   return best;
 }
 
-/** A gun's hit, times: its power here and its rank (a gun as the rules pass it about: a building,
- * the copy of one a shot carries, or the id of a flyer's base). */
-export function tdHit(world: World, b: { id: number; type?: string; }): number {
+/** A gun's hit, times: its power here, its rank, and the Priest's blessing or Rally if he stands
+ * near it (a gun as the rules pass it about: a building, the copy of one a shot carries, or the id
+ * of a flyer's base). */
+export function tdHit(world: World, b: { id: number; type?: string; x?: number; y?: number; fx?: number; fy?: number; }): number {
   if (!world.td) {
     return 1;
   }
 
-  const home = world.entities.get(b.id);
-  const type = b.type ?? (home?.kind === 'building' ? home.type : '');
-  return (TD_TOWERS[type]?.power ?? 1) * (TD_RANK_HIT[(world.td.ranks.get(b.id) ?? 1) - 1] ?? 1);
+  const home = world.entities.get(b.id), gun = home?.kind === 'building' ? home : null;
+  const type = b.type ?? gun?.type ?? '';
+  const x = b.x ?? gun?.x, y = b.y ?? gun?.y, fx = b.fx ?? gun?.fx ?? 3, fy = b.fy ?? gun?.fy ?? 3;
+  const near = x === undefined || y === undefined ? 1 : tdBlessing(world, x + fx / 2, y + fy / 2);
+  return (TD_TOWERS[type]?.power ?? 1) * (TD_RANK_HIT[(world.td.ranks.get(b.id) ?? 1) - 1] ?? 1) * near;
+}
+
+/** What the Priest adds to the hit of a gun whose middle is at (x, y): his blessing within its
+ * reach, the Rally's within its, whichever is more; nothing while he lies beaten down. */
+export function tdBlessing(world: World, x: number, y: number): number {
+  const hero = world.td?.hero, p = hero ? world.entities.get(hero.id) : undefined;
+
+  if (!hero || hero.down > 0 || p?.kind !== 'priest') {
+    return 1;
+  }
+
+  const d = Math.hypot(x - p.x - 0.5, y - p.y - 0.5), k = hero.skills;
+  let hit = d <= TD_HERO.bless.reach[k.bless]! ? TD_HERO.bless.hit[k.bless]! : 1;
+
+  if (hero.rally > 0 && d <= TD_HERO.rally.reach) {
+    hit = Math.max(hit, TD_HERO.rally.hit[k.rally]!);
+  }
+
+  return hit;
 }
 
 /** Cells a gun reaches further at its rank (a gun as the rules pass it about: a building, or the
@@ -287,6 +361,10 @@ export function tdFurther(world: World, b: unknown): number {
 
 /** A walker's or airship's pace now, cells a second: its own here, slower while chilled. */
 export function tdSpeed(world: World, t: Transport): number {
+  if (world.td?.hero.holding.has(t.id)) {
+    return 0;
+  }
+
   const foe = TD_FOES[t.type], enemy = world.td?.enemies.get(t.id);
   const speed = foe?.speed ?? world.def(t.type).speed;
   return enemy && enemy.chill > 0 ? speed * TD_CHILL_PACE : speed;
@@ -336,6 +414,120 @@ function appear(world: World, group: TdGroup): void {
   world.emit({ what: 'td', who: TD_ME, data: { kind: 'appear', id: t.id, type: group.foe, flagship: !!group.flagship } });
 }
 
+/** The Priest's tick in a battle: lying beaten down, or standing, mending, holding up the walkers
+ * that come up to him and taking their blows, and striking the horde about him with his bolts. */
+function tickHero(world: World): void {
+  const td = world.td!, hero = td.hero, k = hero.skills, p = world.entities.get(hero.id);
+
+  if (p?.kind !== 'priest') {
+    return;
+  }
+
+  for (const act of ['rally', 'hammer'] as const) {
+    if (hero.cooldown[act] > 0) {
+      hero.cooldown[act]--;
+    }
+  }
+
+  if (hero.rally > 0) {
+    hero.rally--;
+  }
+
+  // beaten down: he lies where he fell (the rules' way of a Priest down), then stands again
+  if (hero.down > 0) {
+    p.state = 'down';
+    p.hp = 1;
+    p.path = [];
+
+    if (--hero.down === 0) {
+      hero.hp = Math.round(hero.hpMax * 0.6);
+      p.hp = p.hpMax;
+      world.emit({ what: 'td', who: TD_ME, data: { kind: 'up', id: p.id } });
+    }
+
+    return;
+  }
+
+  p.hp = p.hpMax;
+  const walking = p.path.length > 0;
+
+  // the walkers he holds up: those still beside him, on the ground, while he stands his ground
+  for (const id of hero.holding) {
+    const t = world.entities.get(id);
+
+    if (walking || t?.kind !== 'transport' || Math.max(Math.abs(t.x - p.x), Math.abs(t.y - p.y)) > 1) {
+      hero.holding.delete(id);
+    }
+  }
+
+  if (!walking) {
+    for (const [id, enemy] of td.enemies) {
+      if (hero.holding.size >= TD_HERO.stand.holds[k.stand]!) {
+        break;
+      }
+
+      const t = world.entities.get(id);
+
+      if (t?.kind === 'transport' && !TD_FOES[enemy.type]?.air && !hero.holding.has(id) && Math.max(Math.abs(t.x - p.x), Math.abs(t.y - p.y)) <= 1) {
+        hero.holding.add(id);
+        world.emit({ what: 'td', who: TD_ME, data: { kind: 'hold', id } });
+      }
+    }
+  }
+
+  // their blows, or his mending
+  let blows = 0;
+
+  for (const id of hero.holding) {
+    const t = world.entities.get(id);
+    blows += t?.kind === 'transport' ? (TD_FOES[t.type]?.strike ?? 5) / TPS : 0;
+  }
+
+  hero.hp = blows > 0 ? hero.hp - blows : Math.min(hero.hpMax, hero.hp + TD_HERO.stand.regen[k.stand]! / TPS);
+
+  if (hero.hp <= 0) {
+    hero.hp = 0;
+    hero.down = TD_HERO.stand.down[k.stand]! * TPS;
+    hero.holding.clear();
+    hero.rally = 0;
+    p.state = 'down';
+    p.hp = 1;
+    p.path = [];
+    world.emit({ what: 'td', who: TD_ME, data: { kind: 'down', id: p.id, n: TD_HERO.stand.down[k.stand]! } });
+    return;
+  }
+
+  // his bolt: at one he holds up, else the nearest of the horde within his reach, on the ground or
+  // in the air
+  if (hero.strike > 0) {
+    hero.strike--;
+    return;
+  }
+
+  let target: Transport | null = null, nearest = Infinity;
+
+  for (const [id] of td.enemies) {
+    const t = world.entities.get(id);
+
+    if (t?.kind !== 'transport' || t.hp <= 0) {
+      continue;
+    }
+
+    const d = hero.holding.has(id) ? -1 : Math.hypot(t.x - p.x, t.y - p.y);
+
+    if (d <= TD_HERO.bolt.reach[k.bolt]! && d < nearest) {
+      nearest = d;
+      target = t;
+    }
+  }
+
+  if (target) {
+    target.hp = Math.max(0, +(target.hp - TD_HERO.bolt.damage[k.bolt]!).toFixed(4));
+    hero.strike = Math.round(TD_HERO.bolt.every[k.bolt]! * TPS);
+    world.emit({ what: 'td', who: TD_ME, data: { kind: 'bolt', id: target.id } });
+  }
+}
+
 /** One tick of the battle, after the world's own: the horde comes, reaches the Temple or falls. */
 export function tickTd(world: World): void {
   const td = world.td!;
@@ -349,6 +541,8 @@ export function tickTd(world: World): void {
       td.cooldown.set(spell, ticks - 1);
     }
   }
+
+  tickHero(world);
 
   // the next wave, when its countdown runs out
   if (td.next > 0 && --td.next === 0) {
@@ -367,6 +561,7 @@ export function tickTd(world: World): void {
     // brought down: the rules took it off the map
     if (!t || t.kind !== 'transport') {
       td.enemies.delete(id);
+      td.hero.holding.delete(id);
       td.killed++;
       me.storm += enemy.bounty;
       world.emit({ what: 'td', who: TD_ME, data: { kind: 'bounty', id, amount: enemy.bounty, type: enemy.type } });
@@ -398,6 +593,7 @@ export function tickTd(world: World): void {
       td.lives = Math.max(0, td.lives - enemy.lives);
       td.leaked++;
       td.enemies.delete(id);
+      td.hero.holding.delete(id);
       removeTransport(world, t);
       world.emit({ what: 'td', who: TD_ME, data: { kind: 'leak', id, n: enemy.lives, amount: stolen, type: t.type, x: t.x, y: t.y } });
     }
@@ -417,7 +613,7 @@ export function tickTd(world: World): void {
   }
 }
 
-type TdCommand = Extract<Command, { t: 'tdBuild' | 'tdUpgrade' | 'tdSell' | 'tdTurn' | 'tdWave' | 'tdCast'; }>;
+type TdCommand = Extract<Command, { t: 'tdBuild' | 'tdUpgrade' | 'tdSell' | 'tdTurn' | 'tdWave' | 'tdCast' | 'tdHero'; }>;
 
 /** A gun of the player's in this battle, by its id (either post of an Arc gate). */
 function towerOf(world: World, id: number): Building | null {
@@ -589,5 +785,54 @@ export function tdCommand(world: World, c: TdCommand): CommandError | null {
       world.emit({ what: 'td', who: TD_ME, data: { kind: 'cast', type: c.spell, x: c.x, y: c.y } });
       return null;
     }
+    case 'tdHero': {
+      const hero = td.hero, k = hero.skills, p = world.entities.get(hero.id);
+
+      if (p?.kind !== 'priest' || hero.down > 0) {
+        return 'priest unavailable';
+      }
+
+      if (c.act === 'rally') {
+        if (hero.cooldown.rally > 0) {
+          return 'not ready';
+        }
+
+        hero.rally = TD_HERO.rally.seconds[k.rally]! * TPS;
+        hero.cooldown.rally = TD_HERO.rally.cooldown[k.rally]! * TPS;
+        world.emit({ what: 'td', who: TD_ME, data: { kind: 'rally', id: p.id } });
+        return null;
+      }
+
+      if (c.act !== 'hammer') {
+        return 'not here';
+      }
+
+      if (hero.cooldown.hammer > 0) {
+        return 'not ready';
+      }
+
+      if (c.tx === undefined || c.ty === undefined || Math.hypot(c.tx - p.x, c.ty - p.y) > TD_HERO.hammer.range) {
+        return 'too far';
+      }
+
+      hero.cooldown.hammer = TD_HERO.hammer.cooldown[k.hammer]! * TPS;
+
+      for (const [id] of td.enemies) {
+        const t = world.entities.get(id);
+
+        if (t?.kind === 'transport' && Math.hypot(t.x - c.tx, t.y - c.ty) <= TD_HERO.hammer.reach[k.hammer]!) {
+          t.hp = Math.max(0, +(t.hp - TD_HERO.hammer.damage[k.hammer]!).toFixed(4));
+        }
+      }
+
+      world.emit({ what: 'td', who: TD_ME, data: { kind: 'hammer', id: p.id, x: c.tx, y: c.ty } });
+      return null;
+    }
   }
+}
+
+/** The Priest of a battle, standing or beaten down. */
+export function tdPriest(world: World): Priest | null {
+  const p = world.td ? world.entities.get(world.td.hero.id) : undefined;
+  return p?.kind === 'priest' ? p : null;
 }

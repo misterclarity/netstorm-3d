@@ -13,7 +13,7 @@
 import { World } from './world.js';
 import { Terrain, W, H } from './state.js';
 import type { DefTable, Theme } from './defs.js';
-import { TD_FOE, TD_ME, TD_TOWERS, type Td, type TdGroup, type TdRoute, type TdSpot } from './rules/td.js';
+import { TD_FOE, TD_HERO, TD_ME, TD_NO_SKILLS, TD_TOWERS, type Td, type TdGroup, type TdRoute, type TdSkills, type TdSpot } from './rules/td.js';
 
 /** How the client draws the ground of a cell of a battle (0: as its island is). */
 export const TD_PAINT = { road: 1, platform: 2, gate: 3 } as const;
@@ -66,6 +66,7 @@ const LEVELS: Readonly<Record<TdLevelId, LevelSpec>> = {
   // a single way, back and forth between six islands: Golems and Fire Ants
   mossbridge: {
     storm: 420,
+    hp: 1.3,
     lives: 20,
     foe: 'sun',
     towers: ['sunarcher', 'windarcher'],
@@ -97,6 +98,7 @@ const LEVELS: Readonly<Record<TdLevelId, LevelSpec>> = {
   // two ferries from the west meet at an island, and go on as one: Crystal Crabs
   ferries: {
     storm: 560,
+    hp: 1.3,
     lives: 20,
     foe: 'rain',
     towers: ['sunarcher', 'windarcher', 'raincannon'],
@@ -134,7 +136,7 @@ const LEVELS: Readonly<Record<TdLevelId, LevelSpec>> = {
   // a winding way below, and the air above it from the north: Balloons and Cloud Floaters
   cloudwatch: {
     storm: 650,
-    hp: 0.8,
+    hp: 1.0,
     lives: 20,
     foe: 'wind',
     towers: ['sunarcher', 'windarcher', 'raincannon', 'thunderarcher'],
@@ -171,7 +173,7 @@ const LEVELS: Readonly<Record<TdLevelId, LevelSpec>> = {
   // two long straight bridges, the Sail Skaters' road: cannons down their lines, and Arc gates
   skaters: {
     storm: 800,
-    hp: 0.62,
+    hp: 0.71,
     lives: 20,
     foe: 'wind',
     towers: ['sunarcher', 'windarcher', 'raincannon', 'thunderarcher', 'suncannon', 'thunderfence'],
@@ -208,7 +210,7 @@ const LEVELS: Readonly<Record<TdLevelId, LevelSpec>> = {
   // the Bulfs' pass: a long way through the islands, Air Ships over it
   bulfback: {
     storm: 900,
-    hp: 0.68,
+    hp: 0.75,
     lives: 20,
     foe: 'thunder',
     towers: ['sunarcher', 'windarcher', 'raincannon', 'thunderarcher', 'suncannon', 'thunderfence', 'thundercannon', 'rainaviary'],
@@ -246,7 +248,7 @@ const LEVELS: Readonly<Record<TdLevelId, LevelSpec>> = {
   // the Hollow Priest's own gate: two ways and the air, and his flagship at the last
   hollowgate: {
     storm: 1150,
-    hp: 0.57,
+    hp: 0.63,
     lives: 20,
     foe: 'thunder',
     towers: ['sunarcher', 'windarcher', 'raincannon', 'thunderarcher', 'suncannon', 'thunderfence', 'thundercannon', 'rainaviary'],
@@ -418,8 +420,9 @@ function inLine(via: readonly Point[], k: number, which: 'in' | 'out'): Point {
   return [p[0] + dx * 3 - 1, p[1] + dy * 3 - 1];
 }
 
-/** Lay out a battle: its islands, bridges and platforms, the Temple, the player's Priest. */
-export function createTd(defs: DefTable, id: TdLevelId): World {
+/** Lay out a battle: its islands, bridges and platforms, the Temple, the player's Priest with the
+ * skills bought for him. */
+export function createTd(defs: DefTable, id: TdLevelId, skills: TdSkills = TD_NO_SKILLS): World {
   const L = LEVELS[id];
   const w = new World(defs, 7000 + TD_LEVELS.indexOf(id));
   w.addPlayer(TD_ME, 'The free isles', 'wind', L.storm, [], [], 0, 1, false);
@@ -468,10 +471,13 @@ export function createTd(defs: DefTable, id: TdLevelId): World {
     spots.push({ x: x0, y: y0, pair: [x1, y1], tower: null });
   }
 
-  // the Temple at the door, and the player's Priest beside it
+  // the Temple at the door, and the player's Priest on the road before it, guarding it
   const temple = w.spawnBuilding('windvortex', TD_ME, tx, ty, 3);
   temple.hp = temple.hpMax;
-  w.addPriest(TD_ME, tx + 3, ty + 7);
+  const [hx, hy] = routes.find((r) => !r.air)!.cells.at(-5)!;
+  const priest = w.addPriest(TD_ME, hx, hy);
+  const level = (n: number | undefined) => Math.max(0, Math.min(3, Math.floor(n ?? 0)));
+  const own: TdSkills = { bolt: level(skills.bolt), bless: level(skills.bless), rally: level(skills.rally), hammer: level(skills.hammer), stand: level(skills.stand) };
 
   const td: Td = {
     level: id,
@@ -495,6 +501,17 @@ export function createTd(defs: DefTable, id: TdLevelId): World {
     killed: 0,
     leaked: 0,
     paint: lay.paint,
+    hero: {
+      id: priest.id,
+      skills: own,
+      hp: TD_HERO.stand.hp[own.stand]!,
+      hpMax: TD_HERO.stand.hp[own.stand]!,
+      down: 0,
+      strike: 0,
+      rally: 0,
+      cooldown: { rally: 0, hammer: 0 },
+      holding: new Set(),
+    },
   };
   w.td = td;
   w.invalidateTerrain();

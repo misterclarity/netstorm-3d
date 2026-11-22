@@ -8,6 +8,7 @@ import { resetHeights } from './heights.js';
 import { applySettings, loadSettings } from './settings.js';
 import { startFog, stepFog, raidKnown } from './fog.js';
 import { progress } from './campaign.js';
+import { heroSkills } from './td-progress.js';
 
 /** Skirmish settings the menu starts from. */
 export const SKIRMISH_DEFAULTS = { mode: 'skirmish', theme: 'wind', enemyTheme: 'rain', islands: 4, difficulty: 'normal', storm: 2000, spells: 'none', tiers: 'level', seed: 42 };
@@ -39,6 +40,7 @@ export function newGame(setup = G.setup) {
   G.td = setup.mode === 'td' ? setup.level : null;
   G.tdCast = null;
   G.tdPreview = null;
+  G.tdHero = false;
   const base = { ...NS.DEFAULT_OPTIONS, lang: 'en', difficulty: 'normal' };
   const options = G.mission
     ? { ...base, mode: 'mission', mission: MISSION.id, storm: MISSION.storm, difficulty: setup.difficulty ?? 'normal' }
@@ -55,7 +57,8 @@ export function newGame(setup = G.setup) {
   } else if (G.city) {
     G.world = NS.createCity(defs, G.city);
   } else if (G.td) {
-    G.world = NS.createTd(defs, G.td);
+    // with the High Priest's skills, bought with the campaign's stars (src/td-progress.js)
+    G.world = NS.createTd(defs, G.td, heroSkills());
   } else {
     const known = G.mission ? [] : furyKnowledge(setup.theme);
     G.world = NS.createMatchWorld(defs, DATA.maps, DATA.missions, options, { known, altarLevel: 1 });

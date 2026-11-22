@@ -2179,8 +2179,11 @@ SCENARIOS.cities = async () => {
  * main menu, the first battle alone open; the first battle's briefing and its bar, with no bottom
  * bar, goal panel or fog; a platform clicked, its menu, a gun's reach shown as it is pointed at and
  * the gun raised; the first wave called with N and the horde brought down for bounties; the gun's
- * menu and a rank up, its stars over it; Thunder Strike aimed with 1 and cast; and the battle won,
- * its stars kept, the next battle open on the map.
+ * menu and a rank up, its stars over it; Thunder Strike aimed with 1 and cast; the High Priest
+ * picked from his portrait and sent along the road with a click, his Rally with 3 and the Storm
+ * Hammer aimed with 4 and cast with a click; the battle won, its stars kept and told as points for
+ * the Priest; on the map the next battle open and a skill of his raised with a point, his in the
+ * next battle.
  */
 SCENARIOS.td = async () => {
   const { page, errors } = await open();
@@ -2189,6 +2192,10 @@ SCENARIOS.td = async () => {
     const v = new THREE.Vector3(wx(cx), 0.4, wz(cy)).project(scene.camera), r = scene.canvas.getBoundingClientRect();
     return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
   }, [x, y]);
+  const hero = () => page.evaluate(() => {
+    const { G, NS } = window.NS3D, td = G.world.td, h = td.hero, p = NS.tdPriest(G.world);
+    return { x: p.x, y: p.y, path: p.path.length, picked: G.tdHero, cast: G.tdCast, rally: h.cooldown.rally, hammer: h.cooldown.hammer, down: h.down };
+  });
   const state = () => page.evaluate(() => {
     const { G } = window.NS3D, td = G.world.td;
     return { wave: td.wave, killed: td.killed, lives: td.lives, storm: G.world.players.get(1).storm, over: td.over, tower: td.spots[2].tower, rank: td.ranks.get(td.spots[2].tower) ?? 0 };
@@ -2242,7 +2249,32 @@ SCENARIOS.td = async () => {
   await page.mouse.click(p.x, p.y);
   await page.waitForFunction(() => (window.NS3D.G.world.td.cooldown.get('bomblightingzap') ?? 0) > 0, null, { timeout: 5000 })
     .catch(() => { throw new Error(`Thunder Strike not cast (aimed: ${aimed})`); });
-  // the battle won: its stars kept, the next battle open
+  // the High Priest: picked from his portrait, sent back along the road with a click on it
+  await page.click('#tdBar [data-hero="pick"]');
+  await page.waitForFunction(() => window.NS3D.G.tdHero === true, null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`the Priest not picked from his portrait: ${JSON.stringify(await hero())}`); });
+  const from = await hero();
+  const to = await page.evaluate(() => { const r = window.NS3D.G.world.td.routes.find((x) => !x.air); return r.cells.at(-13); });
+  p = await screenOf(to[0] + 0.5, to[1] + 0.5);
+  await page.mouse.click(p.x, p.y);
+  await page.waitForFunction(() => window.NS3D.NS.tdPriest(window.NS3D.G.world).path.length > 0, null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`the Priest not sent: ${JSON.stringify({ to, him: await hero() })}`); });
+  await fastForward(page, 120);
+  const sent = await hero();
+  if (Math.hypot(sent.x - to[0], sent.y - to[1]) > 3) throw new Error(`the Priest did not get there: ${JSON.stringify({ from, to, sent })}`);
+  // his Rally with 3; the Storm Hammer aimed with 4, cast with a click beside him
+  await page.keyboard.press('3');
+  await page.waitForFunction(() => window.NS3D.G.world.td.hero.cooldown.rally > 0, null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`3 called no Rally: ${JSON.stringify(await hero())}`); });
+  await page.keyboard.press('4');
+  const aiming = (await hero()).cast;
+  p = await screenOf(sent.x + 0.5, sent.y + 2.5);
+  await page.mouse.click(p.x, p.y);
+  await page.waitForFunction(() => window.NS3D.G.world.td.hero.cooldown.hammer > 0, null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`the Storm Hammer not cast (aimed: ${aiming}): ${JSON.stringify(await hero())}`); });
+  const bar = await page.evaluate(() => document.querySelector('#tdBar .td-hero-bar')?.textContent.replace(/\s+/g, ' ').trim());
+  if (!/Rally \d+ s/.test(bar) || !/Storm Hammer \d+ s/.test(bar)) throw new Error(`the bar does not count down his acts: ${bar}`);
+  // the battle won: its stars kept and told as points for the Priest, the next battle open
   await page.evaluate(() => {
     const { G, submit, stepWorld } = window.NS3D, w = G.world, td = w.td;
     w.players.get(1).storm += 5000;
@@ -2253,11 +2285,21 @@ SCENARIOS.td = async () => {
     .catch(async () => { throw new Error(`the battle not won: ${JSON.stringify(await state())}`); });
   const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('netstorm-3d:td') ?? '{}').stars?.mossbridge ?? 0);
   if (kept < 1) throw new Error('the stars not kept');
+  const told = await page.evaluate(() => document.querySelector('#modal .td-gain')?.textContent ?? '');
+  if (!told.startsWith(`+${kept} point`)) throw new Error(`the points won not told: "${told}"`);
   await page.click('#modal .row button');
   await page.waitForSelector('svg.td-map', { timeout: 20000 });
   const open2 = await page.evaluate(() => !document.querySelector('.td-isle[data-battle="ferries"]').classList.contains('locked'));
   if (!open2) throw new Error('the second battle still locked after the first was won');
-  console.log(`  the map, 1 of 6 open; Mossbridge's ${drawn.frames} platforms; a Crossbow raised by its menu, its reach shown; wave 1 called with N, ${after.killed} brought down for ⚡${after.storm - before.storm}; ranked up to II; Thunder Strike cast; won with ${kept} star${kept > 1 ? 's' : ''}, the Twin Ferries open`);
+  // his Blessing raised with a point on the map, and his in the next battle
+  await page.click('.td-skills [data-skill="bless"]');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('netstorm-3d:td') ?? '{}').skills?.bless === 1, null, { timeout: 5000 })
+    .catch(() => { throw new Error('the Blessing not raised from the map'); });
+  await page.click('.td-isle[data-battle="ferries"]');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent.includes('Ferries') && window.NS3D.G.world.td, null, { timeout: 30000 });
+  const carried = await page.evaluate(() => window.NS3D.G.world.td.hero.skills.bless);
+  if (carried !== 1) throw new Error(`the Blessing raised but not his in the next battle (${carried})`);
+  console.log(`  the map, 1 of 6 open; Mossbridge's ${drawn.frames} platforms; a Crossbow raised by its menu, its reach shown; wave 1 called with N, ${after.killed} brought down for ⚡${after.storm - before.storm}; ranked up to II; Thunder Strike cast; the Priest picked and sent ${Math.round(Math.hypot(sent.x - from.x, sent.y - from.y))} cells, his Rally and Storm Hammer cast; won with ${kept} star${kept > 1 ? 's' : ''} (+${kept} point${kept > 1 ? 's' : ''}), the Twin Ferries open; the Blessing raised and his there`);
   return errors;
 };
 

@@ -5,7 +5,10 @@
  * swirling; small arrows along its ways; the reach of the gun pointed at in a menu, or of the gun
  * whose menu is open, cell by cell (walkers' ground amber, airships' sky blue); the reach of a Spell
  * being aimed; a gun's rank in stars over it; a frosty ring under a chilled walker, and a pale one
- * about a gun the flagship holds still. Built as a battle starts; nothing is drawn elsewhere.
+ * about a gun the flagship holds still. And the High Priest's: the ring of his blessing at his
+ * feet, brighter when he is picked, with the reach of his bolts; the reach of his Storm Hammer as it
+ * is aimed; his own hit points over him; a glow under each gun he blesses, pulsing in a Rally; a
+ * gold ring under each walker he holds up. Built as a battle starts; nothing is drawn elsewhere.
  */
 import { NS, G, ME, THREE, wx, wz } from '../state.js';
 import { groundAt } from '../heights.js';
@@ -144,6 +147,7 @@ AFRAME.registerComponent('ns-td', {
     this.gates = [];
     this.badges = new Map();
     this.bands = new Map();
+    this.hero = null;
     this.cells = null;
     this.ring = null;
     this.chill = null;
@@ -246,6 +250,89 @@ AFRAME.registerComponent('ns-td', {
     this.held.count = 0;
     this.held.frustumCulled = false;
     this.group.add(this.held);
+
+    // the High Priest's: his blessing's ring, his bolts' when picked, his hit points, the guns he
+    // blesses, the walkers he holds up
+    const ring = (inner, color, opacity) => {
+      const m = new THREE.Mesh(new THREE.RingGeometry(inner, 1, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }));
+      m.renderOrder = 4;
+      this.group.add(m);
+      return m;
+    };
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.26), new THREE.MeshBasicMaterial({ color: '#1c1408', transparent: true, opacity: 0.85, depthTest: false }));
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.16), new THREE.MeshBasicMaterial({ color: '#ffd04a', depthTest: false }));
+    fill.position.z = 0.001;
+    back.renderOrder = 13;
+    fill.renderOrder = 14;
+    const bar = new THREE.Group();
+    bar.add(back, fill);
+    this.group.add(bar);
+    this.hero = {
+      bless: ring(0.97, '#ffd04a', 0.35),
+      pick: ring(0.8, '#fff3c4', 0.9),
+      reach: ring(0.985, '#fff3c4', 0.6),
+      bar,
+      fill,
+      glow: new THREE.InstancedMesh(new THREE.RingGeometry(1.2, 1.65, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.55, depthWrite: false }), 64),
+      holds: new THREE.InstancedMesh(new THREE.RingGeometry(0.34, 0.5, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.9, depthWrite: false }), 8),
+    };
+    for (const m of [this.hero.glow, this.hero.holds]) {
+      m.count = 0;
+      m.frustumCulled = false;
+      m.renderOrder = 4;
+      this.group.add(m);
+    }
+  },
+
+  /** The High Priest's rings, bar and glows, as he stands, is picked or aims. */
+  heroTick(t, w, td, units) {
+    const h = this.hero, hero = td.hero, p = NS.tdPriest(w), el = p && units?.byId.get(p.id);
+    const standing = !!el && hero.down === 0 && !td.over, k = hero.skills;
+    const at = el ? el.object3D.position : null;
+    h.bless.visible = standing;
+    h.pick.visible = standing && G.tdHero;
+    h.reach.visible = standing && (G.tdHero || G.tdCast === 'hammer');
+    h.bar.visible = !!el && !td.over;
+    if (at) {
+      const blessed = NS.TD_HERO.bless.reach[k.bless] + 0.5, rally = hero.rally > 0;
+      h.bless.position.set(at.x, at.y + 0.2, at.z);
+      h.bless.scale.setScalar(rally ? NS.TD_HERO.rally.reach + 0.5 : blessed);
+      h.bless.material.opacity = rally ? 0.45 + 0.3 * Math.sin(t / 120) : 0.3;
+      h.pick.position.set(at.x, at.y + 0.22, at.z);
+      h.pick.scale.setScalar(0.9 + 0.08 * Math.sin(t / 180));
+      h.reach.position.set(at.x, at.y + 0.21, at.z);
+      h.reach.scale.setScalar(G.tdCast === 'hammer' ? NS.TD_HERO.hammer.range + 0.5 : NS.TD_HERO.bolt.reach[k.bolt] + 0.5);
+      // his hit points over him, facing the camera
+      const f = Math.max(0, hero.hp / hero.hpMax);
+      h.bar.position.set(at.x, at.y + 3.1, at.z);
+      h.bar.quaternion.copy(this.el.sceneEl.camera.getWorldQuaternion(this.q));
+      h.fill.scale.x = Math.max(0.001, hero.down > 0 ? 0 : f);
+      h.fill.position.x = -0.9 * (1 - (hero.down > 0 ? 0 : f));
+      h.fill.material.color.set(f > 0.5 ? '#ffd04a' : f > 0.25 ? '#ff9f43' : '#ff6b5b');
+    }
+    // a glow under each gun he blesses (in a Rally, within its reach)
+    let n = 0;
+    if (standing) {
+      for (const [id] of td.ranks) {
+        const b = w.entities.get(id);
+        if (!b || n >= 64 || NS.tdBlessing(w, b.x + b.fx / 2, b.y + b.fy / 2) <= 1) continue;
+        h.glow.setMatrixAt(n++, this.m4.compose(this.at(b.x + b.fx / 2, b.y + b.fy / 2, 0.32), this.q.identity(), this.s.setScalar(hero.rally > 0 ? 1 + 0.12 * Math.sin(t / 110) : 1)));
+      }
+    }
+    h.glow.count = n;
+    h.glow.instanceMatrix.needsUpdate = true;
+    h.glow.material.opacity = hero.rally > 0 ? 0.8 : 0.45;
+    // a ring under each walker he holds up
+    n = 0;
+    for (const id of hero.holding) {
+      const u = units?.byId.get(id);
+      if (!u || n >= 8) continue;
+      this.v.copy(u.object3D.position);
+      this.v.y += 0.12;
+      h.holds.setMatrixAt(n++, this.m4.compose(this.v, this.q.identity(), this.s.setScalar(1)));
+    }
+    h.holds.count = n;
+    h.holds.instanceMatrix.needsUpdate = true;
   },
 
   /** The cells shown: a gun's reach (pointed at in the menu, or its own), or a Spell's. */
@@ -331,19 +418,22 @@ AFRAME.registerComponent('ns-td', {
 
     this.preview();
 
-    // a Spell being aimed: its reach about the cell under the cursor
+    // a Spell being aimed, or the Priest's Storm Hammer: its reach about the cell under the cursor
     if (G.tdCast && G.hover) {
-      const r = NS.TD_SPELLS[G.tdCast]?.reach ?? 2;
+      const hammer = G.tdCast === 'hammer', p = hammer ? NS.tdPriest(w) : null;
+      const r = hammer ? NS.TD_HERO.hammer.reach[td.hero.skills.hammer] : NS.TD_SPELLS[G.tdCast]?.reach ?? 2;
+      const far = p && Math.hypot(G.hover.x - p.x, G.hover.y - p.y) > NS.TD_HERO.hammer.range;
       this.ring.visible = true;
       this.ring.position.copy(this.at(G.hover.x + 0.5, G.hover.y + 0.5, 0.25));
       this.ring.scale.setScalar(r + 0.5);
-      this.ring.material.color.set(G.tdCast === 'bombparalyze' ? '#9fd8ff' : '#ffd04a');
+      this.ring.material.color.set(far ? '#ff6b5b' : hammer ? '#fff3c4' : G.tdCast === 'bombparalyze' ? '#9fd8ff' : '#ffd04a');
     } else {
       this.ring.visible = false;
     }
 
     // ranks over the guns
     const units = this.el.sceneEl.querySelector('[ns-units]')?.components['ns-units'];
+    if (this.hero) this.heroTick(t, w, td, units);
     const alive = new Set();
     for (const [id, rank] of td.ranks) {
       if (rank < 2 || td.spent.get(id) === undefined) continue;
