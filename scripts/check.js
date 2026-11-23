@@ -691,7 +691,6 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     }
     for (const c of [...d.chests, ...d.things]) if (!NS.DIRS.some(([dx, dy]) => seen[(c.y + dy) * N + c.x + dx])) fail(`seed ${seed}: ${c.kind ?? 'chest'} ${c.id} out of reach`);
     for (const r of d.rooms) if (!seen[(r.y + (r.h >> 1)) * N + r.x + (r.w >> 1)] && d.tiles[(r.y + (r.h >> 1)) * N + r.x + (r.w >> 1)] === NS.TILE.floor) fail(`seed ${seed}: a ${r.kind} room out of reach`);
-    if (!w.view().canBuild({ player: NS.ME, type: 'windbattery', x: d.x, y: d.y }) === null) fail('a Generator could be built on the portal');
     if (w.view().canBuild({ player: NS.ME, type: 'windbattery', ...NS.anchorFor(w.def('windbattery'), d.x, d.y) }) === null) fail(`seed ${seed}: a Generator could be built on the portal`);
     seeds++;
   }
@@ -1680,8 +1679,21 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     hero.down = 30 * NS.TPS;
     w.step([{ t: 'tdHero', player: 1, act: 'call', tx: spot[0], ty: spot[1] }]);
     if (!td.allies.size) fail('td: the Temple Guard did not come while the Priest lay beaten down');
+    // half the Balloon's fire passes through a Cloud Floater held under it, as half of any shot does
+    const over = [...td.allies].find(([, a]) => a.air), floater = w.entities.get(foe(w, td, 'rainballoon', 20, air));
+    floater.x = w.entities.get(over[0]).x;
+    floater.y = w.entities.get(over[0]).y;
+    floater.paralyzed = 20 * NS.TPS;
+    w.drainEvents();
+    let fired = 0;
+    for (let i = 0; i < 10 * NS.TPS; i++) {
+      w.step([]);
+      fired += w.drainEvents().filter((ev) => ev.what === 'td' && ev.data.kind === 'shot' && ev.data.to === floater.id).length;
+    }
+    const struck = Math.round((floater.hpMax - floater.hp) / NS.TD_GUARD.balloon.damage);
+    if (fired < 8 || struck === 0 || struck === fired) fail(`td: of the Balloon's ${fired} shots at a Cloud Floater ${struck} struck it`);
   }
-  console.log(`tower defense: ${NS.TD_LEVELS.length} battles laid out, each won by a careful player with the High Priest (lives left: ${told.join(', ')}) and lost with nothing raised; a gun raised, ranked and sold, a Crab stealing, a bounty paid, an Ice Cannon chilling and sparing the guns, the Spells, the flagship's hold; the Priest holding a walker up and beaten down, rising again, his blessing and Rally, the Storm Hammer in his reach, his skills; the Temple Guard standing where called, its Golems at the walkers and its Balloon at an airship, gone in time, its wait`);
+  console.log(`tower defense: ${NS.TD_LEVELS.length} battles laid out, each won by a careful player with the High Priest (lives left: ${told.join(', ')}) and lost with nothing raised; a gun raised, ranked and sold, a Crab stealing, a bounty paid, an Ice Cannon chilling and sparing the guns, the Spells, the flagship's hold; the Priest holding a walker up and beaten down, rising again, his blessing and Rally, the Storm Hammer in his reach, his skills; the Temple Guard standing where called, its Golems at the walkers and its Balloon at an airship (half its fire through a Cloud Floater), gone in time, its wait`);
 }
 
 // Every name of the engine that the client's code uses is one the engine has (one was not: the

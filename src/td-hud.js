@@ -8,7 +8,7 @@
  * skills, bought with the stars (src/td-progress.js keeps them in this browser). Its story, its
  * battles, the Priest's skills and all their names are made up here.
  */
-import { NS, G, ME, TPS, defs, escapeHtml, wx, wz, THREE } from './state.js';
+import { NS, G, ME, TPS, defs, escapeHtml, patchHtml, wx, wz, THREE } from './state.js';
 import { submit } from './game.js';
 import { groundAt } from './heights.js';
 import { toScene } from './space.js';
@@ -190,6 +190,30 @@ function skillsHtml(p) {
 }
 
 /** A battle's briefing: its story, what is new in it, and how. */
+/** How a battle is fought (the first battle's briefing; How to play and Controls in a battle). */
+const HOW = [
+  'Your <b>High Priest</b> fights beside the guns: click him, then where he should go. He strikes the horde about him with lightning, his blessing makes the guns near him hit harder, and where he stands his ground he holds up the walkers that reach him. <b>Rally</b> (3) and the <b>Storm Hammer</b> (4, then a spot near him) are his own, and he calls the <b>Temple Guard</b> (5, then a spot on or beside a bridge or an island): Golems that stand there a while and strike the horde going by.',
+  'Click a <b>stone platform</b> beside a bridge to raise a gun on it; click a gun to rank it up (to III), turn it or sell it. Pointing at a gun in the menu shows its reach.',
+  'A <b>cannon</b> fires down one straight line: raise it on a platform in line with a bridge. The <b>Crossbow</b> shoots into an arc ahead of it; the archers all about them.',
+  'The first wave comes when you call it; then each follows after a countdown. <b>Call the next wave early</b> (N) for Storm Power.',
+  'A Spell: click its button (or press its key), then where to cast it.',
+];
+
+/** How to play a battle and its keys: the top bar's How to play and Controls, in a battle (in
+ * place of the skirmish's, whose keys mean other things here). */
+export function guide(hud, back = null) {
+  const was = G.paused;
+  if (G.started) G.paused = true;
+  hud.modal(`<h2>How to play a battle</h2><ul class="how">${HOW.map((t) => `<li>${t}</li>`).join('')}</ul>
+    <h3 class="objectives-head">Keys</h3><ol style="list-style:none;padding:0">
+      <li><b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan</li>
+      <li><b>Spells:</b> <kbd>1</kbd> Thunder Strike · <kbd>2</kbd> Paralysis (in the battles that have them), then where to cast it</li>
+      <li><b>Your Priest:</b> click him or his portrait, then the ground · <kbd>3</kbd> Rally · <kbd>4</kbd> Storm Hammer, then a spot near him · <kbd>5</kbd> Temple Guard, then a spot on or beside a bridge or an island · <kbd>V</kbd> through his eyes</li>
+      <li><kbd>N</kbd> calls the next wave early · <kbd>Esc</kbd> cancels · <kbd>Space</kbd> pauses · <kbd>+</kbd> / <kbd>−</kbd> speed · <kbd>H</kbd> the Temple · <kbd>P</kbd> the Priest · <kbd>F</kbd> follow · <kbd>L</kbd> the log</li>
+    </ol>`,
+  [{ label: back ? 'Back' : 'Resume', main: true, act: () => { if (back) back(); else { hud.closeModal(); G.paused = was; G.clock.reset(); } } }]);
+}
+
 export function briefing(hud) {
   const id = G.td, b = BATTLES[id], L = NS.tdLevel(id), i = NS.TD_LEVELS.indexOf(id);
   const before = i > 0 ? NS.tdLevel(NS.TD_LEVELS[i - 1]) : { towers: [], foes: [], spells: [] };
@@ -198,17 +222,10 @@ export function briefing(hud) {
     ...L.spells.filter((s) => !before.spells.includes(s)).map((s) => `<li><b>${SPELLS[s].name}</b> (Spell, key ${SPELLS[s].key}): ${escapeHtml(NS.TD_SPELLS[s].note)}</li>`),
     ...L.foes.filter((f) => !before.foes.includes(f)).map((f) => `<li class="foe"><b>${escapeHtml(foeName(f))}</b>: ${escapeHtml(NS.TD_FOES[f].note)}</li>`),
   ];
-  const how = [
-    'Your <b>High Priest</b> fights beside the guns: click him, then where he should go. He strikes the horde about him with lightning, his blessing makes the guns near him hit harder, and where he stands his ground he holds up the walkers that reach him. <b>Rally</b> (3) and the <b>Storm Hammer</b> (4, then a spot near him) are his own, and he calls the <b>Temple Guard</b> (5, then a spot on or beside a bridge): Golems that stand there a while and strike the horde going by.',
-    'Click a <b>stone platform</b> beside a bridge to raise a gun on it; click a gun to rank it up (to III), turn it or sell it. Pointing at a gun in the menu shows its reach.',
-    'A <b>cannon</b> fires down one straight line: raise it on a platform in line with a bridge. The <b>Crossbow</b> shoots into an arc ahead of it; the archers all about them.',
-    'The first wave comes when you call it; then each follows after a countdown. <b>Call the next wave early</b> (N) for Storm Power.',
-    'A Spell: click its button (or press its key), then where to cast it.',
-  ];
   hud.modal(`<h2>${i + 1}. ${escapeHtml(b.title)}</h2><p class="td-place">${escapeHtml(b.place)}</p>
     <p class="text">${escapeHtml(b.story)}</p>
     ${fresh.length ? `<h3 class="objectives-head">New in this battle</h3><ul class="td-new">${fresh.join('')}</ul>` : ''}
-    ${i === 0 ? `<h3 class="objectives-head">How</h3><ul class="how">${how.map((t) => `<li>${t}</li>`).join('')}</ul>`
+    ${i === 0 ? `<h3 class="objectives-head">How</h3><ul class="how">${HOW.map((t) => `<li>${t}</li>`).join('')}</ul>`
       : '<p class="note">Click a platform to raise a gun, a gun to rank it up, turn or sell it; click your Priest, then where he should go; <b>3</b> his Rally, <b>4</b> his Storm Hammer, <b>5</b> the Temple Guard; <b>N</b> calls the next wave early, for Storm Power.</p>'}
     <p class="note">${L.waves} waves · ${L.lives} lives · ⚡${L.storm} to begin with · your Priest’s skills: ${SKILLS.map((k) => `${SKILL[k].name} ${'●'.repeat(G.world.td.hero.skills[k])}${'○'.repeat(3 - G.world.td.hero.skills[k])}`).join(', ')}</p>`,
   [{ label: 'Campaign map', act: () => { hud.game.start(G.setup, { menu: true }); campaignMap(hud); } },
@@ -268,9 +285,10 @@ export function panel(hud) {
     <button data-hero="call" class="spell${G.tdCast === 'call' || td.allies.size ? ' on' : ''}" ${wait('call') ? 'disabled' : ''} title="Temple Guard: ${escapeHtml(SKILL.call.say(k.call))}; again after ${NS.TD_GUARD.wait[k.muster]} s (key 5)">⚑ Guard${wait('call') ? ` <small>${wait('call')} s</small>` : ' <kbd>5</kbd>'}</button></span>`;
   const html = `<span class="td-lives" title="Your Temple's lives: what the horde takes when it reaches it">♥ <b>${td.lives}</b>/${td.livesMax}</span>
     <span class="td-wave" title="Waves begun, of the battle's">Wave <b>${td.wave}</b>/${n}</span>${call}<span class="td-spells">${spells}</span>${heroHtml}`;
+  // (patched, not drawn anew: a button pressed as the bar changes must still be there at its release)
   if (el.dataset.sig !== html) {
     el.dataset.sig = html;
-    el.innerHTML = html;
+    patchHtml(el, html);
   }
   refreshMenu(hud);
 }
@@ -488,7 +506,7 @@ function refreshMenu(hud) {
   const sig = `${html}|${menu.spot}`;
   if (sig !== menu.sig) {
     menu.sig = sig;
-    el.innerHTML = html;
+    patchHtml(el, html);
     for (const cv of el.querySelectorAll('canvas[data-icon]')) hud.drawIcon(cv, cv.dataset.icon);
   }
   el.hidden = false;

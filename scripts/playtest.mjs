@@ -2183,9 +2183,10 @@ SCENARIOS.cities = async () => {
  * menu and a rank up, its stars over it; Thunder Strike aimed with 1 and cast; the High Priest
  * picked from his portrait and sent along the road with a click, his Rally with 3 and the Storm
  * Hammer aimed with 4 and cast with a click; the Temple Guard aimed with 5, where its Golems would
- * stand shown, called with a click on the road, and standing there; the battle won, its stars kept and told as points for
+ * stand shown, called with a click on the road, and standing there; a press on the bar kept as the
+ * bar is drawn anew between press and release; How to play the battle's own; the battle won, its stars kept and told as points for
  * the Priest; on the map the next battle open and a skill of his raised with a point, his in the
- * next battle.
+ * next battle; its briefing's Controls the battle's guide, the main menu's How to play the game's.
  */
 SCENARIOS.td = async () => {
   const { page, errors } = await open();
@@ -2295,6 +2296,29 @@ SCENARIOS.td = async () => {
   }, null, { timeout: 5000 })
     .catch(async () => { throw new Error(`the Temple Guard drawn: ${JSON.stringify(await page.evaluate(drawnGuard))}`); });
   const guard = await page.evaluate(drawnGuard);
+  // a press on the bar as it is drawn anew between press and release (his life changing) still
+  // calls the act: the bar is patched, its buttons kept
+  await page.evaluate(() => { window.NS3D.G.world.td.hero.cooldown.rally = 0; window.NS3D.game.hud.renderGoal(); });
+  await page.waitForSelector('#tdBar [data-hero="rally"]:not([disabled])', { timeout: 5000 });
+  const rallyAt = await page.evaluate(() => { const r = document.querySelector('#tdBar [data-hero="rally"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.mouse.move(rallyAt.x, rallyAt.y);
+  await page.mouse.down();
+  const redrawn = await page.evaluate(() => {
+    const { G, game } = window.NS3D, bar = document.getElementById('tdBar'), was = bar.dataset.sig;
+    G.world.td.hero.hp = Math.max(1, G.world.td.hero.hp - G.world.td.hero.hpMax * 0.2);
+    game.hud.renderGoal();
+    return bar.dataset.sig !== was;
+  });
+  await page.mouse.up();
+  await page.waitForFunction(() => window.NS3D.G.world.td.hero.cooldown.rally > 0, null, { timeout: 5000 })
+    .catch(() => { throw new Error(`a press on the Rally lost as the bar was drawn anew (drawn anew: ${redrawn})`); });
+  if (!redrawn) throw new Error('the bar was not drawn anew between the press and its release');
+  // How to play, in a battle, is the battle's own (the skirmish's keys mean other things here)
+  await page.click('#howto');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'How to play a battle' && /Temple Guard/.test(document.getElementById('modal').textContent), null, { timeout: 5000 })
+    .catch(() => { throw new Error('How to play in a battle is not the battle\'s own'); });
+  await page.click('#modal button.main');
+  await page.waitForFunction(() => !window.NS3D.G.paused, null, { timeout: 5000 });
   const bar = await page.evaluate(() => document.querySelector('#tdBar .td-hero-bar')?.textContent.replace(/\s+/g, ' ').trim());
   if (!/Rally \d+ s/.test(bar) || !/Hammer \d+ s/.test(bar) || !/Guard \d+ s/.test(bar)) throw new Error(`the bar does not count down his acts: ${bar}`);
   // the battle won: its stars kept and told as points for the Priest, the next battle open
@@ -2322,6 +2346,19 @@ SCENARIOS.td = async () => {
   await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent.includes('Ferries') && window.NS3D.G.world.td, null, { timeout: 30000 });
   const carried = await page.evaluate(() => window.NS3D.G.world.td.hero.skills.bless);
   if (carried !== 1) throw new Error(`the Blessing raised but not his in the next battle (${carried})`);
+  // the briefing's Controls: the battle's guide, and back to the briefing; the main menu's How to
+  // play: the game's own, though a battle lies behind it
+  const heading = () => page.evaluate(() => document.querySelector('#modal h2')?.textContent ?? '');
+  await page.click('#modal button:has-text("Controls")');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'How to play a battle', null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`the briefing's Controls showed "${await heading()}"`); });
+  await page.click('#modal button.main');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent.includes('Ferries'), null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`back from the battle's guide to "${await heading()}"`); });
+  await page.evaluate(() => window.NS3D.game.hud.menu());
+  await page.click('#modal button:has-text("How to play")');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'How to play', null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`the main menu's How to play showed "${await heading()}"`); });
   console.log(`  the map, 1 of 6 open; Mossbridge's ${drawn.frames} platforms; a Crossbow raised by its menu, its reach shown; wave 1 called with N, ${after.killed} brought down for ⚡${after.storm - before.storm}; ranked up to II; Thunder Strike cast; the Priest picked and sent ${Math.round(Math.hypot(sent.x - from.x, sent.y - from.y))} cells, his Rally and Storm Hammer cast, the Temple Guard called (${guard.n}); won with ${kept} star${kept > 1 ? 's' : ''} (+${kept} point${kept > 1 ? 's' : ''}), the Twin Ferries open; the Blessing raised and his there`);
   return errors;
 };

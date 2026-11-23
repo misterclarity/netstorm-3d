@@ -939,7 +939,8 @@ AFRAME.registerSystem('ns-game', {
     // in the Priest's eyes his keys come first (ns-fp.js)
     if (G.fp?.active && this.fp().onKey(e)) return;
     const k = e.key.toLowerCase();
-    // a tower defense battle's keys: N, the Spells' 1 and 2, Escape (src/td-hud.js)
+    // a tower defense battle's keys: N, the Spells' 1 and 2, the Priest's 3, 4 and 5, Escape
+    // (src/td-hud.js)
     if (G.td && G.started && TD.onKey(this.hud, k)) return;
     if (k >= '1' && k <= '6') {
       const i = Number(k) - 1;

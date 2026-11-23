@@ -135,8 +135,9 @@ export const TD_HERO = {
 
 /**
  * The Temple Guard the Priest calls to a spot: Golems on the ground nearest it, standing there and
- * hurling stones at the walkers going by; from Temple Guard's third level a Balloon over them too,
- * dropping fire on the horde on the ground and in the air. None of them moves; they stay so long
+ * hurling stones at the walkers going by; from Temple Guard's second level a Balloon over them too,
+ * dropping fire on the horde on the ground and in the air (half of it passing through a Cloud
+ * Floater, as half of any shot does: rules/combat.ts). None of them moves; they stay so long
  * (by Temple Guard's level), then are gone, and the Guard comes again only once the wait (by Swift
  * Summons's level) is over.
  */
@@ -267,6 +268,9 @@ export interface Td {
 
 /** What `paint` holds where a gun stands (td-map.ts lays them): a platform, an Arc gate's. */
 const PLATFORM_PAINT = 2, GATE_PAINT = 3;
+
+/** The airship half of whose shots pass through it (the rules' own, rules/combat.ts). */
+const CLOUD_FLOATER = 'rainballoon';
 
 /** A step north, east, south and west. */
 const STEPS: readonly (readonly [number, number])[] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -622,7 +626,11 @@ function tickGuard(world: World): void {
     }
 
     if (target) {
-      target.hp = Math.max(0, +(target.hp - arm.damage * tdBlessing(world, a.x + 0.5, a.y + 0.5)).toFixed(4));
+      // (as with the guns' shots, half of those at a Cloud Floater pass through it)
+      if (target.type !== CLOUD_FLOATER || world.rng.int(2) !== 0) {
+        target.hp = Math.max(0, +(target.hp - arm.damage * tdBlessing(world, a.x + 0.5, a.y + 0.5)).toFixed(4));
+      }
+
       ally.next = Math.round(arm.every * TPS);
       world.emit({ what: 'td', who: TD_ME, data: { kind: 'shot', id, to: target.id, air: ally.air } });
     }

@@ -140,3 +140,30 @@ export function keysOff(e) {
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+
+/**
+ * Draws `html` into `el` changing only what differs from what is there: the elements already in
+ * their places keep their identity, with their text and attributes set anew; anything else is put
+ * in fresh. For a panel drawn anew many times a second (a countdown, a life bar): its buttons must
+ * stay the same elements, for a press whose button is gone by its release makes no click at all.
+ */
+export function patchHtml(el, html) {
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  morph(el, t.content);
+}
+
+function morph(into, from) {
+  const want = from.childNodes;
+  for (let i = 0; i < want.length; i++) {
+    const w = want[i], have = into.childNodes[i];
+    if (!have) into.appendChild(w.cloneNode(true));
+    else if (have.nodeType !== w.nodeType || have.nodeName !== w.nodeName) into.replaceChild(w.cloneNode(true), have);
+    else if (have.nodeType === Node.ELEMENT_NODE) {
+      for (const a of [...have.attributes]) if (!w.hasAttribute(a.name)) have.removeAttribute(a.name);
+      for (const a of w.attributes) if (have.getAttribute(a.name) !== a.value) have.setAttribute(a.name, a.value);
+      morph(have, w);
+    } else if (have.nodeValue !== w.nodeValue) have.nodeValue = w.nodeValue;
+  }
+  while (into.childNodes.length > want.length) into.lastChild.remove();
+}

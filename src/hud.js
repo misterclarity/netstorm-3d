@@ -850,6 +850,7 @@ export class Hud {
   }
 
   help(fromBriefing = false) {
+    if (G.td && (G.started || fromBriefing)) return TD.guide(this, fromBriefing ? () => this.briefing() : null);
     const was = G.paused;
     if (G.started) G.paused = true;
     this.modal(`<h2>Controls</h2><ol style="list-style:none;padding:0">
@@ -873,6 +874,9 @@ export class Hud {
    * is where its button returns (the menu or a briefing); from the battle it resumes.
    */
   howToPlay(back = null) {
+    // in a tower defense battle, the battle's own (src/td-hud.js); the main menu's is this one, though
+    // a battle may lie behind it
+    if (G.td && G.started) return TD.guide(this, back);
     const was = G.paused;
     if (G.started) G.paused = true;
     this.modal(`<h2>How to play</h2><div class="guide">
