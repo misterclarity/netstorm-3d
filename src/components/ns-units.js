@@ -71,6 +71,8 @@ const AIR = { aloft: 44 / PX, landed: 1.3 };
 const HERO_SPRITE = { scale: 1.35, stride: 1.44 / 8, acts: { call: [77, 1.1], rally: [95, 1.1], hammer: [113, 0.9], bolt: [149, 0.7] } };
 /** The Temple Guard of a tower defense battle is drawn gilded, not to be taken for the horde's own. */
 const ALLY_TINT = '#ffe08a';
+/** And one of it heaving a stone or fire hops so long (ms), so high (cells), turned to its mark. */
+const HEAVE = { ms: 280, high: 0.45 };
 const AIR_SHADOW = { geo: new THREE.CircleGeometry(1, 24), mat: new THREE.MeshBasicMaterial({ color: '#0a1020', transparent: true, opacity: 0.3, depthWrite: false }) };
 const cards = new WeakMap();
 /** A sprite's texture, plane and material, made once per picture and shared by every card of it. */
@@ -306,6 +308,9 @@ AFRAME.registerComponent('ns-unit', {
     }
     const rep = this.rep, s = t / 1000;
     this.place(e, dt);
+    // one of a battle's Temple Guard heaving a stone or fire (td-hud.js): turned to its mark, a hop
+    if (this.heaving) this.turnTo(e, this.heaving, t);
+    if (t - (this.heaveAt ?? -Infinity) < HEAVE.ms) this.el.object3D.position.y += Math.sin(((t - this.heaveAt) / HEAVE.ms) * Math.PI) * HEAVE.high;
     let visible = true;
     if (e.kind === 'crystal' && e.carriedBy !== null) visible = false;
     if (e.kind === 'priest') {
@@ -413,6 +418,22 @@ AFRAME.registerComponent('ns-unit', {
     const play = hero.act && HERO_SPRITE.acts[hero.act.kind];
     const k = play ? (t - this.actAt) / 1000 / play[1] : 1;
     return k < 1 ? [type, play[0] + Math.min(17, Math.floor(k * 18))] : slot;
+  },
+
+  /** One of a battle's Temple Guard heaves a stone or fire at its mark (td-hud.js, as it throws). */
+  heave(mark) {
+    this.heaving = mark ? { x: mark.x, y: mark.y } : {};
+  },
+
+  /** Turned to its mark, the model and as a sprite (one of the art's eight headings), its hop begun. */
+  turnTo(e, mark, t) {
+    this.heaving = null;
+    this.heaveAt = t;
+    const dx = (mark.x ?? e.x) - e.x, dy = (mark.y ?? e.y) - e.y;
+    if (!dx && !dy) return;
+    this.rep.yaw = Math.atan2(wx(mark.x) - wx(e.x), wz(mark.y) - wz(e.y));
+    this.model.rotation.y = this.rep.yaw;
+    this.art.scene?.headings.set(e.id, (Math.round(Math.atan2(dx, -dy) / (Math.PI / 4)) + 8) % 8);
   },
 
   /** The Temple Guard of a battle (rules/td.ts), gilded: its own copy of a shared card's material. */

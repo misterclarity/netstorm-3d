@@ -850,7 +850,7 @@ export class Hud {
   }
 
   help(fromBriefing = false) {
-    if (G.td && (G.started || fromBriefing)) return TD.guide(this, fromBriefing ? () => this.briefing() : null);
+    if ((G.td || G.city || G.raid) && (G.started || fromBriefing)) return this.modeGuide(fromBriefing ? () => this.briefing() : null);
     const was = G.paused;
     if (G.started) G.paused = true;
     this.modal(`<h2>Controls</h2><ol style="list-style:none;padding:0">
@@ -873,10 +873,24 @@ export class Hud {
    * The game explained: the goal, Storm Power, bridges, building, fighting and the capture. `back`
    * is where its button returns (the menu or a briefing); from the battle it resumes.
    */
+  /**
+   * A mode's own guide, for How to play and Controls there, in place of the skirmish's (whose keys
+   * mean other things): a tower defense battle's, a sky city's, the raid's. Its module gives its
+   * title, how it is played and its keys (`guide()` of td-hud.js, city-hud.js, raid-hud.js).
+   */
+  modeGuide(back = null) {
+    const g = (G.td ? TD : G.city ? CITY : RAID).guide();
+    const was = G.paused;
+    if (G.started) G.paused = true;
+    this.modal(`<h2>${escapeHtml(g.title)}</h2><ul class="how">${g.how.map((t) => `<li>${t}</li>`).join('')}</ul>
+      <h3 class="objectives-head">Keys</h3><ol style="list-style:none;padding:0">${g.keys.map((t) => `<li>${t}</li>`).join('')}</ol>`,
+    [{ label: back ? 'Back' : 'Resume', main: true, act: () => { if (back) back(); else { this.closeModal(); G.paused = was; G.clock.reset(); } } }]);
+  }
+
   howToPlay(back = null) {
-    // in a tower defense battle, the battle's own (src/td-hud.js); the main menu's is this one, though
-    // a battle may lie behind it
-    if (G.td && G.started) return TD.guide(this, back);
+    // in a tower defense battle, a sky city or the raid, its own (modeGuide); the main menu's is this
+    // one, though one of those may lie behind it
+    if ((G.td || G.city || G.raid) && G.started) return this.modeGuide(back);
     const was = G.paused;
     if (G.started) G.paused = true;
     this.modal(`<h2>How to play</h2><div class="guide">

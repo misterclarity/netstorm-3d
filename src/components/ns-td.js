@@ -277,31 +277,48 @@ AFRAME.registerComponent('ns-td', {
       holds: new THREE.InstancedMesh(new THREE.RingGeometry(0.34, 0.5, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.9, depthWrite: false }), 8),
     };
     // the Temple Guard's: a ring at each one's feet (under a Balloon, on the ground), blinking as
-    // their time runs out; as it is aimed, the cells its Golems would stand on
+    // their time runs out, and a bar over each, full and pale as it waits for the horde, gold and
+    // shrinking as it fights; as it is aimed, the cells its Golems would stand on
     this.guard = {
       rings: new THREE.InstancedMesh(new THREE.RingGeometry(0.42, 0.6, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.9, depthWrite: false }), 16),
       cells: new THREE.InstancedMesh(new THREE.PlaneGeometry(0.86, 0.86).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.7, depthWrite: false }), 8),
+      back: new THREE.InstancedMesh(new THREE.PlaneGeometry(1.36, 0.2), new THREE.MeshBasicMaterial({ color: '#1d2433', transparent: true, opacity: 0.85, depthTest: false }), 16),
+      fill: new THREE.InstancedMesh(new THREE.PlaneGeometry(1.24, 0.11), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, depthTest: false }), 16),
     };
-    for (const m of [this.hero.glow, this.hero.holds, this.guard.rings, this.guard.cells]) {
+    this.camQ = new THREE.Quaternion();
+    this.right = new THREE.Vector3();
+    this.tone = new THREE.Color();
+    for (const m of [this.hero.glow, this.hero.holds, this.guard.rings, this.guard.cells, this.guard.back, this.guard.fill]) {
       m.count = 0;
       m.frustumCulled = false;
       m.renderOrder = 4;
       this.group.add(m);
     }
+    this.guard.back.renderOrder = 6;
+    this.guard.fill.renderOrder = 7;
   },
 
   /** The Temple Guard's rings, and where its Golems would stand as it is aimed. */
   guardTick(t, w, td) {
-    const g = this.guard;
+    const g = this.guard, stay = NS.TD_GUARD.stay[td.hero.skills.call] * NS.TPS;
+    this.el.sceneEl.camera.getWorldQuaternion(this.camQ);
+    this.right.set(1, 0, 0).applyQuaternion(this.camQ);
     let n = 0, left = Infinity;
     for (const [id, ally] of td.allies) {
       const e = w.entities.get(id);
       if (!e || n >= 16) continue;
       left = Math.min(left, ally.left);
-      g.rings.setMatrixAt(n++, this.m4.compose(this.at(e.x + 0.5, e.y + 0.5, 0.14), this.q.identity(), this.s.setScalar(ally.air ? 1.7 : 1)));
+      g.rings.setMatrixAt(n, this.m4.compose(this.at(e.x + 0.5, e.y + 0.5, 0.14), this.q.identity(), this.s.setScalar(ally.air ? 1.7 : 1)));
+      // its bar, facing the camera over it (a Balloon's over the airship's height, units.js AIR)
+      const over = this.at(e.x + 0.5, e.y + 0.5, ally.air ? 44 / 16 + 2.3 : 2.5), f = ally.fighting ? Math.max(0.02, ally.left / stay) : 1;
+      g.back.setMatrixAt(n, this.m4.compose(over, this.camQ, this.s.setScalar(1)));
+      g.fill.setMatrixAt(n, this.m4.compose(over.addScaledVector(this.right, -(1 - f) * 0.62), this.camQ, this.s.set(f, 1, 1)));
+      g.fill.setColorAt(n, this.tone.set(ally.fighting ? '#ffd04a' : '#9fd8ff'));
+      n++;
     }
-    g.rings.count = n;
-    g.rings.instanceMatrix.needsUpdate = true;
+    g.rings.count = g.back.count = g.fill.count = n;
+    g.rings.instanceMatrix.needsUpdate = g.back.instanceMatrix.needsUpdate = g.fill.instanceMatrix.needsUpdate = true;
+    if (g.fill.instanceColor) g.fill.instanceColor.needsUpdate = true;
     g.rings.material.opacity = left < 3 * NS.TPS ? 0.3 + 0.6 * (0.5 + 0.5 * Math.sin(t / 80)) : 0.9;
     n = 0;
     if (G.tdCast === 'call' && G.hover && !td.over) {
@@ -451,7 +468,8 @@ AFRAME.registerComponent('ns-td', {
     // a Spell being aimed, or the Priest's Storm Hammer: its reach about the cell under the cursor
     if (G.tdCast && G.hover) {
       const hammer = G.tdCast === 'hammer', call = G.tdCast === 'call', p = hammer ? NS.tdPriest(w) : null;
-      const r = hammer ? NS.TD_HERO.hammer.reach[td.hero.skills.hammer] : call ? 1.5 : NS.TD_SPELLS[G.tdCast]?.reach ?? 2;
+      // (the Guard's ring: its Golems' reach about the spot)
+      const r = hammer ? NS.TD_HERO.hammer.reach[td.hero.skills.hammer] : call ? NS.TD_GUARD.golem.reach : NS.TD_SPELLS[G.tdCast]?.reach ?? 2;
       // red where it may not be: the Storm Hammer out of his reach, the Guard with no ground there
       const far = (p && Math.hypot(G.hover.x - p.x, G.hover.y - p.y) > NS.TD_HERO.hammer.range) || (call && !NS.tdGuardCells(w, G.hover.x, G.hover.y).length);
       this.ring.visible = true;

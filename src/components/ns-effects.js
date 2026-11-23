@@ -68,6 +68,7 @@ AFRAME.registerComponent('ns-effects', {
   end(f) {
     this.root.remove(f.obj);
     if (f.own) f.obj.material.dispose();
+    f.free?.();
   },
 
   /** The height a unit stands or flies at, as it is drawn (its ground's, with tiered islands). */
@@ -272,21 +273,33 @@ AFRAME.registerComponent('ns-effects', {
     } });
   },
 
-  /** A stone, or a ball of fire, thrown from one point to another in an arc (a stone higher, the
-   * further it goes), with a puff where it lands: a blow of the tower defense's Temple Guard. */
-  lob(from, to, color, size, fire = false) {
+  /**
+   * A stone, or a ball of fire, thrown from one point to another in an arc (a stone higher, the
+   * further it goes), glowing to be seen from afar, with a puff where it is thrown and a burst where
+   * it lands: a throw of the tower defense's Temple Guard. It is in the air `life` seconds, as the
+   * rules have it (TD_GUARD.flight), and `follow`, if given, keeps it on its mark as that one moves.
+   */
+  lob(from, to, color, size, fire = false, life = 0.4, follow = null) {
     const m = new THREE.Mesh(fire ? BALL_GEO : ROCK_GEO, new THREE.MeshBasicMaterial({ color }));
     m.scale.setScalar(fire ? size : size / 0.35);
+    const glow = new THREE.Mesh(BALL_GEO, new THREE.MeshBasicMaterial({ color: fire ? '#ffb04a' : '#ffe6a0', transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.scale.setScalar(size * 2.4);
     m.position.copy(from);
-    this.root.add(m);
-    const far = from.distanceTo(to), high = fire ? 0.15 : 0.5 + far * 0.18;
-    this.fx.push({ obj: m, own: true, age: 0, life: 0.3 + far * 0.035, update: (f, k, s) => {
-      m.position.lerpVectors(from, to, k);
+    glow.position.copy(from);
+    this.root.add(m, glow);
+    this.puff(from.clone(), fire ? '#ffcf8a' : '#fff3c4', 0.45, 0.3);
+    const end = to.clone(), far = from.distanceTo(to), high = fire ? 0.2 : 0.8 + far * 0.2;
+    this.fx.push({ obj: m, own: true, age: 0, life, free: () => { this.root.remove(glow); glow.material.dispose(); }, update: (f, k, s) => {
+      const now = follow?.();
+      if (now) end.copy(now);
+      m.position.lerpVectors(from, end, k);
       m.position.y += Math.sin(Math.PI * k) * high;
       m.rotation.x += s * 9;
+      glow.position.copy(m.position);
+      glow.material.opacity = 0.4 + 0.2 * Math.sin(k * 20);
       if (k >= 1 && !f.landed) {
         f.landed = true;
-        this.puff(to.clone(), fire ? '#ffb347' : '#8a7a66', fire ? 0.9 : 0.55, 0.4);
+        this.puff(end.clone(), fire ? '#ffb347' : '#e6d3a3', fire ? 1.2 : 0.9, 0.45);
       }
     } });
   },

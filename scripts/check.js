@@ -1443,7 +1443,7 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
           if (knot && knot.n >= 2 && hero.cooldown.hammer === 0) cmds.push({ t: 'tdHero', player: 1, act: 'hammer', tx: knot.x, ty: knot.y });
         }
         // the Temple Guard, once a few walkers come, a few cells ahead of the one nearest the Temple
-        if (plan && hero.cooldown.call === 0) {
+        if (plan && hero.cooldown.call === 0 && !td.allies.size) {
           let lead = null, walkers = 0;
           for (const [eid, en] of td.enemies) {
             const e = w.entities.get(eid);
@@ -1632,34 +1632,45 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   {
     // the Temple Guard: called beside the way, its Golems on the ground nearest the spot and its
     // Balloon aloft over it (by Temple Guard's level), none of them moving; the Golems' stones at the
-    // walkers only, the Balloon's fire at an airship too; all gone when their time is up; not called
-    // again before the wait (by Swift Summons's level), and called while the Priest lies beaten
-    // down; never over the sky away from the ground
+    // walkers only, the Balloon's fire at an airship too, each striking as it comes down; each at the
+    // weakest in its reach, kept on while that one stays in reach; all gone a fight's time after
+    // their first throws, and only then the wait (by Swift Summons's level) before it is called
+    // again; called while the Priest lies beaten down; never over the sky away from the ground
     const w = NS.createTd(defs, 'cloudwatch', { ...NS.TD_NO_SKILLS, call: 2, muster: 3 }), td = w.td, hero = td.hero;
     w.players.get(NS.TD_ME).storm = 5000;
     const refused = (err) => w.drainEvents().some((ev) => ev.what === 'rejected' && ev.data.err === err);
+    const shots = () => w.drainEvents().filter((ev) => ev.what === 'td' && ev.data.kind === 'shot');
     const way = td.routes.find((r) => !r.air), spot = way.cells[Math.floor(way.cells.length / 2)];
     w.step([{ t: 'tdHero', player: 1, act: 'call', tx: spot[0], ty: spot[1] }]);
     const allies = [...td.allies].map(([id, a]) => ({ id, air: a.air, e: w.entities.get(id) }));
     const golems = allies.filter((a) => !a.air), balloons = allies.filter((a) => a.air);
     if (golems.length !== NS.TD_GUARD.golems[2] || balloons.length !== NS.TD_GUARD.balloons[2] || !balloons.every((b) => b.e?.aloft)) fail(`td: the Temple Guard came as ${golems.length} Golems and ${balloons.length} Balloons`);
     if (golems.some((g) => g.e.owner !== NS.TD_ME || Math.hypot(g.e.x - spot[0], g.e.y - spot[1]) > 1.5)) fail('td: the Guard\'s Golems not on the ground by the spot');
-    if (hero.act?.kind !== 'call' || hero.cooldown.call < NS.TD_GUARD.wait[3] * NS.TPS - 1 || hero.cooldown.call > NS.TD_GUARD.wait[3] * NS.TPS) fail(`td: the call not kept (${JSON.stringify(hero.act)}, wait ${hero.cooldown.call})`);
-    // a walker beside a Golem and an airship at the Balloon, both held still
+    if (hero.act?.kind !== 'call' || hero.cooldown.call !== 0) fail(`td: the call not kept, or its wait begun while it is out (${JSON.stringify(hero.act)}, wait ${hero.cooldown.call})`);
+    // a walker beside a Golem and an airship at the Balloon, both held still: a stone strikes only
+    // as it comes down
     const g0 = golems[0].e, air = td.routes.findIndex((r) => r.air);
     const walker = w.entities.get(foe(w, td, 'bulf', 20)), ship = w.entities.get(foe(w, td, 'sunballoon', 20, air));
     walker.x = g0.x + 1;
     walker.y = g0.y;
     ship.x = balloons[0].e.x;
     ship.y = balloons[0].e.y;
-    walker.paralyzed = ship.paralyzed = 10 * NS.TPS;
+    walker.paralyzed = ship.paralyzed = 60 * NS.TPS;
     w.drainEvents();
+    let first = 0;
+    for (let i = 0; i < 2 * NS.TPS && !first; i++) {
+      w.step([]);
+      if (shots().some((ev) => ev.data.to === walker.id)) first = walker.hp;
+    }
+    for (let i = 0; i < NS.TD_GUARD.flight - 1; i++) w.step([]);
+    const aloft = walker.hp;
+    w.step([]);
+    if (!first || aloft !== first || walker.hp >= first) fail(`td: a Golem's stone struck ${aloft !== first ? 'before it came down' : 'nothing'}`);
     const stood = allies.map((a) => [a.e.x, a.e.y]);
     let byGolem = 0, byBalloon = 0, golemAtShip = 0;
     for (let i = 0; i < 4 * NS.TPS; i++) {
       w.step([]);
-      for (const ev of w.drainEvents()) {
-        if (ev.what !== 'td' || ev.data.kind !== 'shot') continue;
+      for (const ev of shots()) {
         if (ev.data.air) byBalloon += ev.data.to === ship.id ? 1 : 0;
         else { byGolem += ev.data.to === walker.id ? 1 : 0; golemAtShip += ev.data.to === ship.id ? 1 : 0; }
       }
@@ -1667,33 +1678,63 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
     if (byGolem < 4 || golemAtShip || byBalloon < 3) fail(`td: the Guard's blows: Golems ${byGolem} at the walker and ${golemAtShip} at the airship, the Balloon ${byBalloon} at the airship`);
     if (walker.hp >= walker.hpMax || ship.hp >= ship.hpMax) fail('td: the Guard\'s blows took nothing off');
     if (allies.some((a, k) => a.e.x !== stood[k][0] || a.e.y !== stood[k][1]) || NS.tdSpeed(w, g0) !== 0) fail('td: the Temple Guard moved');
+    // the walker gone: two more by the Golem, the weaker its mark, kept on though the other grows weaker
+    walker.hp = 0;
+    w.step([]);
+    const weak = w.entities.get(foe(w, td, 'sunwalker', 6)), strong = w.entities.get(foe(w, td, 'sunwalker', 12));
+    for (const [k, t] of [weak, strong].entries()) {
+      t.x = g0.x;
+      t.y = g0.y + 1 + k;
+      t.paralyzed = 60 * NS.TPS;
+    }
+    w.drainEvents();
+    const marks = (n) => { const got = []; for (let i = 0; i < n; i++) { w.step([]); got.push(...shots().filter((ev) => ev.data.id === golems[0].id).map((ev) => ev.data.to)); } return got; };
+    const chosen = marks(3 * NS.TPS);
+    weak.hp = strong.hp + 500;
+    const kept = marks(3 * NS.TPS);
+    if (!chosen.length || chosen.some((t) => t !== weak.id) || !kept.length || kept.some((t) => t !== weak.id)) fail(`td: a Golem's mark: the weaker ${weak.id}, then kept: ${JSON.stringify(chosen)} then ${JSON.stringify(kept)}`);
     w.step([{ t: 'tdHero', player: 1, act: 'call', tx: spot[0], ty: spot[1] }]);
-    if (!refused('not ready')) fail('td: the Temple Guard called again before the wait');
+    if (!refused('not ready')) fail('td: the Temple Guard called again while it is out');
     for (let i = 0; i < NS.TD_GUARD.stay[2] * NS.TPS && td.allies.size; i++) w.step([]);
     if (td.allies.size || allies.some((a) => w.entities.has(a.id))) fail('td: the Temple Guard stayed past its time');
+    if (hero.cooldown.call !== NS.TD_GUARD.wait[3] * NS.TPS) fail(`td: the wait after the Guard has gone is ${hero.cooldown.call} ticks`);
     // over the sky, away from the ground: never; beaten down, the Priest still calls it
     while (hero.cooldown.call > 0) w.step([]);
     const sky = [5, 5];
     w.step([{ t: 'tdHero', player: 1, act: 'call', tx: sky[0], ty: sky[1] }]);
     if (NS.tdGuardCells(w, sky[0], sky[1]).length || !refused('bad target')) fail('td: the Temple Guard called over the sky');
+    weak.hp = strong.hp = 0;
     hero.down = 30 * NS.TPS;
     w.step([{ t: 'tdHero', player: 1, act: 'call', tx: spot[0], ty: spot[1] }]);
     if (!td.allies.size) fail('td: the Temple Guard did not come while the Priest lay beaten down');
     // half the Balloon's fire passes through a Cloud Floater held under it, as half of any shot does
+    ship.hp = 0;
     const over = [...td.allies].find(([, a]) => a.air), floater = w.entities.get(foe(w, td, 'rainballoon', 20, air));
     floater.x = w.entities.get(over[0]).x;
     floater.y = w.entities.get(over[0]).y;
-    floater.paralyzed = 20 * NS.TPS;
+    floater.paralyzed = 30 * NS.TPS;
     w.drainEvents();
     let fired = 0;
     for (let i = 0; i < 10 * NS.TPS; i++) {
       w.step([]);
-      fired += w.drainEvents().filter((ev) => ev.what === 'td' && ev.data.kind === 'shot' && ev.data.to === floater.id).length;
+      fired += shots().filter((ev) => ev.data.to === floater.id).length;
     }
+    // (what is still in the air comes down; what is thrown meanwhile does not yet)
+    for (let i = 0; i < NS.TD_GUARD.flight; i++) { w.step([]); shots(); }
     const struck = Math.round((floater.hpMax - floater.hp) / NS.TD_GUARD.balloon.damage);
     if (fired < 8 || struck === 0 || struck === fired) fail(`td: of the Balloon's ${fired} shots at a Cloud Floater ${struck} struck it`);
   }
-  console.log(`tower defense: ${NS.TD_LEVELS.length} battles laid out, each won by a careful player with the High Priest (lives left: ${told.join(', ')}) and lost with nothing raised; a gun raised, ranked and sold, a Crab stealing, a bounty paid, an Ice Cannon chilling and sparing the guns, the Spells, the flagship's hold; the Priest holding a walker up and beaten down, rising again, his blessing and Rally, the Storm Hammer in his reach, his skills; the Temple Guard standing where called, its Golems at the walkers and its Balloon at an airship (half its fire through a Cloud Floater), gone in time, its wait`);
+  {
+    // the Temple Guard called where none of the horde comes: it waits, its time to fight unspent,
+    // then leaves unused
+    const w = NS.createTd(defs, 'mossbridge'), td = w.td, way = td.routes.find((r) => !r.air), spot = way.cells[Math.floor(way.cells.length / 2)];
+    w.step([{ t: 'tdHero', player: 1, act: 'call', tx: spot[0], ty: spot[1] }]);
+    for (let i = 0; i < (NS.TD_GUARD.stay[0] + 5) * NS.TPS; i++) w.step([]);
+    if (!td.allies.size || [...td.allies.values()].some((a) => a.fighting)) fail('td: the Temple Guard did not wait for the horde');
+    for (let i = 0; i < NS.TD_GUARD.idle * NS.TPS && td.allies.size; i++) w.step([]);
+    if (td.allies.size || td.hero.cooldown.call !== NS.TD_GUARD.wait[0] * NS.TPS) fail(`td: the Temple Guard waited past its time (${td.allies.size} left, wait ${td.hero.cooldown.call})`);
+  }
+  console.log(`tower defense: ${NS.TD_LEVELS.length} battles laid out, each won by a careful player with the High Priest (lives left: ${told.join(', ')}) and lost with nothing raised; a gun raised, ranked and sold, a Crab stealing, a bounty paid, an Ice Cannon chilling and sparing the guns, the Spells, the flagship's hold; the Priest holding a walker up and beaten down, rising again, his blessing and Rally, the Storm Hammer in his reach, his skills; the Temple Guard standing where called, its Golems at the walkers and its Balloon at an airship (half its fire through a Cloud Floater), its stones striking as they come down, the weakest its mark and kept, gone a fight's time after its first throws or unused after waiting, its wait after`);
 }
 
 // Every name of the engine that the client's code uses is one the engine has (one was not: the

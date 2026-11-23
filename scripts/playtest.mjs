@@ -1913,6 +1913,12 @@ SCENARIOS.combahee = async () => {
   const brief = await page.evaluate(() => document.getElementById('modal').innerText);
   if (!(await page.$('#modal a[href*="astro.com"]')) || /Tubman|Harriet|river/i.test(brief.replace(/Combahee River Raid/g, ''))) throw new Error(`the briefing: ${brief}`);
   if ((await page.$$('#modal ol.objectives > li')).length !== 4) throw new Error('the briefing has no list of objectives');
+  // the briefing's Controls: the raid's own guide (the disguise's key in it), and back to the briefing
+  await page.click('#modal button:has-text("Controls")');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'How to play Sky Messages' && /disguise/.test(document.getElementById('modal').textContent), null, { timeout: 5000 })
+    .catch(async () => { throw new Error(`the raid's Controls showed "${await page.evaluate(() => document.querySelector('#modal h2')?.textContent)}"`); });
+  await page.click('#modal button.main');
+  await page.waitForFunction(() => document.querySelector('#modal h2')?.textContent === 'Sky Messages', null, { timeout: 5000 });
   await page.click('#modal button.main');
   await page.waitForFunction(() => { const r = window.NS3D.G.world.raid; return r && document.getElementById('raid').components['ns-raid']?.built === r; }, null, { timeout: 30000 });
   const listed = () => page.evaluate(() => ({
@@ -2115,8 +2121,18 @@ SCENARIOS.cities = async () => {
     await page.waitForFunction((t) => document.querySelector('#modal h2')?.textContent.startsWith(t), title, { timeout: 30000 });
     const told = await page.evaluate(() => ({ sights: document.querySelectorAll('#modal ol.objectives li').length, how: document.querySelectorAll('#modal ul.how li').length }));
     if (told.sights !== sights || told.how < 3) throw new Error(`${city}'s briefing: ${JSON.stringify(told)}`);
+    // the briefing's Controls: the city's own guide, and back; How to play, strolling, the same
+    const guide = async (button, back) => {
+      await page.click(button);
+      await page.waitForFunction((t) => document.querySelector('#modal h2')?.textContent.startsWith(`How to stroll ${t}`) && /walk him/.test(document.getElementById('modal').textContent), title, { timeout: 5000 })
+        .catch(async () => { throw new Error(`${city}: ${button} showed "${await page.evaluate(() => document.querySelector('#modal h2')?.textContent)}"`); });
+      await page.click('#modal button.main');
+      await page.waitForFunction(back, title, { timeout: 5000 });
+    };
+    await guide('#modal button:has-text("Controls")', (t) => document.querySelector('#modal h2')?.textContent.startsWith(t));
     await page.click('#modal button.main');
     await page.waitForTimeout(1500);
+    await guide('#howto', () => !window.NS3D.G.paused);
     const drawn = await page.evaluate(() => {
       const { G, FOG } = window.NS3D, c = document.getElementById('city').components['ns-city'];
       return { city: G.city, meshes: c.group.children.length, folk: c.folk.length, movers: c.movers.length, markers: c.markers.length,
@@ -2320,7 +2336,7 @@ SCENARIOS.td = async () => {
   await page.click('#modal button.main');
   await page.waitForFunction(() => !window.NS3D.G.paused, null, { timeout: 5000 });
   const bar = await page.evaluate(() => document.querySelector('#tdBar .td-hero-bar')?.textContent.replace(/\s+/g, ' ').trim());
-  if (!/Rally \d+ s/.test(bar) || !/Hammer \d+ s/.test(bar) || !/Guard \d+ s/.test(bar)) throw new Error(`the bar does not count down his acts: ${bar}`);
+  if (!/Rally \d+ s/.test(bar) || !/Hammer \d+ s/.test(bar) || !/Guard (\d+ s|waits)/.test(bar)) throw new Error(`the bar does not count down his acts: ${bar}`);
   // the battle won: its stars kept and told as points for the Priest, the next battle open
   await page.evaluate(() => {
     const { G, submit, stepWorld } = window.NS3D, w = G.world, td = w.td;

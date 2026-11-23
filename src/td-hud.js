@@ -81,14 +81,24 @@ const SKILL = {
   hammer: { name: 'Storm Hammer', key: '4', say: (l) => `${NS.TD_HERO.hammer.damage[l]} to the horde within ${NS.TD_HERO.hammer.reach[l]} cells of a spot up to ${NS.TD_HERO.hammer.range} from him; again after ${NS.TD_HERO.hammer.cooldown[l]} s` },
   stand: { name: 'Stand Fast', say: (l) => `${NS.TD_HERO.stand.hp[l]} hit points, holds up ${NS.TD_HERO.stand.holds[l]} walker${NS.TD_HERO.stand.holds[l] > 1 ? 's' : ''}, mends ${NS.TD_HERO.stand.regen[l]} a second, rises after ${NS.TD_HERO.stand.down[l]} s` },
   call: { name: 'Temple Guard', key: '5', say: (l) => guardSay(l) },
-  muster: { name: 'Swift Summons', say: (l) => `the Temple Guard may be called again ${NS.TD_GUARD.wait[l]} s after it was called` },
+  muster: { name: 'Swift Summons', say: (l) => `the Temple Guard may be called again ${NS.TD_GUARD.wait[l]} s after it has gone` },
 };
+
+/** The Guard's button's state: out (fighting so many seconds more, or waiting for the horde), back
+ * so many seconds hence, or ready (its key). */
+function guardState(td, wait) {
+  if (td.allies.size) {
+    const fighting = [...td.allies.values()].filter((a) => a.fighting);
+    return fighting.length ? ` <small>${Math.ceil(Math.max(...fighting.map((a) => a.left)) / TPS)} s</small>` : ' <small>waits</small>';
+  }
+  return wait ? ` <small>${wait} s</small>` : ' <kbd>5</kbd>';
+}
 
 /** Who the Temple Guard sends at a level of its skill, and for how long. */
 function guardSay(l) {
   const g = NS.TD_GUARD, n = g.golems[l], b = g.balloons[l];
   const who = `${n === 1 ? 'a Golem' : `${n} Golems`}${b ? ` and ${b === 1 ? 'a Balloon' : `${b} Balloons`}` : ''}`;
-  return `calls ${who} to a spot for ${g.stay[l]} s, standing there and hurling stones at the walkers going by${b ? '; the Balloon drops fire on airships too' : ''}`;
+  return `calls ${who} to a spot, to stand there hurling stones at the walkers going by${b ? ' (the Balloon drops fire on airships too)' : ''} for ${g.stay[l]} s from the first throw; called early, they wait for the horde`;
 }
 
 export const towerName = (type) => defs.get(type)?.name ?? type;
@@ -199,19 +209,18 @@ const HOW = [
   'A Spell: click its button (or press its key), then where to cast it.',
 ];
 
-/** How to play a battle and its keys: the top bar's How to play and Controls, in a battle (in
- * place of the skirmish's, whose keys mean other things here). */
-export function guide(hud, back = null) {
-  const was = G.paused;
-  if (G.started) G.paused = true;
-  hud.modal(`<h2>How to play a battle</h2><ul class="how">${HOW.map((t) => `<li>${t}</li>`).join('')}</ul>
-    <h3 class="objectives-head">Keys</h3><ol style="list-style:none;padding:0">
-      <li><b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan</li>
-      <li><b>Spells:</b> <kbd>1</kbd> Thunder Strike · <kbd>2</kbd> Paralysis (in the battles that have them), then where to cast it</li>
-      <li><b>Your Priest:</b> click him or his portrait, then the ground · <kbd>3</kbd> Rally · <kbd>4</kbd> Storm Hammer, then a spot near him · <kbd>5</kbd> Temple Guard, then a spot on or beside a bridge or an island · <kbd>V</kbd> through his eyes</li>
-      <li><kbd>N</kbd> calls the next wave early · <kbd>Esc</kbd> cancels · <kbd>Space</kbd> pauses · <kbd>+</kbd> / <kbd>−</kbd> speed · <kbd>H</kbd> the Temple · <kbd>P</kbd> the Priest · <kbd>F</kbd> follow · <kbd>L</kbd> the log</li>
-    </ol>`,
-  [{ label: back ? 'Back' : 'Resume', main: true, act: () => { if (back) back(); else { hud.closeModal(); G.paused = was; G.clock.reset(); } } }]);
+/** How to play a battle and its keys (hud.js modeGuide: How to play and Controls in a battle). */
+export function guide() {
+  return {
+    title: 'How to play a battle',
+    how: HOW,
+    keys: [
+      '<b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>Q</kbd><kbd>E</kbd> turn',
+      '<b>Spells:</b> <kbd>1</kbd> Thunder Strike · <kbd>2</kbd> Paralysis (in the battles that have them), then where to cast it',
+      '<b>Your Priest:</b> click him or his portrait, then the ground · <kbd>3</kbd> Rally · <kbd>4</kbd> Storm Hammer, then a spot near him · <kbd>5</kbd> Temple Guard, then a spot on or beside a bridge or an island · <kbd>V</kbd> through his eyes',
+      '<kbd>N</kbd> calls the next wave early · <kbd>Esc</kbd> cancels · <kbd>Space</kbd> pauses · <kbd>+</kbd> / <kbd>−</kbd> speed · <kbd>H</kbd> the Temple · <kbd>P</kbd> the Priest · <kbd>F</kbd> follow · <kbd>L</kbd> the log',
+    ],
+  };
 }
 
 export function briefing(hud) {
@@ -282,7 +291,7 @@ export function panel(hud) {
   const heroHtml = `<span class="td-hero-bar"><button data-hero="pick" class="td-portrait${G.tdHero ? ' on' : ''}" title="Your High Priest: click to send him somewhere">✦<span class="td-life"><i style="width:${life}%"></i></span><small>${fallen ? `down · ${Math.ceil(hero.down / TPS)} s` : G.tdHero ? 'where to?' : hero.holding.size ? `holding ${hero.holding.size}` : 'Priest'}</small></button>
     <button data-hero="rally" class="spell${hero.rally > 0 ? ' on' : ''}" ${fallen || wait('rally') ? 'disabled' : ''} title="Rally: ${escapeHtml(SKILL.rally.say(k.rally))} (key 3)">✶ Rally${wait('rally') ? ` <small>${wait('rally')} s</small>` : ' <kbd>3</kbd>'}</button>
     <button data-hero="hammer" class="spell${G.tdCast === 'hammer' ? ' on' : ''}" ${fallen || wait('hammer') ? 'disabled' : ''} title="Storm Hammer: ${escapeHtml(SKILL.hammer.say(k.hammer))} (key 4)">⚒ Hammer${wait('hammer') ? ` <small>${wait('hammer')} s</small>` : ' <kbd>4</kbd>'}</button>
-    <button data-hero="call" class="spell${G.tdCast === 'call' || td.allies.size ? ' on' : ''}" ${wait('call') ? 'disabled' : ''} title="Temple Guard: ${escapeHtml(SKILL.call.say(k.call))}; again after ${NS.TD_GUARD.wait[k.muster]} s (key 5)">⚑ Guard${wait('call') ? ` <small>${wait('call')} s</small>` : ' <kbd>5</kbd>'}</button></span>`;
+    <button data-hero="call" class="spell${G.tdCast === 'call' || td.allies.size ? ' on' : ''}" ${wait('call') || td.allies.size ? 'disabled' : ''} title="Temple Guard: ${escapeHtml(SKILL.call.say(k.call))}; again ${NS.TD_GUARD.wait[k.muster]} s after it has gone (key 5)">⚑ Guard${guardState(td, wait('call'))}</button></span>`;
   const html = `<span class="td-lives" title="Your Temple's lives: what the horde takes when it reaches it">♥ <b>${td.lives}</b>/${td.livesMax}</span>
     <span class="td-wave" title="Waves begun, of the battle's">Wave <b>${td.wave}</b>/${n}</span>${call}<span class="td-spells">${spells}</span>${heroHtml}`;
   // (patched, not drawn anew: a button pressed as the bar changes must still be there at its release)
@@ -315,7 +324,7 @@ export function pickHero(hud, on = true) {
  * click its spot. The Guard comes even while he lies beaten down. */
 export function heroAct(hud, act) {
   const td = G.world?.td, hero = td?.hero;
-  if (!hero || td.over || (hero.down > 0 && act !== 'call') || hero.cooldown[act] > 0) return;
+  if (!hero || td.over || (hero.down > 0 && act !== 'call') || hero.cooldown[act] > 0 || (act === 'call' && td.allies.size)) return;
   closeMenu();
   if (act === 'rally') {
     submit({ t: 'tdHero', act: 'rally' });
@@ -634,15 +643,19 @@ export function hear(game, ev) {
         if (e) fx?.puff(cellPos(e.x, e.y, ally.air ? AIR_UP : 0.6), '#fff3c4', ally.air ? 2.2 : 1.4, 0.8);
       }
       fx?.wave(cellPos(d.x, d.y, 0.3), 2.5, '#ffd04a');
-      hud.toast(`The Temple Guard answers: ${golems === 1 ? 'a Golem' : `${golems} Golems`}${balloons ? ' and a Balloon' : ''} for ${NS.TD_GUARD.stay[td.hero.skills.call]} s`, 'good');
+      hud.toast(`The Temple Guard answers: ${golems === 1 ? 'a Golem' : `${golems} Golems`}${balloons ? ' and a Balloon' : ''}, to fight ${NS.TD_GUARD.stay[td.hero.skills.call]} s once the horde comes`, 'good');
       break;
     }
     case 'shot': {
-      const from = at(d.id), to = at(d.to), mark = G.world.entities.get(d.to);
+      const from = at(d.id), to = at(d.to), mark = G.world.entities.get(d.to), up = mark?.aloft ? AIR_UP : 0.6;
       if (!from || !to) break;
-      from.setY(from.y + (d.air ? AIR_UP - 0.4 : 1.4));
-      to.setY(to.y + (mark?.aloft ? AIR_UP : 0.5));
-      fx?.lob(from, to, d.air ? '#ff7a2e' : '#7d6a55', d.air ? 0.2 : 0.17, d.air);
+      from.setY(from.y + (d.air ? AIR_UP - 0.4 : 1.6));
+      to.setY(to.y + up);
+      // in the air as long as the rules have it, kept on its mark as that one walks on
+      const follow = () => { const p = at(d.to); if (p) p.setY(p.y + up); return p; };
+      fx?.lob(from, to, d.air ? '#ff7a2e' : '#e3bd6a', d.air ? 0.34 : 0.3, d.air, NS.TD_GUARD.flight / TPS, follow);
+      // the thrower turns to its mark and heaves (src/components/ns-units.js)
+      game.units()?.byId.get(d.id)?.components['ns-unit']?.heave(mark);
       break;
     }
     case 'dismissed': fx?.puff(cellPos(d.x, d.y, d.air ? AIR_UP : 0.6), '#fff3c4', d.air ? 2 : 1.3, 0.7); break;

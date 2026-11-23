@@ -137,24 +137,34 @@ export const TD_HERO = {
  * The Temple Guard the Priest calls to a spot: Golems on the ground nearest it, standing there and
  * hurling stones at the walkers going by; from Temple Guard's second level a Balloon over them too,
  * dropping fire on the horde on the ground and in the air (half of it passing through a Cloud
- * Floater, as half of any shot does: rules/combat.ts). None of them moves; they stay so long
- * (by Temple Guard's level), then are gone, and the Guard comes again only once the wait (by Swift
- * Summons's level) is over.
+ * Floater, as half of any shot does: rules/combat.ts). Each throws at one of the horde while it
+ * stays in reach, else at the weakest in reach. None of them moves. Called before the horde comes,
+ * they wait for it (`idle` seconds at most); from a guard's first throw it fights so long (`stay`,
+ * by Temple Guard's level), then is gone. The Guard comes again only once all of it has gone and
+ * the wait after (by Swift Summons's level) is over.
  */
 export const TD_GUARD = {
   golems: [1, 2, 2, 3],
   balloons: [0, 0, 1, 1],
-  stay: [12, 13, 14, 15],
-  wait: [40, 34, 28, 22],
-  golem: { type: 'sunwalker', damage: 12, every: 1, reach: 3.5 },
-  balloon: { type: 'sunballoon', damage: 20, every: 0.8, reach: 5 },
+  stay: [20, 22, 24, 26],
+  idle: 90,
+  wait: [25, 20, 15, 10],
+  /** Ticks a stone or a ball of fire is in the air before it strikes (as the client draws it). */
+  flight: 4,
+  golem: { type: 'sunwalker', damage: 30, every: 1, reach: 4 },
+  balloon: { type: 'sunballoon', damage: 40, every: 0.8, reach: 5 },
 } as const;
 
-/** One of the Temple Guard: in the air or not, its ticks left, and the ticks to its next blow. */
+/** One of the Temple Guard: in the air or not; its ticks left (to fight once it has thrown, before
+ * that to wait for the horde); the ticks to its next throw; whom it throws at; and its stone or fire
+ * in the air (at whom, and the tick it strikes). */
 export interface TdAlly {
   readonly air: boolean;
   left: number;
+  fighting: boolean;
   next: number;
+  mark: number;
+  flying: { readonly to: number; readonly at: number; } | null;
 }
 
 /** The High Priest's pace in a battle, cells a second: a hero's, quicker than a Priest's own. */
@@ -582,21 +592,40 @@ function tickHero(world: World): void {
   }
 }
 
-/** The Temple Guard's tick: each one's blow at the nearest of the horde in its reach (a Golem's at
- * the walkers only, a Balloon's at all), struck harder about the Priest; gone when its time is up. */
+/** The Temple Guard's tick: each one's throws (at its mark while that one stays in its reach, else
+ * at the weakest of the horde in its reach: a Golem at the walkers only, a Balloon at all), striking
+ * where they come down; its time to fight from its first throw, gone when it is up (or when no one
+ * came by in time). With the Guard all gone, the wait before it may be called again. */
 function tickGuard(world: World): void {
-  const td = world.td!;
+  const td = world.td!, hero = td.hero;
+  let gone = false;
 
   for (const [id, ally] of td.allies) {
     const a = world.entities.get(id);
 
     if (a?.kind !== 'transport') {
       td.allies.delete(id);
+      gone = true;
       continue;
+    }
+
+    const arm = ally.air ? TD_GUARD.balloon : TD_GUARD.golem;
+
+    // its stone or fire comes down on its mark, struck harder about the Priest (as with the guns'
+    // shots, half of what is thrown at a Cloud Floater passes through it)
+    if (ally.flying && world.tick >= ally.flying.at) {
+      const t = world.entities.get(ally.flying.to);
+
+      if (t?.kind === 'transport' && t.hp > 0 && (t.type !== CLOUD_FLOATER || world.rng.int(2) !== 0)) {
+        t.hp = Math.max(0, +(t.hp - arm.damage * tdBlessing(world, a.x + 0.5, a.y + 0.5)).toFixed(4));
+      }
+
+      ally.flying = null;
     }
 
     if (--ally.left <= 0) {
       td.allies.delete(id);
+      gone = true;
       removeTransport(world, a);
       world.emit({ what: 'td', who: TD_ME, data: { kind: 'dismissed', id, x: a.x, y: a.y, air: ally.air } });
       continue;
@@ -607,33 +636,35 @@ function tickGuard(world: World): void {
       continue;
     }
 
-    const arm = ally.air ? TD_GUARD.balloon : TD_GUARD.golem;
-    let target: Transport | null = null, nearest = Infinity;
+    // its mark while that one stays in its reach; else the weakest in its reach
+    const within = (t: Transport): boolean => t.hp > 0 && (ally.air || !TD_FOES[td.enemies.get(t.id)!.type]?.air) && Math.hypot(t.x - a.x, t.y - a.y) <= arm.reach;
+    const marked = td.enemies.has(ally.mark) ? world.entities.get(ally.mark) : undefined;
+    let target: Transport | null = marked?.kind === 'transport' && within(marked) ? marked : null;
 
-    for (const [eid, enemy] of td.enemies) {
+    for (const [eid] of target ? [] : td.enemies) {
       const t = world.entities.get(eid);
 
-      if (t?.kind !== 'transport' || t.hp <= 0 || (!ally.air && TD_FOES[enemy.type]?.air)) {
-        continue;
-      }
-
-      const d = Math.hypot(t.x - a.x, t.y - a.y);
-
-      if (d <= arm.reach && d < nearest) {
-        nearest = d;
+      if (t?.kind === 'transport' && within(t) && (!target || t.hp < target.hp)) {
         target = t;
       }
     }
 
     if (target) {
-      // (as with the guns' shots, half of those at a Cloud Floater pass through it)
-      if (target.type !== CLOUD_FLOATER || world.rng.int(2) !== 0) {
-        target.hp = Math.max(0, +(target.hp - arm.damage * tdBlessing(world, a.x + 0.5, a.y + 0.5)).toFixed(4));
+      // its time to fight runs from its first throw
+      if (!ally.fighting) {
+        ally.fighting = true;
+        ally.left = TD_GUARD.stay[hero.skills.call]! * TPS;
       }
 
+      ally.mark = target.id;
+      ally.flying = { to: target.id, at: world.tick + TD_GUARD.flight };
       ally.next = Math.round(arm.every * TPS);
       world.emit({ what: 'td', who: TD_ME, data: { kind: 'shot', id, to: target.id, air: ally.air } });
     }
+  }
+
+  if (gone && !td.allies.size) {
+    hero.cooldown.call = TD_GUARD.wait[hero.skills.muster]! * TPS;
   }
 }
 
@@ -698,7 +729,8 @@ function callGuard(world: World, tx: number | undefined, ty: number | undefined)
     return 'bad coordinates';
   }
 
-  if (hero.cooldown.call > 0) {
+  // (not while it is out, nor before the wait after it is over)
+  if (hero.cooldown.call > 0 || td.allies.size) {
     return 'not ready';
   }
 
@@ -708,20 +740,19 @@ function callGuard(world: World, tx: number | undefined, ty: number | undefined)
     return 'bad target';
   }
 
-  hero.cooldown.call = TD_GUARD.wait[k.muster]! * TPS;
-  const stay = TD_GUARD.stay[k.call]! * TPS, golems = cells.length;
+  const idle = TD_GUARD.idle * TPS, golems = cells.length;
 
   for (let n = 0; n < golems; n++) {
     const [x, y] = cells[n]!;
     const t = world.spawnTransport(TD_GUARD.golem.type, TD_ME, x, y);
     // their first blows a little apart
-    td.allies.set(t.id, { air: false, left: stay, next: n * 3 });
+    td.allies.set(t.id, { air: false, left: idle, fighting: false, next: n * 3, mark: 0, flying: null });
   }
 
   for (let n = 0; n < TD_GUARD.balloons[k.call]!; n++) {
     const t = world.spawnTransport(TD_GUARD.balloon.type, TD_ME, cx, cy);
     t.aloft = true;
-    td.allies.set(t.id, { air: true, left: stay, next: 0 });
+    td.allies.set(t.id, { air: true, left: idle, fighting: false, next: 0, mark: 0, flying: null });
   }
 
   const p = world.entities.get(hero.id);

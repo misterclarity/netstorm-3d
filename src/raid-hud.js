@@ -49,6 +49,23 @@ export function wireMenu(box, match) {
 
 /* --------------------------------------- briefing ----------------------------------------- */
 
+/** How to play the raid's battle and its keys (hud.js modeGuide: How to play and Controls in it). */
+export function guide() {
+  const m = missionOf(G.raid);
+  return {
+    title: `How to play ${m.title}`,
+    how: m.how,
+    keys: [
+      '<b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>Q</kbd><kbd>E</kbd> turn',
+      '<b>Select:</b> click the Wayfinder or a ship, then the ground or a landing to send them there; a ship’s card holds her orders · <kbd>Shift</kbd>-click adds or takes away',
+      '<kbd>C</kbd> puts on the Wayfinder’s disguise',
+      ...(m.id === 'raid' ? ['<b>Bridges:</b> click a piece (or <kbd>1</kbd>–<kbd>6</kbd>), then the map; <kbd>R</kbd> turns it'] : []),
+      '<b>Through his eyes:</b> <kbd>V</kbd> (or <b>Eyes</b> by the minimap), and again back above · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or the arrows walk him · the mouse looks · click or <kbd>E</kbd> walks him to where the crosshair is',
+      '<b>Cancel:</b> right-click or <kbd>Esc</kbd> · <b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> · <kbd>P</kbd> the Wayfinder · <kbd>F</kbd> follow · <kbd>L</kbd> the log',
+    ],
+  };
+}
+
 export function briefing(hud) {
   const m = missionOf(G.raid), n = RAID_MISSIONS.indexOf(m) + 1;
   hud.modal(`<h2>${escapeHtml(m.title)}</h2><p class="when">${escapeHtml(CAMPAIGN.title)} · battle ${n} of ${RAID_MISSIONS.length} · ${escapeHtml(m.when)}</p>

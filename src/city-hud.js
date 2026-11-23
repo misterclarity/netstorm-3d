@@ -39,6 +39,20 @@ const HOW = [
 
 const cityOf = (id) => CITIES.find((c) => c.id === id) ?? CITIES[0];
 
+/** How to stroll a city and its keys (hud.js modeGuide: How to play and Controls in a city). */
+export function guide() {
+  return {
+    title: `How to stroll ${G.world?.city?.title ?? 'a sky city'}`,
+    how: HOW,
+    keys: [
+      '<b>Camera:</b> drag to orbit · right-drag or Shift-drag to pan · scroll or pinch to zoom · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>Q</kbd><kbd>E</kbd> turn (in a city of several levels, a level down or up)',
+      '<b>Your Priest:</b> click him, then the ground to walk him there · <kbd>P</kbd> finds him · <kbd>F</kbd> follows him · click or drag on the minimap',
+      '<b>Through his eyes:</b> <kbd>V</kbd> (or <b>Eyes</b> by the minimap), and again back above · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or the arrows walk him · the mouse looks (click the view to lock the pointer to it, <kbd>Esc</kbd> frees it) · click or <kbd>E</kbd> walks him to where the crosshair is',
+      '<b>Pause:</b> <kbd>Space</kbd> · <b>Speed:</b> <kbd>+</kbd> / <kbd>−</kbd> (night comes sooner) · <kbd>T</kbd> the city on a table, as a headset shows it',
+    ],
+  };
+}
+
 /** The main menu's section. */
 export function menuSection() {
   const rows = CITIES.map((c) => `<button class="main" data-city="${c.id}" title="${escapeHtml(c.blurb)}">${escapeHtml(c.title)}</button>`).join('');
