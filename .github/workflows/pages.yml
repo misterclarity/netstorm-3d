@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # the code's own checks, beside the build and its playtest (they need no browser): the two jobs
-  # take as long as the longer of them, not both
-  checks:
+  # the code's own checks and the page built, beside the playtest's three shares (each on a machine
+  # of its own): the run takes as long as the longest of the four jobs, not all of them
+  build:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -38,10 +38,20 @@ jobs:
       - run: npm run check
       # the AI worker's cache is really in its bundle, and leaves the computer's moves as they were
       - run: npm run ai-check
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
+        with:
+          path: dist
 
-  build:
+  playtest:
     # pinned: Playwright installs Chromium's system libraries for the Ubuntu releases it knows
     runs-on: ubuntu-24.04
+    strategy:
+      # every share plays to its end, so that one failure does not hide another
+      fail-fast: false
+      matrix:
+        share: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -51,19 +61,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # the same page as the build job's (a second's work from the same commit)
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
       # plays the built page in headless Chromium: the opening, a staged endgame, orders and
       # selection with mouse and keys, a skirmish, a battle the computer plays on both sides, the
-      # tabletop; several scenarios at a time (scripts/playtest.mjs: PLAYTEST_JOBS)
-      - run: npx playwright install --with-deps chromium
+      # tabletop; a third of the scenarios here, several at a time (scripts/playtest.mjs:
+      # PLAYTEST_SHARD, PLAYTEST_JOBS)
       - run: npm run playtest
-      - uses: actions/upload-pages-artifact@v5
-        if: github.event_name != 'pull_request'
-        with:
-          path: dist
+        env:
+          PLAYTEST_SHARD: ${{ matrix.share }}/3
 
   deploy:
-    needs: [checks, build]
+    needs: [build, playtest]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     environment:

@@ -2384,16 +2384,44 @@ SCENARIOS.td = async () => {
 };
 
 /**
- * Every scenario, each in a process (and a browser) of its own, `jobs` at a time and the longest
- * first: what each prints comes whole when it is done. One that fails while others run is played
+ * How long each scenario took alone on CI's machine (seconds, November 2026): the longest are
+ * started first when several play at once, and the shares below are made even by these. One not
+ * listed counts as 20.
+ */
+const SECONDS = {
+  tiers: 74, fog: 58, dungeon: 54, ritual: 53, cities: 53, combahee: 47, td: 35, night: 33, soak: 32,
+  endgame: 26, airship: 25, group: 25, models: 24, dragon: 21, spells: 21, carrier: 20, gather: 19,
+  skirmish: 18, autocollect: 16, firstperson: 16, levels: 15, tabletop: 12, opening: 11, captive: 11,
+  refuse: 10, gallery: 0,
+};
+
+/**
+ * PLAYTEST_SHARD=k/n: the k-th of n shares of the scenarios, the longest first (CI plays each share
+ * on a machine of its own). Each scenario goes to the share with the least to play so far, the same
+ * wherever it is worked out.
+ */
+const SHARE = (process.env.PLAYTEST_SHARD || '1/1').split('/').map(Number);
+function share() {
+  const [k, n] = SHARE;
+  if (!(n >= 1 && k >= 1 && k <= n)) throw new Error(`PLAYTEST_SHARD=${process.env.PLAYTEST_SHARD} is not k/n with 1 ≤ k ≤ n`);
+  const seconds = (name) => SECONDS[name] ?? 20, load = Array(n).fill(0), mine = [];
+  for (const name of Object.keys(SCENARIOS).sort((a, b) => seconds(b) - seconds(a))) {
+    const least = load.indexOf(Math.min(...load));
+    load[least] += seconds(name);
+    if (least === k - 1) mine.push(name);
+  }
+  return mine;
+}
+
+/**
+ * The scenarios named, each in a process (and a browser) of its own, `jobs` at a time in the order
+ * given: what each prints comes whole when it is done. One that fails while others run is played
  * once more alone, and said so: software rendering shares the processor, and a scenario that waits
  * for something on the page may wait too long when it is busy, which says nothing about the game.
  * The failures are counted after that.
  */
-async function runAll(jobs) {
-  const LONGEST = ['tiers', 'ritual', 'combahee', 'dungeon', 'cities', 'td', 'soak', 'fog', 'spells', 'models', 'endgame'];
-  const rank = (name) => (LONGEST.includes(name) ? LONGEST.indexOf(name) : LONGEST.length);
-  const queue = Object.keys(SCENARIOS).sort((a, b) => rank(a) - rank(b));
+async function runAll(jobs, names) {
+  const queue = [...names];
   const play = (name) => new Promise((done) => {
     const child = spawn(process.execPath, [process.argv[1], name], { env: process.env });
     let out = '';
@@ -2416,18 +2444,19 @@ async function runAll(jobs) {
     process.stdout.write(code ? out : out.replace(/^✓ (\S+)/m, '✓ $1, played alone after failing with others running,'));
     if (code) lost++;
   }
-  console.log(`${Object.keys(SCENARIOS).length} scenarios, ${jobs} at a time, in ${((Date.now() - started) / 1000).toFixed(0)} s${again.length ? `; ${again.length} played again alone` : ''}`);
+  console.log(`${names.length} scenarios${SHARE[1] > 1 ? ` (share ${SHARE.join(' of ')})` : ''}, ${jobs} at a time, in ${((Date.now() - started) / 1000).toFixed(0)} s${again.length ? `; ${again.length} played again alone` : ''}`);
   return lost;
 }
 
 // PLAYTEST_JOBS=n plays n scenarios at once (by default one fewer than the processors, at most 3);
-// one named plays alone
+// one named plays alone, whatever the share
 const JOBS = Math.max(1, Number(process.env.PLAYTEST_JOBS) || Math.min(3, availableParallelism() - 1));
+const mine = share();
 if (!only && JOBS > 1) {
-  failed = await runAll(JOBS);
+  failed = await runAll(JOBS, mine);
 } else {
   for (const [name, run] of Object.entries(SCENARIOS)) {
-    if (only && name !== only) continue;
+    if (only ? name !== only : !mine.includes(name)) continue;
     const started = Date.now();
     try {
       const errors = await run();
@@ -2441,6 +2470,7 @@ if (!only && JOBS > 1) {
     for (const page of pages.splice(0)) await page.close();
   }
 }
-await browser?.close();
+// the browser is not closed: the headless shell Playwright installs took 15 to 30 s to close itself
+// on a busy machine, and Playwright kills it (and removes its profile) anyway as this process exits
 server.close();
 process.exit(failed ? 1 : 0);
