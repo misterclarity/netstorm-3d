@@ -78,12 +78,13 @@ AFRAME.registerSystem('ns-sound', {
     if (key === 'music' && on && this.track?.paused) this.track.play().catch(() => {});
   },
 
-  load(name) {
+  /** A sound's buffer, fetched (at `priority`: 'low' for what is only got ready) and decoded once. */
+  load(name, priority = 'auto') {
     let found = this.buffers.get(name);
     if (!found) {
       const file = SOUNDS.files[name], ctx = this.audio();
       found = file && ctx
-        ? fetch(SOUNDS.base + file[0]).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).catch(() => undefined)
+        ? fetch(SOUNDS.base + file[0], { priority }).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).catch(() => undefined)
         : Promise.resolve(undefined);
       this.buffers.set(name, found);
     }
@@ -244,13 +245,32 @@ AFRAME.registerSystem('ns-sound', {
     this.play(SOUNDS.units[type]?.[what], at);
   },
 
-  /** The wind, with a far-off cry now and then; every sound loaded meanwhile. */
+  /**
+   * Run `fn` once the page may make a sound (browsers start audio only after the player has
+   * clicked or pressed a key), at once if it may already: what can only be heard then waits for
+   * it, and leaves the page's first moments to what it needs to show.
+   */
+  whenAudible(fn) {
+    const ctx = this.audio();
+    if (!ctx || ctx.state === 'running') { fn(); return; }
+    this.waiting ??= [];
+    this.waiting.push(fn);
+    if (this.waiting.length > 1) return;
+    const go = () => {
+      for (const kind of ['pointerdown', 'keydown']) window.removeEventListener(kind, go, { capture: true });
+      for (const f of this.waiting.splice(0)) f();
+    };
+    for (const kind of ['pointerdown', 'keydown']) window.addEventListener(kind, go, { capture: true });
+  },
+
+  /** The wind, with a far-off cry now and then; every sound got ready meanwhile, once it can be
+   * heard, after what the page needs (a sound wanted before then is fetched as it is played). */
   ambience(on) {
     clearTimeout(this.farOff);
     this.wind?.();
     this.wind = null;
     if (!on) return;
-    for (const name of Object.keys(SOUNDS.files)) this.load(name);
+    this.whenAudible(() => { for (const name of Object.keys(SOUNDS.files)) this.load(name, 'low'); });
     this.wind = this.loop(WIND);
     const later = () => {
       this.farOff = setTimeout(() => { this.play(FAR_OFF[Math.floor(Math.random() * FAR_OFF.length)]); later(); }, 20000 + Math.random() * 40000);
@@ -269,21 +289,22 @@ AFRAME.registerSystem('ns-sound', {
     this.track = audio;
     this.trackName = name;
     audio.addEventListener('ended', () => { if (this.track === audio) ended?.(); });
-    // fetched whole, so that it plays from a same-origin blob wherever the page is served from
-    this.trackUrl(name).then((url) => {
+    // fetched whole, so that it plays from a same-origin blob wherever the page is served from;
+    // and only once it can be heard (a track is a megabyte or two)
+    this.whenAudible(() => this.trackUrl(name).then((url) => {
       if (this.track !== audio || !url) return;
       audio.src = url;
       ctx.createMediaElementSource(audio).connect(this.musicGain);
       const start = () => { if (this.track === audio && this.settings.music) audio.play().catch(() => {}); };
       audio.play().catch(() => window.addEventListener('pointerdown', start, { once: true, capture: true }));
       if (!this.settings.music) audio.pause();
-    });
+    }));
   },
 
   trackUrl(name) {
     let url = this.tracks.get(name);
     if (!url) {
-      url = fetch(`${SOUNDS.base}music/${name}.mp3`).then((r) => r.blob())
+      url = fetch(`${SOUNDS.base}music/${name}.mp3`, { priority: 'low' }).then((r) => r.blob())
         .then((b) => URL.createObjectURL(new Blob([b], { type: 'audio/mpeg' }))).catch(() => null);
       this.tracks.set(name, url);
     }

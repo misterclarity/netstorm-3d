@@ -16,8 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    # pinned: Playwright installs Chromium's system libraries for the Ubuntu releases it knows
+  # the code's own checks, beside the build and its playtest (they need no browser): the two jobs
+  # take as long as the longer of them, not both
+  checks:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -37,9 +38,23 @@ jobs:
       - run: npm run check
       # the AI worker's cache is really in its bundle, and leaves the computer's moves as they were
       - run: npm run ai-check
+
+  build:
+    # pinned: Playwright installs Chromium's system libraries for the Ubuntu releases it knows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm run build
       # plays the built page in headless Chromium: the opening, a staged endgame, orders and
-      # selection with mouse and keys, a skirmish, a battle the computer plays on both sides, the tabletop
+      # selection with mouse and keys, a skirmish, a battle the computer plays on both sides, the
+      # tabletop; several scenarios at a time (scripts/playtest.mjs: PLAYTEST_JOBS)
       - run: npx playwright install --with-deps chromium
       - run: npm run playtest
       - uses: actions/upload-pages-artifact@v5
@@ -48,7 +63,7 @@ jobs:
           path: dist
 
   deploy:
-    needs: build
+    needs: [checks, build]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     environment:

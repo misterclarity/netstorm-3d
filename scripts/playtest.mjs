@@ -12,6 +12,8 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { availableParallelism } from 'node:os';
 
 const PUBLIC = resolve('vendor/netstorm-web/packages/client/public');
 const AFRAME = resolve('node_modules/aframe/dist/aframe-v1.8.0.min.js');
@@ -30,16 +32,18 @@ const server = createServer((req, res) => {
 }).listen(0);
 const url = `http://localhost:${server.address().port}/`;
 
-// CHROMIUM=/path/to/chrome plays in that browser instead of the one Playwright installed
-const browser = await chromium.launch({
+// CHROMIUM=/path/to/chrome plays in that browser instead of the one Playwright installed; launched
+// when a scenario first opens a page (the runner of several at once, below, needs none of its own)
+let browser = null;
+const launchBrowser = async () => (browser ??= await chromium.launch({
   executablePath: process.env.CHROMIUM || undefined,
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
-});
+}));
 
 const pages = [];
 
 async function open(viewport = { width: 1000, height: 640 }) {
-  const page = await browser.newPage({ viewport });
+  const page = await (await launchBrowser()).newPage({ viewport });
   pages.push(page);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -2379,20 +2383,64 @@ SCENARIOS.td = async () => {
   return errors;
 };
 
-for (const [name, run] of Object.entries(SCENARIOS)) {
-  if (only && name !== only) continue;
-  const started = Date.now();
-  try {
-    const errors = await run();
-    if (errors.length) throw new Error(`page errors:\n  ${[...new Set(errors)].join('\n  ')}`);
-    console.log(`✓ ${name} (${((Date.now() - started) / 1000).toFixed(0)} s)`);
-  } catch (e) {
-    failed++;
-    console.log(`✗ ${name}: ${e.message}`);
+/**
+ * Every scenario, each in a process (and a browser) of its own, `jobs` at a time and the longest
+ * first: what each prints comes whole when it is done. One that fails while others run is played
+ * once more alone, and said so: software rendering shares the processor, and a scenario that waits
+ * for something on the page may wait too long when it is busy, which says nothing about the game.
+ * The failures are counted after that.
+ */
+async function runAll(jobs) {
+  const LONGEST = ['tiers', 'ritual', 'combahee', 'dungeon', 'cities', 'td', 'soak', 'fog', 'spells', 'models', 'endgame'];
+  const rank = (name) => (LONGEST.includes(name) ? LONGEST.indexOf(name) : LONGEST.length);
+  const queue = Object.keys(SCENARIOS).sort((a, b) => rank(a) - rank(b));
+  const play = (name) => new Promise((done) => {
+    const child = spawn(process.execPath, [process.argv[1], name], { env: process.env });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    child.on('close', (code) => done({ code, out: out || `✗ ${name}: no word from it (exit ${code})\n` }));
+  });
+  const started = Date.now(), again = [];
+  const worker = async () => {
+    for (let name = queue.shift(); name; name = queue.shift()) {
+      const { code, out } = await play(name);
+      process.stdout.write(code ? out.replace(/^✗ /m, '… ') : out);
+      if (code) again.push(name);
+    }
+  };
+  await Promise.all(Array.from({ length: jobs }, worker));
+  let lost = 0;
+  for (const name of again) {
+    const { code, out } = await play(name);
+    process.stdout.write(code ? out : out.replace(/^✓ (\S+)/m, '✓ $1, played alone after failing with others running,'));
+    if (code) lost++;
   }
-  // one page at a time: software rendering is slow enough as it is
-  for (const page of pages.splice(0)) await page.close();
+  console.log(`${Object.keys(SCENARIOS).length} scenarios, ${jobs} at a time, in ${((Date.now() - started) / 1000).toFixed(0)} s${again.length ? `; ${again.length} played again alone` : ''}`);
+  return lost;
 }
-await browser.close();
+
+// PLAYTEST_JOBS=n plays n scenarios at once (by default one fewer than the processors, at most 3);
+// one named plays alone
+const JOBS = Math.max(1, Number(process.env.PLAYTEST_JOBS) || Math.min(3, availableParallelism() - 1));
+if (!only && JOBS > 1) {
+  failed = await runAll(JOBS);
+} else {
+  for (const [name, run] of Object.entries(SCENARIOS)) {
+    if (only && name !== only) continue;
+    const started = Date.now();
+    try {
+      const errors = await run();
+      if (errors.length) throw new Error(`page errors:\n  ${[...new Set(errors)].join('\n  ')}`);
+      console.log(`✓ ${name} (${((Date.now() - started) / 1000).toFixed(0)} s)`);
+    } catch (e) {
+      failed++;
+      console.log(`✗ ${name}: ${e.message}`);
+    }
+    // one page at a time: software rendering is slow enough as it is
+    for (const page of pages.splice(0)) await page.close();
+  }
+}
+await browser?.close();
 server.close();
 process.exit(failed ? 1 : 0);

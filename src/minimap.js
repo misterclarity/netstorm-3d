@@ -76,29 +76,53 @@ export class Minimap {
   }
 
   /** The islands and bridges, redrawn when the terrain changes. */
+  /**
+   * The ground under the dots: a pixel a cell, scaled up crisp. The islands' bounds are found again
+   * only when the ground or the world changes; the fog changing (as often as the Priest or a Golem
+   * moves) only paints the pixels anew, from colours worked out once a repaint, not a string a cell.
+   */
   drawBase() {
     const v = G.view;
-    let x0 = WORLD, y0 = WORLD, x1 = 0, y1 = 0;
-    for (let y = 0; y < WORLD; y++) for (let x = 0; x < WORLD; x++) {
-      if (v.terrain[y * WORLD + x]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    if (this.boundsRev !== v.terrainRevision || this.boundsWorld !== G.world) {
+      this.boundsRev = v.terrainRevision;
+      this.boundsWorld = G.world;
+      let x0 = WORLD, y0 = WORLD, x1 = 0, y1 = 0;
+      for (let y = 0; y < WORLD; y++) for (let x = 0; x < WORLD; x++) {
+        if (v.terrain[y * WORLD + x]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      }
+      const span = Math.max(x1 - x0, y1 - y0) + 12;
+      this.x0 = Math.floor((x0 + x1) / 2 - span / 2);
+      this.y0 = Math.floor((y0 + y1) / 2 - span / 2);
+      this.span = span;
     }
-    const span = Math.max(x1 - x0, y1 - y0) + 12;
-    this.x0 = Math.floor((x0 + x1) / 2 - span / 2);
-    this.y0 = Math.floor((y0 + y1) / 2 - span / 2);
-    this.span = span;
-    const s = SIZE / span, g = this.base.getContext('2d');
-    g.clearRect(0, 0, SIZE, SIZE);
-    for (let y = this.y0; y < this.y0 + span; y++) {
-      for (let x = this.x0; x < this.x0 + span; x++) {
-        if (x < 0 || y < 0 || x >= WORLD || y >= WORLD) continue;
-        const i = y * WORLD + x, t = v.terrain[i];
+    const span = this.span;
+    if (this.cells?.width !== span) {
+      this.cells = document.createElement('canvas');
+      this.cells.width = this.cells.height = span;
+      this.pixels = this.cells.getContext('2d').createImageData(span, span);
+    }
+    const px = new Uint32Array(this.pixels.data.buffer), owners = new Map();
+    const ownerColor = (o) => { let c = owners.get(o); if (c === undefined) owners.set(o, (c = rgba(FURY_COLOR[playerTheme(o)], 0.55))); return c; };
+    px.fill(0);
+    for (let y = 0; y < span; y++) {
+      const cy = this.y0 + y;
+      if (cy < 0 || cy >= WORLD) continue;
+      for (let x = 0; x < span; x++) {
+        const cx = this.x0 + x;
+        if (cx < 0 || cx >= WORLD) continue;
+        const i = cy * WORLD + cx, t = v.terrain[i];
         if (!t) continue;
-        const owner = v.owner[i], bridge = t >= 2 && t <= 4;
-        if (FOG.on && !FOG.seen[i] && bridge) continue;
-        g.fillStyle = FOG.on && !FOG.seen[i] ? FOGGED : bridge ? '#8a5a34' : owner ? shade(FURY_COLOR[playerTheme(owner)], 0.55) : '#6f7a5a';
-        g.fillRect((x - this.x0) * s, (y - this.y0) * s, Math.ceil(s), Math.ceil(s));
+        const bridge = t >= 2 && t <= 4, fogged = FOG.on && !FOG.seen[i];
+        if (fogged && bridge) continue;
+        const owner = v.owner[i];
+        px[y * span + x] = fogged ? COLOR.fogged : bridge ? COLOR.bridge : owner ? ownerColor(owner) : COLOR.ground;
       }
     }
+    this.cells.getContext('2d').putImageData(this.pixels, 0, 0);
+    const g = this.base.getContext('2d');
+    g.clearRect(0, 0, SIZE, SIZE);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(this.cells, 0, 0, SIZE, SIZE);
   }
 
   draw() {
@@ -149,8 +173,12 @@ export class Minimap {
   }
 }
 
-function shade(hex, k) {
-  const n = parseInt(hex.slice(1), 16);
-  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v * k));
-  return `rgb(${c.join(',')})`;
+/** A colour ('#rrggbb', darkened by `k`) as an opaque pixel of an ImageData seen as 32-bit words
+ * (the bytes red, green, blue, alpha: little-endian, as every browser is). */
+function rgba(hex, k = 1) {
+  const n = parseInt(hex.slice(1), 16), c = (v) => Math.round(((n >> v) & 255) * k);
+  return ((255 << 24) | (c(0) << 16) | (c(8) << 8) | c(16)) >>> 0;
 }
+
+/** The minimap's ground: under the fog, a bridge, a free island (an owned one: its Fury's colour). */
+const COLOR = { fogged: rgba(FOGGED), bridge: rgba('#8a5a34'), ground: rgba('#6f7a5a') };
