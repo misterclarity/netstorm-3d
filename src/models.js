@@ -11,11 +11,48 @@
  */
 import { THREE, G, defs, ART, OWNER_COLOR, FURY_COLOR, FACING_YAW, hash } from './state.js';
 
+/* ------------------------------------ the solarpunk grade ------------------------------------ */
+/** sRGB hex → [hue in degrees, saturation, lightness]. */
+function toHsl(hex) {
+  const n = parseInt(hex.slice(1), 16), r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  if (!d) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function toHex(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return `#${[r, g, b].map((v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+/** The owners' colours (they tell the sides apart) and white are kept as they are. */
+const KEEP = new Set([...OWNER_COLOR, ...Object.values(FURY_COLOR), '#ffffff']);
+const graded = new Map();
+/**
+ * The solarpunk grade every model's colour goes through: nothing is left soot-black or cold grey.
+ * The darkest parts turn to deep verdigris (copper gone green) or, where they were warm, rich wood;
+ * greys warm to sandstone, ivory and brass; greens grow lusher; the rest is lifted a little, as in
+ * clean air and full sun.
+ */
+export function grade(hex) {
+  if (KEEP.has(hex) || !/^#[0-9a-f]{6}$/i.test(hex)) return hex;
+  let out = graded.get(hex);
+  if (out) return out;
+  const [h, s, l] = toHsl(hex);
+  if (l < 0.24) out = s > 0.06 && (h < 55 || h > 340) ? toHex(h, Math.min(0.55, s + 0.08), 0.24 + l * 0.45) : toHex(168, 0.3, 0.22 + l * 0.5);
+  else if (s < 0.12 && l < 0.9) out = toHex(40, 0.12 + s * 0.6, Math.min(0.92, l + 0.06));
+  else if (h >= 70 && h <= 160) out = toHex(h - (h - 105) * 0.25, Math.min(0.7, s * 1.15), Math.min(0.85, l + 0.03));
+  else out = toHex(h, Math.min(1, s * 1.05), Math.min(0.95, l + 0.02));
+  graded.set(hex, out);
+  return out;
+}
+
 const matCache = new Map();
 export function mat(color, extra = {}) {
   const key = color + JSON.stringify(extra);
   if (!matCache.has(key)) {
-    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.8, flatShading: true, ...extra });
+    const m = new THREE.MeshStandardMaterial({ color: grade(color), roughness: 0.8, flatShading: true, ...extra });
     // a plain finish (no glow of its own) can be merged with others of the same finish
     m.userData = { finish: 'emissive' in extra ? null : JSON.stringify(extra) };
     matCache.set(key, m);
@@ -137,13 +174,18 @@ export function bake(root, key) {
 }
 
 /* ---------------------------------------- the Furies ---------------------------------------- */
-/** Each Fury's look: its stone, a darker stone, roofs, trim, an accent and its glow. */
+/**
+ * Each Fury's look: its stone, a darker stone, roofs, trim, an accent and its glow. Solarpunk: the
+ * Sun's ivory and honey under terracotta, brass and teal glass; the Wind's pale timber and canvas
+ * under leaf-green roofs; the Rain's white ceramic and aqua glass; the Thunder's lilac stone and
+ * wisteria with copper gone green; the Fire's sun-baked clay.
+ */
 const FURY = {
-  sun: { stone: '#dccaa0', dark: '#a8916a', roof: '#c4703a', trim: '#d9a63a', accent: '#5fb7ad', yard: '#c9b48d', glow: ['#ffe48a', '#ffb000'] },
-  wind: { stone: '#cdb08a', dark: '#87603f', roof: '#6f9f72', trim: '#efe6cf', accent: '#9bcf6a', yard: '#b9a27c', glow: ['#fff3c0', '#ffd24a'] },
-  rain: { stone: '#9aaebf', dark: '#5e7286', roof: '#3d7db2', trim: '#e3f1f7', accent: '#5cc0ea', yard: '#a9b9c6', glow: ['#c8f2ff', '#29a8ff'] },
-  thunder: { stone: '#625b72', dark: '#3a3443', roof: '#5d4690', trim: '#c27a3e', accent: '#a184ea', yard: '#6e6879', glow: ['#e6d2ff', '#9a5cff'] },
-  fire: { stone: '#8c4f3c', dark: '#4b2b23', roof: '#c4442a', trim: '#e8a040', accent: '#ff8a3a', yard: '#7a4a3a', glow: ['#ffd08a', '#ff5a1a'] },
+  sun: { stone: '#efe3c4', dark: '#c09a62', roof: '#d27c48', trim: '#d9aa45', accent: '#4fb3a3', yard: '#d8c69c', glow: ['#fff0a0', '#ffbe2a'] },
+  wind: { stone: '#e8dcbc', dark: '#a27c52', roof: '#6caf62', trim: '#f6f0dc', accent: '#a8d86a', yard: '#cbbb8c', glow: ['#f6ffd0', '#c8ec5a'] },
+  rain: { stone: '#d3e3e4', dark: '#6f9ea3', roof: '#3f9fb8', trim: '#f4fbfa', accent: '#56cfe0', yard: '#bccfcc', glow: ['#d0fbff', '#36cbff'] },
+  thunder: { stone: '#cbbfdc', dark: '#6d6488', roof: '#4f9a88', trim: '#c98a4a', accent: '#b498f0', yard: '#aaa2bc', glow: ['#efe4ff', '#a874ff'] },
+  fire: { stone: '#d9a786', dark: '#8a5440', roof: '#cf5a36', trim: '#efb04a', accent: '#ff9a4a', yard: '#b88a6a', glow: ['#ffe0a0', '#ff6a2a'] },
 };
 
 /** The Fury a thing belongs to (the Fire Temple and Fire Ant have none in the unit data). */
@@ -339,15 +381,127 @@ function flame(rep, g, x, y, z, size = 1, colors = ['#ffb347', '#ff5a1a', '#fff1
   });
   return f;
 }
-/** A slim dark cypress, or a round-topped tree, at (x, z). */
+/* ------------------------------------ solarpunk touches ------------------------------------- */
+// leaves and blossoms, and the blue glass of a solar cell
+const LEAF = ['#4f9a3c', '#6db34a', '#3f8a3a', '#86c25a'];
+const BLOOM = ['#f6a5c0', '#ffd34e', '#ffffff', '#c3a2f0', '#ff9a6a'];
+const leaf = (i = 0) => mat(LEAF[((i % LEAF.length) + LEAF.length) % LEAF.length]);
+const bloom = (i = 0) => mat(BLOOM[((i % BLOOM.length) + BLOOM.length) % BLOOM.length]);
+const brass = () => mat('#d9aa45', { metalness: 0.35, roughness: 0.45 });
+const pv = () => mat('#2c5d8a', { metalness: 0.55, roughness: 0.22 });
+
+/** Fold a holder's parts into its parent, where they are baked with the rest (for parts that never move). */
+function settle(h) {
+  h.updateMatrix();
+  for (const c of [...h.children]) { c.applyMatrix4(h.matrix); h.parent.add(c); }
+  h.removeFromParent();
+}
+/**
+ * A solar panel `w` × `d`, its middle at (x, y, z), tilted `tilt` (its +z edge down) and turned
+ * `turn`: blue glass in a brass frame, its cells ruled across. Several make a solar roof.
+ */
+function solarPanel(g, w, d, x, y, z, tilt = 0.45, turn = 0) {
+  const h = holder(g, x, y, z);
+  h.rotation.set(tilt, turn, 0, 'YXZ');
+  part(h, box(w + 0.08, 0.05, d + 0.08), brass());
+  part(h, box(w, 0.04, d), pv(), 0, 0.03, 0);
+  const n = Math.max(1, Math.round(w / 0.42));
+  for (let i = 1; i < n; i++) part(h, box(0.025, 0.012, d), mat('#d8ecf4'), -w / 2 + (i * w) / n, 0.052, 0);
+  settle(h);
+}
+/** A garden on a flat roof `w` × `d` about (x, z), its turf at y: low bushes and flowers in it. */
+function greenRoof(g, w, d, x, y, z, seed = 0) {
+  part(g, box(w, 0.08, d), mat('#5f9a3e'), x, y + 0.04, z);
+  const n = Math.max(2, Math.round((w * d) / 0.8));
+  for (let i = 0; i < n; i++) {
+    const px = x + (noise(i, seed + 1) - 0.5) * w * 0.8, pz = z + (noise(i, seed + 2) - 0.5) * d * 0.8;
+    if (noise(i, seed + 3) < 0.62) part(g, ico(0.16 + noise(i, seed + 4) * 0.14, 0), leaf(i + seed), px, y + 0.17, pz).scale.y = 0.75;
+    else part(g, ico(0.07, 0), bloom(i + seed), px, y + 0.13, pz);
+  }
+}
+/**
+ * Ivy hanging down a wall from the top (x, y, z): `n` strands spread `w` along the wall, which faces
+ * +z turned by `turn`; each strand down to a length of its own, a few leaves on it.
+ */
+function vines(g, x, y, z, w, { n = 4, turn = 0, len = 1.2, seed = 0 } = {}) {
+  const h = holder(g, x, y, z);
+  h.rotation.y = turn;
+  for (let i = 0; i < n; i++) {
+    const vx = -w / 2 + (w * (i + 0.5)) / n, l = len * (0.5 + noise(i, seed + 5) * 0.7);
+    part(h, box(0.07, l, 0.05), leaf(i + 2), vx, -l / 2, 0.03);
+    for (let k = 0; k < 2; k++) part(h, ico(0.085, 0), leaf(i + k), vx + (k ? 0.05 : -0.05), -l * (0.3 + k * 0.4), 0.07);
+    if (noise(i, seed + 6) < 0.35) part(h, ico(0.05, 0), bloom(i + seed), vx, -l * 0.55, 0.1);
+  }
+  settle(h);
+}
+/** A planter of honey wood `w` long at (x, y, z), turned `turn`, full of leaves and flowers. */
+function planter(g, x, y, z, w = 0.8, turn = 0, seed = 0) {
+  const h = holder(g, x, y, z);
+  h.rotation.y = turn;
+  part(h, box(w, 0.22, 0.3), mat('#b98a52'), 0, 0.11, 0);
+  const n = Math.max(2, Math.round(w / 0.25));
+  for (let i = 0; i < n; i++) {
+    const px = -w / 2 + (w * (i + 0.5)) / n;
+    part(h, ico(0.13, 0), leaf(i + seed), px, 0.3, 0).scale.y = 0.8;
+    if ((i + seed) % 2 === 0) part(h, ico(0.06, 0), bloom(i + seed), px + 0.04, 0.4, 0.05);
+  }
+  settle(h);
+}
+/**
+ * Solar panels on one slope of a ridge roof (roof()): its ridge `l` long along x (`alongX`) or z,
+ * `half` its half-width and `rise` its height, the eaves at y; `side` (±1) is the slope, `n` panels.
+ */
+function roofSolar(g, x, y, z, l, half, rise, { side = 1, alongX = true, n = 2 } = {}) {
+  const tilt = Math.atan2(rise, half), slope = Math.hypot(rise, half), pw = (l * 0.86) / n;
+  for (let i = 0; i < n; i++) {
+    const off = -l * 0.43 + pw * (i + 0.5);
+    const [px, pz] = alongX ? [x + off, z + side * half * 0.5] : [x + side * half * 0.5, z + off];
+    const turn = alongX ? (side > 0 ? 0 : Math.PI) : side * (Math.PI / 2);
+    solarPanel(g, pw - 0.12, slope * 0.62, px, y + rise * 0.5 + 0.07, pz, tilt, turn);
+  }
+}
+/** A ring of flowers and leaves `r` round (x, y, z): a garland laid on a dais or a rim. */
+function garland(g, r, x, y, z, n = 12, seed = 0) {
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    part(g, ico(i % 3 ? 0.11 : 0.07, 0), i % 3 ? leaf(i + seed) : bloom(i + seed), x + Math.cos(a) * r, y, z + Math.sin(a) * r);
+  }
+}
+/** The three blades of a wind turbine's rotor as one shape, each `r` long. */
+const rotor3 = (r) => shape(`rotor3${r}`, () => {
+  const blade = new THREE.BoxGeometry(0.1 * r, r, 0.03 * r).translate(0, r / 2, 0);
+  const geo = merge([0, 1, 2].map((i) => {
+    const m = new THREE.Mesh(blade);
+    m.rotation.z = (i / 3) * Math.PI * 2;
+    return m;
+  }), null);
+  blade.dispose();
+  return geo;
+});
+/** A wind turbine on a slim white mast `h` tall from (x, y, z), its rotor facing +z turned `turn`, turning. */
+function turbine(rep, g, x, y, z, { h = 2.4, turn = 0, r = 0.8 } = {}) {
+  const white = mat('#f4f1e6');
+  part(g, cyl(0.05, 0.08, h, 6), white, x, y + h / 2, z);
+  part(g, box(0.15, 0.15, 0.42), white, x, y + h, z).rotation.y = turn;
+  const rotor = holder(g, x + Math.sin(turn) * 0.24, y + h, z + Math.cos(turn) * 0.24);
+  rotor.rotation.y = turn;
+  spin(rep, rotor, 'z', 2.2 + noise(x * 7, z * 7) * 1.2, (rep.id ?? 0) + x);
+  part(rotor, rotor3(r), white);
+  part(rotor, sph(0.07, 6, 4), brass());
+  return rotor;
+}
+
+/** A slim cypress, or a round, leafy tree (now and then in blossom), at (x, z). */
 function cypress(g, x, z, h = 2.2) {
-  part(g, cyl(0.06, 0.08, 0.4, 5), mat('#5a4030'), x, 0.5, z);
-  part(g, lathe(`cypress${h}`, [[0.01, 0], [0.26, h * 0.18], [0.3, h * 0.45], [0.2, h * 0.75], [0.01, h]], 7), mat('#2f5a2a'), x, 0.6, z);
+  part(g, cyl(0.06, 0.08, 0.4, 5), mat('#7a5634'), x, 0.5, z);
+  part(g, lathe(`cypress${h}`, [[0.01, 0], [0.26, h * 0.18], [0.3, h * 0.45], [0.2, h * 0.75], [0.01, h]], 7), mat('#3f7a36'), x, 0.6, z);
 }
 function tree(g, x, z, r = 0.55) {
-  part(g, cyl(0.07, 0.1, 0.7, 5), mat('#5a4030'), x, 0.65, z);
-  part(g, ico(r, 0), mat('#3f6f31'), x, 1.0 + r * 0.7, z);
-  part(g, ico(r * 0.7, 0), mat('#4f8a3a'), x + r * 0.3, 1.2 + r, z - r * 0.2);
+  const k = Math.floor(noise(x * 13, z * 7) * 4);
+  part(g, cyl(0.07, 0.1, 0.7, 5), mat('#7a5634'), x, 0.65, z);
+  part(g, ico(r, 1), leaf(k), x, 1.0 + r * 0.7, z);
+  part(g, ico(r * 0.7, 1), leaf(k + 1), x + r * 0.3, 1.2 + r, z - r * 0.2);
+  if (k % 2) for (let i = 0; i < 4; i++) part(g, ico(0.07, 0), bloom(k), x + Math.cos(i * 1.7) * r * 0.85, 1.05 + r * 0.7 + Math.sin(i * 2.3) * r * 0.45, z + Math.sin(i * 1.7) * r * 0.85);
 }
 
 export const MODELS = {
@@ -387,6 +541,12 @@ export const MODELS = {
         part(g, lathe('firecup', [[0.08, 0], [0.32, 0.18], [0.36, 0.3]], 7), p.trim, x, 2.1, z);
         flame(rep, g, x, 2.3, z, 0.45);
       }
+      // a geothermal garden: ferns and fire lilies about the warm rim
+      for (let i = 0; i < 14; i++) {
+        const [x, z] = on((i / 14) * Math.PI * 2 + 0.1, 0.97);
+        part(g, cone(0.16, 0.45, 5), leaf(i), x, 1.12, z);
+        if (i % 2) part(g, ico(0.07, 0), bloom(i % 4 ? 4 : 1), x, 1.4, z);
+      }
     } else if (f === 'rain') {
       // after its sprite: a carved ring of pale stone round a pool that glows, fountains spouting
       // at its rim, and over the pool's middle a great drop of living water that turning streams
@@ -420,6 +580,17 @@ export const MODELS = {
       }
       const ripples = see('#e8fbff', 0.5);
       for (let k = 0; k < 2; k++) ripple(rep, g, 0, 1.0, 0, 1.4, 2.6, { material: ripples, rate: 0.35, phase: k / 2 });
+      // a water garden: lily pads afloat on the pool, some in flower, moss and ferns on the ring
+      for (let i = 0; i < 9; i++) {
+        const a = i * 2.39 + 0.4, [x, z] = on(a, 0.38 + (i % 3) * 0.12);
+        part(g, cyl(0.26 + (i % 2) * 0.08, 0.26 + (i % 2) * 0.08, 0.03, 7), leaf(i), x, 0.99, z);
+        if (i % 3 === 0) part(g, ico(0.08, 0), bloom(0), x + 0.06, 1.06, z);
+      }
+      for (let i = 1; i < 18; i += 2) {
+        const [x, z] = on((i / 18) * Math.PI * 2, 0.86);
+        part(g, ico(0.2, 0), leaf(i), x, 1.43, z).scale.y = 0.6;
+      }
+      for (const a of [1.2, 3.3, 5.4]) { const [x, z] = on(a, 1.08); tree(g, x, z, 0.5); }
     } else {
       // the Sun's: a pool round a stepped pyramid that holds up a turning sun
       part(g, cyl(0.7, 0.7, 0.1, 24), glow('#ffd88a', '#e8a33a', 0.35), 0, 0.93, 0).scale.set(w, 1, d);
@@ -436,6 +607,20 @@ export const MODELS = {
         const a = (i / 8) * Math.PI * 2, [x, z] = on(a, 0.82);
         part(g, cyl(0.18, 0.24, 1.6, 6), p.stone, x, 1.7, z);
         part(g, cone(0.22, 0.4, 6), p.trim, x, 2.7, z);
+        // ivy up each column
+        part(g, cyl(0.22, 0.27, 0.75, 6), leaf(i), x, 1.3, z);
+        part(g, ico(0.12, 0), i % 2 ? bloom(1) : leaf(i + 1), x + Math.cos(a) * 0.2, 1.75, z + Math.sin(a) * 0.2);
+      }
+      // a solar temple: a ring of panels between the columns, tilted out like a sunflower's petals,
+      // and hanging gardens on the pyramid's steps, ivy down their sides
+      for (let i = 0; i < 8; i++) {
+        const a = ((i + 0.5) / 8) * Math.PI * 2, [x, z] = on(a, 0.6);
+        solarPanel(g, 0.95, 0.62, x, 1.12, z, 0.55, Math.PI / 2 - a);
+      }
+      greenRoof(g, 2.6, 2.2, 0, 1.55, 0, 3);
+      greenRoof(g, 1.8, 1.5, 0, 2.15, 0, 7);
+      for (const [x, z, turn] of [[0, 1.12, 0], [0, -1.12, Math.PI], [1.32, 0, Math.PI / 2], [-1.32, 0, -Math.PI / 2]]) {
+        vines(g, x, 1.56, z, Math.abs(x) ? 1.8 : 2.2, { n: 5, turn, len: 0.6, seed: x + z * 3 });
       }
     }
     banner(rep, g, -w * 0.86, -d * 0.6, 4.6);
@@ -446,11 +631,14 @@ export const MODELS = {
    * tips to the spire on its crown.
    */
   thunderTemple(rep, g, p, w, d, on) {
-    const R = Math.min(w, d) * 0.62, black = mat('#1f1a26', { metalness: 0.45, roughness: 0.3 }), silver = metal('#b8b4c4');
+    // solarpunk: the tendrils are copper gone green, the dome wisteria glass, its thorns blossom
+    const black = mat('#3f7f72', { metalness: 0.45, roughness: 0.35 }), silver = metal('#b8b4c4');
+    const R = Math.min(w, d) * 0.62;
     part(g, cyl(R * 1.05, R * 1.15, 0.6, 16), p.dark, 0, 1.15, 0);
     part(g, ring(R * 1.08, 0.08, 24), p.trim, 0, 1.45, 0).rotation.x = Math.PI / 2;
+    garland(g, R * 1.12, 0, 1.5, 0, 22, 3);
     lit(pulsing(rep, part(g, sph(R * 0.55, 12, 10), glow('#ff9a5a', '#ff3a10', 1), 0, 1.95, 0), 0.6, 1.9, 2.2));
-    part(g, dome(R), see('#3a2a52', 0.55, { metalness: 0.6, roughness: 0.15 }), 0, 1.45, 0);
+    part(g, dome(R), see('#b9a2ee', 0.45, { metalness: 0.3, roughness: 0.15 }), 0, 1.45, 0);
     part(g, ring(R * 0.7, 0.05, 18), silver, 0, 1.45 + R * 0.72, 0).rotation.x = Math.PI / 2;
     part(g, cone(0.12, 1.3, 6), silver, 0, 1.45 + R + 0.55, 0);
     const top = [0, 1.45 + R + 1.25, 0];
@@ -463,10 +651,18 @@ export const MODELS = {
       part(g, tube(i % 2 ? 'tendril2' : 'tendril1', pts, 0.2, { n: 6, tip: 0.2 }), black, x, 1.0, z).rotation.y = -a;
       const out = (lx, ly) => [x + Math.cos(a) * lx, 1.0 + ly, z + Math.sin(a) * lx];
       for (const [k, len] of [[1, 0.5], [2, 0.42]]) {
-        const thorn = part(g, cone(0.07, len, 4), mat('#6e3a2b'), ...out(pts[k][0] + 0.15, pts[k][1]));
-        thorn.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(Math.cos(a), 0.5, Math.sin(a)).normalize());
+        // a wisteria cluster where a thorn was, and a leaf by it
+        const thorn = part(g, cone(0.1, len, 5), bloom(3), ...out(pts[k][0] + 0.15, pts[k][1]));
+        thorn.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(Math.cos(a), -0.6, Math.sin(a)).normalize());
+        part(g, ico(0.11, 0), leaf(i + k), ...out(pts[k][0] + 0.05, pts[k][1] + 0.12));
       }
       if (i % 2 === 0) zap(rep, g, out(...pts[4]), top, { seed: i, rate: 7, share: 0.3, jag: 0.18 });
+    }
+    // a lilac garden on the plinth
+    for (let i = 0; i < 10; i++) {
+      const [x, z] = on((i / 10) * Math.PI * 2 + 0.3, 0.9);
+      part(g, ico(0.22, 0), leaf(i), x, 1.0, z).scale.y = 0.7;
+      if (i % 2) part(g, cone(0.09, 0.3, 5), bloom(3), x, 1.22, z).rotation.x = Math.PI;
     }
   },
   windTemple(rep, g, p, w, d) {
@@ -503,16 +699,25 @@ export const MODELS = {
     rep.anim.push((s) => { gust.rotation.y = -s * 0.9; gust.position.y = Math.sin(s * 0.7 + rep.id) * 0.25; });
     for (let i = 0; i < 9; i++) {
       const a = i * 2.3, r = 2.0 + (i % 3) * 0.45;
-      const leaf = part(gust, cone(0.14, 0.4, 3), mat(['#9bcf6a', '#d8c45a', '#6fa34a'][i % 3], { side: THREE.DoubleSide }), Math.cos(a) * r, 2.2 + i * 0.6, Math.sin(a) * r);
-      leaf.rotation.set(a, a * 1.7, 1.2);
-      leaf.scale.z = 0.25;
+      const blown = part(gust, cone(0.14, 0.4, 3), mat(['#9bcf6a', '#d8c45a', '#6fa34a'][i % 3], { side: THREE.DoubleSide }), Math.cos(a) * r, 2.2 + i * 0.6, Math.sin(a) * r);
+      blown.rotation.set(a, a * 1.7, 1.2);
+      blown.scale.z = 0.25;
     }
     for (let k = 0; k < 3; k++) {
       const pts = [];
       for (let i = 0; i <= 6; i++) { const a = k * 2.1 + i * 0.32, r = 2.6 + k * 0.3; pts.push([Math.cos(a) * r, 3 + k * 1.6 + i * 0.12, Math.sin(a) * r]); }
       lit(part(gust, tube(`windribbon${k}`, pts, 0.05, { n: 3, tip: 0.2 }), see('#ffffff', 0.55)));
     }
-    for (const [x, z] of [[-3, 1.4], [3.1, 1.2], [2.6, -1.7], [-2.7, -1.6]]) part(g, ico(0.65), mat('#4f7d36'), x, 0.7, z);
+    for (const [x, z] of [[-3, 1.4], [3.1, 1.2], [2.6, -1.7], [-2.7, -1.6]]) part(g, ico(0.65, 1), leaf(Math.round(x)), x, 0.7, z);
+    // a garden deck: turf and flowers round the shell's foot, and wind turbines at the deck's rim
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + 0.35, x = Math.cos(a) * w * 0.78, z = Math.sin(a) * d * 0.8;
+      part(g, ico(0.3, 0), leaf(i), x, 0.85, z).scale.y = 0.65;
+      part(g, ico(0.08, 0), bloom(i), x + 0.15, 1.0, z);
+    }
+    for (const [x, z, turn] of [[w * 0.72, d * 0.42, 0.6], [-w * 0.75, d * 0.38, -0.5], [w * 0.1, d * 0.85, 0]]) {
+      turbine(rep, g, x, 0.8, z, { h: 3.2, turn, r: 0.9 });
+    }
     banner(rep, g, -0.3, -1.0, 9.6, 1.2);
   },
 
@@ -540,6 +745,10 @@ export const MODELS = {
       });
       part(g, box(0.9, 1.2, 0.06), mat('#5a3d27'), -w * 0.05, 0.95, h * 0.16);
       for (const [x, z] of [[-w * 0.42, h * 0.35], [w * 0.42, h * 0.38]]) tree(g, x, z, 0.5);
+      // the guild's solar roof, and ivy and planters along its front
+      roofSolar(g, -w * 0.05, 2.35, -h * 0.1, w * 0.75, h * 0.28, 1.1, { n: 3 });
+      vines(g, -w * 0.3, 2.3, h * 0.15 + 0.01, 0.9, { n: 3, len: 1.1, seed: 2 });
+      planter(g, w * 0.12, 0.36, h * 0.3, 0.9, 0, 1);
     } else if (f === 'wind') MODELS.windWorkshop(rep, g, p, w, h);
     else if (f === 'rain') MODELS.rainWorkshop(rep, g, p, w, h);
     else if (f === 'thunder') MODELS.thunderWorkshop(rep, g, p, w, h);
@@ -566,6 +775,12 @@ export const MODELS = {
     for (let i = 0; i < 6; i++) part(g, cyl(0.1, 0.12, 1.7, 6), wall, hx - w * 0.25 + i * w * 0.1, 1.2, front);
     part(g, box(w * 0.56, 0.22, 0.4), wall, hx, 2.12, front);
     part(g, box(w * 0.56, 0.06, 0.62), p.roof, hx, 2.25, front - 0.1);
+    // solarpunk: panels on the villa's sunny slope, a garden on the arcade's roof, ivy, planters
+    roofSolar(g, hx, 2.55, hz, w * 0.62, h * 0.21, 1.1, { n: 3 });
+    greenRoof(g, w * 0.56, 0.62, hx, 2.28, front - 0.1, 5);
+    vines(g, hx + w * 0.22, 2.4, hz + h * 0.18 + 0.02, 0.7, { n: 3, len: 1.3, seed: 4 });
+    vines(g, hx - w * 0.28, 2.17, front + 0.21, w * 0.5, { n: 6, len: 0.7, seed: 9 });
+    for (const s of [-1, 1]) planter(g, hx + s * w * 0.17, 0.36, front + 0.5, 0.85, 0, s + 2);
     // the forge in its arch
     part(g, box(0.9, 1.2, 0.08), mat('#3a2a20'), hx + w * 0.05, 0.95, hz + h * 0.18 + 0.02);
     lit(pulsing(rep, part(g, box(0.7, 0.9, 0.04), glow('#ffcf6a', '#ff8a1a', 1), hx + w * 0.05, 0.85, hz + h * 0.18 + 0.07), 0.6, 1.6, 2.5));
@@ -632,6 +847,14 @@ export const MODELS = {
     }
     for (const [x, z] of [[-w * 0.42, h * 0.32], [-w * 0.32, h * 0.38], [w * 0.05, h * 0.4]]) part(g, cyl(0.28, 0.28, 0.5, 8), mat('#e2c56a'), x, 0.6, z).rotation.z = Math.PI / 2;
     for (const [x, z] of [[-w * 0.42, -h * 0.4], [w * 0.45, h * 0.1], [-w * 0.45, h * 0.05]]) tree(g, x, z, 0.55);
+    // a kitchen garden by the lodge, rows of greens and a bed of flowers, and bushes round its foot
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) part(g, ico(0.16, 0), leaf(r + c), w * 0.22 + c * 0.42, 0.48, h * 0.18 + r * 0.42).scale.y = 0.7;
+    for (let i = 0; i < 4; i++) part(g, ico(0.08, 0), bloom(i), w * 0.22 + i * 0.42, 0.52, h * 0.42 + 0.25);
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + 0.2;
+      if (Math.sin(a) > 0.75) continue; // the door
+      part(g, ico(0.3, 0), leaf(i), lx + Math.cos(a) * 2.05, 0.55, lz + Math.sin(a) * 2.05).scale.y = 0.7;
+    }
   },
   /**
    * The Rain Workshop, after its sprite: domes like bubbles of glass on a rock in a lagoon, white
@@ -643,7 +866,13 @@ export const MODELS = {
     const glass = see('#bfeaff', 0.5, { emissive: '#3ab0f0', emissiveIntensity: 0.45, roughness: 0.1 }), white = mat('#f2f6f8');
     for (const [x, z, r] of [[-w * 0.12, -h * 0.12, 1.55], [w * 0.15, -h * 0.18, 1.15], [-w * 0.3, h * 0.08, 0.95], [w * 0.05, h * 0.12, 0.8]]) {
       part(g, cyl(r * 1.02, r * 1.05, 0.3, 14), p.stone, x, 0.75, z);
-      lit(pulsing(rep, part(g, sph(r * 0.35, 8, 6), glow('#c8f2ff', '#29a8ff', 0.8), x, 0.9 + r * 0.35, z), 0.4, 1.3, 1.6 + r));
+      lit(pulsing(rep, part(g, sph(r * 0.22, 8, 6), glow('#c8f2ff', '#29a8ff', 0.8), x, 0.9 + r * 0.62, z), 0.4, 1.3, 1.6 + r));
+      // greenhouses: their beds of greens and flowers under the glass
+      for (let k = 0; k < 5; k++) {
+        const a = k * 1.26 + r, q = r * 0.5;
+        part(g, ico(r * 0.24, 0), leaf(k), x + Math.cos(a) * q, 0.98 + r * 0.1, z + Math.sin(a) * q).scale.y = 0.8;
+        if (k % 2) part(g, ico(0.07, 0), bloom(k), x + Math.cos(a) * q, 1.1 + r * 0.2, z + Math.sin(a) * q);
+      }
       part(g, dome(r), glass, x, 0.9, z);
       for (let i = 0; i < 3; i++) {
         const rib = part(g, shape(`rib${r}`, () => new THREE.TorusGeometry(r, 0.05, 4, 12, Math.PI)), white, x, 0.9, z);
@@ -660,6 +889,11 @@ export const MODELS = {
     for (let i = 0; i < 8; i++) part(wheel, box(0.3, 0.08, 1.8), p.trim).rotation.x = (i / 8) * Math.PI;
     motes(rep, g, -w * 0.25, 0.4, h * 0.32, { n: 3, h: 1.4, spread: 0.6, size: 0.09, material: see('#ffffff', 0.7), rate: 0.4, sway: 0.1 });
     ripple(rep, g, w * 0.25, 0.39, h * 0.3, 0.2, 1.0, { material: see('#e8fbff', 0.5), rate: 0.4 });
+    // lily pads on the lagoon, one in flower
+    for (const [x, z, r] of [[-w * 0.38, h * 0.3, 0.3], [-w * 0.1, h * 0.4, 0.24], [w * 0.12, h * 0.36, 0.28], [-w * 0.42, -h * 0.05, 0.22]]) {
+      part(g, cyl(r, r, 0.03, 7), leaf(Math.round(x)), x, 0.39, z);
+    }
+    part(g, ico(0.08, 0), bloom(0), -w * 0.38, 0.45, h * 0.3);
     for (const [x, z, k] of [[-w * 0.44, -h * 0.4, 1], [w * 0.2, h * 0.42, 0.8], [-w * 0.05, -h * 0.44, 0.9], [w * 0.45, -h * 0.42, 1.1]]) {
       part(g, cone(0.55 * k, 1.8 * k, 6), mat('#2f5a3a'), x, 0.4 + 0.9 * k + 0.2, z);
       part(g, cone(0.4 * k, 1.2 * k, 6), mat('#3a6e45'), x, 0.4 + 1.6 * k + 0.2, z);
@@ -671,12 +905,13 @@ export const MODELS = {
    * furnace light in its slits, dark pines by its walls.
    */
   thunderWorkshop(rep, g, p, w, h) {
-    const domeMat = mat('#4a4458', { metalness: 0.55, roughness: 0.3 }), silver = metal('#b8b4c4'), rust = mat('#7a3a2a');
-    part(g, cyl(1, 1.05, 0.25, 16), rust, -w * 0.05, 0.45, -h * 0.05).scale.set(w * 0.42, 1, h * 0.4);
+    // solarpunk: domes of copper gone green, a hedge of lavender where its thorns were, a garden ring
+    const domeMat = mat('#5fa08e', { metalness: 0.35, roughness: 0.45 }), silver = metal('#b8b4c4'), rust = mat('#8a6a52');
+    part(g, cyl(1, 1.05, 0.25, 16), mat('#5f9a3e'), -w * 0.05, 0.45, -h * 0.05).scale.set(w * 0.42, 1, h * 0.4);
     for (let i = 0; i < 14; i++) {
       const a = (i / 14) * Math.PI * 2, x = -w * 0.05 + Math.cos(a) * w * 0.4, z = -h * 0.05 + Math.sin(a) * h * 0.38;
-      const thorn = part(g, cone(0.16, 0.9, 4), rust, x, 0.75, z);
-      thorn.rotation.set(Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9);
+      const thorn = part(g, cone(0.2, 0.8, 5), i % 2 ? bloom(3) : leaf(i), x, 0.85, z);
+      thorn.rotation.set(Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5);
     }
     const cx = -w * 0.05, cz = -h * 0.08;
     part(g, cyl(1.6, 1.75, 1.6, 14), p.stone, cx, 1.35, cz);
@@ -700,10 +935,13 @@ export const MODELS = {
     for (let i = 0; i < 5; i++) part(g, ring(0.46 - i * 0.04, 0.07, 14), p.trim, kx, 1.1 + i * 0.6, kz).rotation.x = Math.PI / 2;
     lit(pulsing(rep, part(g, sph(0.3, 10, 8), p.glow, kx, 4.0, kz), 0.5, 2.2, 8));
     zap(rep, g, [kx, 4.0, kz], top, { rate: 6, share: 0.5, jag: 0.35 });
-    part(g, cyl(0.22, 0.3, 2.4, 8), mat('#2c2833'), w * 0.05, 3.0, -h * 0.38);
-    motes(rep, g, w * 0.05, 4.2, -h * 0.38, { n: 3, h: 2.2, spread: 0.05, size: 0.24, material: see('#5a5464', 0.6), rate: 0.25, sway: 0.5 });
+    part(g, cyl(0.22, 0.3, 2.4, 8), rust, w * 0.05, 3.0, -h * 0.38);
+    // (only steam now, white)
+    motes(rep, g, w * 0.05, 4.2, -h * 0.38, { n: 3, h: 2.2, spread: 0.05, size: 0.24, material: see('#f2eff8', 0.55), rate: 0.25, sway: 0.5 });
+    garland(g, 1.68, cx, 2.2, cz, 20, 3);
+    vines(g, cx + 0.6, 2.1, cz + 1.62, 1.0, { n: 3, len: 1.1, seed: 6 });
     for (const [x, z, k] of [[-w * 0.46, -h * 0.42, 1], [w * 0.44, h * 0.05, 0.85], [-w * 0.46, h * 0.4, 0.9], [w * 0.35, -h * 0.44, 1]]) {
-      part(g, cone(0.5 * k, 1.9 * k, 5), mat('#26402e'), x, 0.4 + 0.95 * k + 0.15, z);
+      part(g, cone(0.5 * k, 1.9 * k, 5), leaf(Math.round(x * 3)), x, 0.4 + 0.95 * k + 0.15, z);
     }
   },
   /**
@@ -721,7 +959,11 @@ export const MODELS = {
       part(g, pyramid(), tile, x * w * 0.32, 2.25, z * h * 0.32).scale.set(1.15, 0.6, 1.15);
     }
     part(g, cyl(1.0, 1.05, 0.9, 12), wall, 0, 1.6, 0);
-    part(g, lathe('outdome', [[1.05, 0], [1.0, 0.45], [0.75, 0.95], [0.35, 1.25], [0.05, 1.35]], 12), mat('#8d929c', { metalness: 0.4, roughness: 0.4 }), 0, 2.05, 0);
+    part(g, lathe('outdome', [[1.05, 0], [1.0, 0.45], [0.75, 0.95], [0.35, 1.25], [0.05, 1.35]], 12), mat('#5fa08e', { metalness: 0.35, roughness: 0.45 }), 0, 2.05, 0);
+    // panels on the front and back wings, ivy and a planter by the gate
+    for (const s of [-1, 1]) solarPanel(g, w * 0.5, 0.62, 0, 2.0, s * h * 0.3, 0.3, s > 0 ? 0 : Math.PI);
+    vines(g, -w * 0.2, 1.6, h * 0.3 + 0.41, 0.8, { n: 3, len: 0.9, seed: 3 });
+    planter(g, w * 0.16, 0.36, h * 0.3 + 0.7, 0.7, 0, 2);
     part(g, box(0.7, 1.0, 0.1), mat('#5a3d27'), 0, 0.85, h * 0.3 + 0.41);
     part(g, cyl(0.06, 0.08, 0.4, 5), p.trim, 0, 3.55, 0);
     part(g, lathe('firecup', [[0.08, 0], [0.32, 0.18], [0.36, 0.3]], 7), p.trim, 0, 3.7, 0);
@@ -760,6 +1002,13 @@ export const MODELS = {
     }
     part(g, cyl(0.7, 0.5, 0.5, 8), mat('#6d5a48'), 0, 0.95, 0);
     flame(rep, g, 0, 1.15, 0, 1.0);
+    // garlands of leaves and flowers round the dais and its four lobes
+    garland(g, 2.42, 0, 0.72, 0, 30, 1);
+    garland(g, 3.25, 0, 0.42, 0, 34, 2);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      garland(g, 0.9, Math.cos(a) * 3.0, 0.55, Math.sin(a) * 3.0, 10, i);
+    }
     const runes = spin(rep, holder(g, 0, 2.6, 0), 'y', 0.6);
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2;
@@ -794,6 +1043,9 @@ export const MODELS = {
         part(sails, box(0.04, 0.6, 0.04), mat('#87603f'), x, 0, z);
         part(sails, box(0.03, 0.5, 0.42), mat('#efe6cf'), x, 0.02, z).rotation.y = -a + 0.6;
       }
+      // a garden on the shrine's steps
+      greenRoof(g, 1.1, 1.1, 0, 2.55, 0, 2);
+      garland(g, 1.08, 0, 0.82, 0, 14, 2);
     } else if (f === 'rain') {
       // after its sprite: a spire of blue crystal out of a mound of bubbles, glowing as it fills,
       // ripples round its foot and drops rising
@@ -808,6 +1060,11 @@ export const MODELS = {
       }
       ripple(rep, g, 0, 0.45, 0, 1.0, 1.6, { material: see('#c8f2ff', 0.55), rate: 0.4 });
       motes(rep, g, 0, 1.1, 0, { n: 3, h: 2.2, spread: 0.5, size: 0.07, material: glow('#e8fbff', '#5ad0ff', 1.2), rate: 0.5, sway: 0.1 });
+      // ferns and moss about the mound
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + 0.2;
+        part(g, cone(0.14, 0.42, 5), leaf(i), Math.cos(a) * 1.08, 0.62, Math.sin(a) * 1.08).rotation.set(Math.sin(a) * 0.4, 0, -Math.cos(a) * 0.4);
+      }
     } else if (f === 'thunder') {
       // after its sprite: a great crystal of red fire in silver claws on a dark plinth, sparks
       // leaping from it to the claws' tips
@@ -822,6 +1079,7 @@ export const MODELS = {
       }
       lit(pulsing(rep, part(g, octa(0.55), glow('#ff8a5a', '#ff3a10', 1), 0, 2.15, 0), 0.7, 2.0, 2.6)).scale.set(0.8, 1.7, 0.8);
       tips.forEach((tip, i) => zap(rep, g, [0, 2.6, 0], tip, { seed: i, rate: 5, share: 0.25, jag: 0.08, r: 0.025, color: '#ffd0a0' }));
+      garland(g, 1.1, 0, 0.45, 0, 14, 3);
     } else {
       // after its sprite: a sunflower of bronze panels on a stem, its face turned up to the sky,
       // that follows the sun round as it feeds on it
@@ -833,12 +1091,16 @@ export const MODELS = {
       const turned = face;
       lit(pulsing(rep, part(turned, cyl(0.38, 0.38, 0.12, 12), glow('#ffd24a', '#ff9a00', 1), 0, 0.02, 0), 0.6, 1.4, 1.5));
       part(turned, cyl(0.42, 0.42, 0.08, 12), mat('#4a3a2c'), 0, -0.06, 0);
+      // its petals are solar panels: blue cells in brass, following the sun
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
-        const petal = part(turned, box(0.5, 0.05, 0.8), i % 2 ? metal('#c9963a') : metal('#a8783a'), Math.cos(a) * 0.8, -0.02, Math.sin(a) * 0.8);
+        const petal = part(turned, box(0.5, 0.05, 0.8), i % 2 ? metal('#c9963a') : brass(), Math.cos(a) * 0.8, -0.02, Math.sin(a) * 0.8);
         petal.rotation.set(0, -a + Math.PI / 2, 0);
         petal.rotateX(0.18);
+        const cells = part(turned, box(0.4, 0.05, 0.66), pv(), Math.cos(a) * 0.8, 0.01, Math.sin(a) * 0.8);
+        cells.rotation.copy(petal.rotation);
       }
+      garland(g, 0.95, 0, 0.42, 0, 12, 1);
     }
   },
 
@@ -875,9 +1137,12 @@ export const MODELS = {
       part(barrel, lathe('icemuzzle', [[0.2, 0], [0.32, 0.12], [0.28, 0.25], [0.16, 0.22]], 8), mat('#e8f8ff', { emissive: '#5ad0ff', emissiveIntensity: 0.5 }), 0, 0.95, 0);
       for (let i = 0; i < 4; i++) part(barrel, cone(0.08, 0.4, 4), mat('#e8f8ff'), Math.cos(i * 1.57) * 0.28, -0.3 + i * 0.3, Math.sin(i * 1.57) * 0.28).rotation.set(Math.sin(i * 1.57) * 0.9, 0, -Math.cos(i * 1.57) * 0.9);
       motes(rep, g, 0, 0.4, 0, { n: 4, h: 1.6, spread: 1.2, size: 0.06, material: see('#ffffff', 0.85), rate: 0.3, sway: 0.2, fall: true });
+      garland(g, 1.36, 0, 0.12, 0, 18, 2);
     } else if (f === 'thunder') {
       MODELS.dragon(rep, g, turret, barrel);
+      garland(g, 1.38, 0, 0.12, 0, 18, 3);
     } else {
+      garland(g, 1.36, 0, 0.12, 0, 18, 1);
       // the Sun Cannon, after its sprite: a great ball of black iron on four bronze legs bent like
       // a crab's, a short gun with a flared mouth, and on its back a vent that flares as it fires
       const bronze = metal('#a8783a'), iron = mat('#2e2b2a', { metalness: 0.5, roughness: 0.35 });
@@ -978,7 +1243,7 @@ export const MODELS = {
         geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
         geo.computeVertexNormals();
         return geo;
-      }), mat('#8d8698', { side: THREE.DoubleSide, roughness: 0.6 }));
+      }), mat('#7fbf6a', { side: THREE.DoubleSide, roughness: 0.6 })); // (solarpunk: wings of leaf, its bones the veins)
     }
     rep.dragon = { head, headZ: head.position.z, jaw, fire, eyes, wings };
   },
@@ -986,6 +1251,7 @@ export const MODELS = {
     const f = furyOf(e), p = kit(e);
     part(g, cyl(1.1, 1.22, 0.45, 10), p.dark, 0, 0.22, 0);
     band(rep, g, 1.12, 0.47, 10);
+    garland(g, 1.27, 0, 0.1, 0, 16, f === 'wind' ? 0 : 1);
     const turret = holder(g, 0, 0.5, 0);
     rep.turret = turret;
     turret.rotation.y = FACING_YAW[e.facing ?? 2];
@@ -1043,6 +1309,11 @@ export const MODELS = {
       }
       part(g, dome(0.82), mat('#ece6d6'), 0, 0.6, 0);
       part(g, cyl(0.86, 0.86, 0.06, 16), p.trim, 0, 0.62, 0);
+      // a collar of solar panels round the dome
+      for (let i = 0; i < 6; i++) {
+        const a = ((i + 0.5) / 6) * Math.PI * 2;
+        solarPanel(g, 0.42, 0.3, Math.cos(a) * 0.66, 0.98, Math.sin(a) * 0.66, 0.85, Math.PI / 2 - a);
+      }
       part(g, cyl(0.1, 0.16, 0.7, 6), metal('#6b5a44'), 0, 1.6, 0);
       const arm = holder(g, 0, 1.95, 0);
       rep.discArm = arm;
@@ -1092,6 +1363,13 @@ export const MODELS = {
     orb.material = orb.material.clone();
     rep.own.push(orb.material);
     rep.orb = orb;
+    // ivy up its foot and shaft, and flowers round it
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      vines(g, Math.sin(a) * 0.8, 1.84, Math.cos(a) * 0.8, 0.9, { n: 3, turn: a, len: 0.5, seed: i });
+    }
+    garland(g, 1.62, 0, 0.12, 0, 18, 3);
+    garland(g, 0.74, 0, 2.12, 0, 12, 0);
   },
 
   /* --------------------------------------- Defences ----------------------------------------- */
@@ -1117,6 +1395,12 @@ export const MODELS = {
         b.translateY(0.4);
       }
       band(rep, g, 0.12, 3.85, 6);
+      // climbing plants up its posts, a bed of flowers round its foot
+      for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        part(g, cyl(0.15, 0.2, 1.1, 5), leaf(x + z), x * 0.82, 0.85, z * 0.82);
+        part(g, ico(0.16, 0), leaf(x - z), x * 0.95, 0.42, z * 0.95);
+        part(g, ico(0.07, 0), bloom(x + 2 * z), x * 0.98, 0.58, z * 1.02);
+      }
     } else if (f === 'rain') {
       // the Ice Tower, after its sprite: a great drop of ice clear as glass on a dark pedestal, a
       // crystal turning in its heart, shards of ice at its foot and frost whirling round it
@@ -1133,6 +1417,7 @@ export const MODELS = {
       rep.anim.push((s) => { frost.rotation.y = s * 0.8 + rep.id; });
       for (let i = 0; i < 8; i++) part(frost, ico(0.06, 0), mat('#ffffff', { emissive: '#bfefff', emissiveIntensity: 0.8 }), Math.cos(i * 0.8) * 1.25, 1.2 + i * 0.35, Math.sin(i * 0.8) * 1.25);
       band(rep, g, 1.0, 0.45, 9);
+      garland(g, 1.32, 0, 0.12, 0, 16, 2);
     } else if (f === 'thunder') {
       // the Bulwark, after its sprite: a keep of red brick on a heavy foot, an arched gate of iron
       // with a furnace's light behind it, a ribbed dome of dark metal with a spike on its crown,
@@ -1160,6 +1445,9 @@ export const MODELS = {
       part(g, cone(0.12, 1.0, 6), metal('#b8b4c4'), 0, 4.2, 0);
       lit(pulsing(rep, part(g, sph(0.1, 6, 4), p.glow, 0, 4.75, 0), 0.6, 2, 5));
       part(g, ring(1.6, 0.065, 4), team(rep), 0, 0.46, 0).rotation.set(Math.PI / 2, 0, Math.PI / 4);
+      // ivy over its brick, wisteria at its foot
+      for (const r of [Math.PI / 2, Math.PI, -Math.PI / 2]) vines(g, Math.sin(r) * 1.3, 2.5, Math.cos(r) * 1.3, 1.0, { n: 3, turn: r, len: 1.4, seed: r });
+      garland(g, 1.5, 0, 0.5, 0, 16, 3);
     } else {
       // the Stone Tower, after its sprite: a round tower of sandstone, battlemented, a lantern on
       // its top whose light glows, crowned by a dome of verdigris; the owner's pennant over it all
@@ -1181,6 +1469,9 @@ export const MODELS = {
       part(g, cyl(0.68, 0.68, 0.1, 10), p.trim, 0, 4.06, 0);
       part(g, lathe('stoneonion', [[0.66, 0], [0.74, 0.25], [0.6, 0.6], [0.3, 0.95], [0.08, 1.2], [0.02, 1.35]], 12), p.accent, 0, 4.1, 0);
       banner(rep, g, 0, 0, 5.9, 0.6);
+      // a roof garden in its battlements, ivy down its walls
+      garland(g, 0.82, 0, 3.55, 0, 12, 0);
+      for (const a of [0.9, 3.0, 5.1]) vines(g, Math.sin(a) * 0.93, 3.25, Math.cos(a) * 0.93, 0.6, { n: 2, turn: a, len: 1.4, seed: a });
     }
   },
   fence(rep, g, e) {
@@ -1210,6 +1501,7 @@ export const MODELS = {
       rep.anim.push((s) => { pour.scale.set(1 + Math.sin(s * 11 + rep.id) * 0.25, 1, 1 + Math.cos(s * 9 + rep.id) * 0.25); });
       ripple(rep, g, 0.85, 0.46, 0, 0.1, 0.45, { material: see('#d8ff9a', 0.6), rate: 0.8 });
       band(rep, g, 1.26, 0.36, 14);
+      garland(g, 1.4, 0, 0.1, 0, 16, 2);
     } else if (f === 'thunder') {
       // the Arc Spire, after its sprite: a silver orb held aloft in a twisted claw on a round
       // pedestal, lightning crawling from it to the claw's tips, a ring of light turning about it
@@ -1234,6 +1526,7 @@ export const MODELS = {
       const hoop = spin(rep, holder(g, 0, 2.85, 0), 'y', 1.6);
       lit(part(hoop, ring(0.8, 0.03, 22), p.glow)).rotation.x = Math.PI / 2 + 0.35;
       band(rep, g, 0.92, 0.42, 6);
+      garland(g, 1.05, 0, 0.1, 0, 14, 3);
     } else {
       // the Sun Barricade, after its sprite: a dome of burnished bronze on legs that arch out from it
       // like a beetle's, a porthole where a sun stone glows, a cap on its crown that turns
@@ -1253,6 +1546,7 @@ export const MODELS = {
       const stone = moving(part(g, ico(0.22, 1), p.glow, 0, 2.05, 0));
       rep.anim.push((s) => { stone.scale.setScalar(0.9 + Math.sin(s * 3 + rep.id) * 0.1); stone.rotation.y = s; });
       band(rep, g, 1.17, 0.27, 10);
+      garland(g, 1.3, 0, 0.08, 0, 16, 1);
     }
   },
   farm(rep, g) {
@@ -1273,6 +1567,13 @@ export const MODELS = {
     part(g, box(0.16, 0.18, 0.08), team(rep), -0.3, 0.48, 0.3);
     part(g, sph(0.06, 6, 4), mat('#e2c56a'), -0.3, 0.64, 0.3);
     part(g, cone(0.1, 0.08, 6), mat('#c9a14a'), -0.3, 0.7, 0.3);
+    // a little solar panel by the shed, and sunflowers along the fence
+    solarPanel(g, 0.3, 0.2, 0.3, 0.22, 0.02, 0.6, 0);
+    for (const x of [-0.42, 0.06]) {
+      part(g, cyl(0.012, 0.015, 0.5, 4), leaf(1), x, 0.37, 0.4);
+      part(g, cyl(0.07, 0.07, 0.02, 8), mat('#ffcf3a'), x, 0.63, 0.42).rotation.x = Math.PI / 2 - 0.4;
+      part(g, cyl(0.03, 0.03, 0.025, 6), mat('#7a5634'), x, 0.63, 0.43).rotation.x = Math.PI / 2 - 0.4;
+    }
   },
 
   /* ---------------------------------------- Aviaries ---------------------------------------- */
@@ -1288,7 +1589,9 @@ export const MODELS = {
         curl.push([Math.cos(a) * r, 0.35 + t2 * 1.2, Math.sin(a) * r]);
       }
       part(g, tube('devilcurl', curl, 0.32, { n: 4, tip: 0.45, steps: 42 }), mat('#d9b878'));
-      part(g, tube('devilcurl2', curl.map(([x, y, z]) => [x, y + 0.26, z]), 0.08, { n: 4, tip: 0.45, steps: 42 }), mat('#8a6040'));
+      // (grass along its crest)
+      part(g, tube('devilcurl2', curl.map(([x, y, z]) => [x, y + 0.26, z]), 0.1, { n: 4, tip: 0.45, steps: 42 }), leaf(0));
+      garland(g, 1.45, 0, 0.1, 0, 16, 0);
       part(g, cyl(0.5, 0.42, 0.3, 10), mat('#2b2119'), 0, 0.4, 0);
       const swirl = spin(rep, holder(g, 0, 0.6, 0), 'y', 4, rep.id);
       for (let i = 0; i < 4; i++) part(swirl, cone(0.25 + i * 0.16, 0.6, 7), see(['#6b5236', '#7a6040', '#8a6e4c', '#a08460'][i], 0.75 - i * 0.12), 0, 0.3 + i * 0.45, 0).rotation.x = Math.PI;
@@ -1318,6 +1621,8 @@ export const MODELS = {
       motes(rep, g, 0, 0.85, 0, { n: 3, h: 1.4, spread: 0.8, size: 0.07, material: see('#ffffff', 0.7), rate: 0.4, sway: 0.1 });
       ripple(rep, g, 0, 0.86, 0, 0.6, 1.25, { material: see('#e8fbff', 0.5), rate: 0.5 });
       band(rep, g, 1.32, 0.12, 16);
+      for (const [x, z] of [[-0.85, 0.3], [0.7, -0.8], [0.9, 0.75]]) part(g, cyl(0.22, 0.22, 0.03, 7), leaf(Math.round(x * 4)), x, 0.87, z);
+      part(g, ico(0.07, 0), bloom(0), -0.8, 0.92, 0.3);
     } else {
       // the Whirlibase, after its sprite: a dome of gold, its gores parted by dark ribs, on a drum
       // of white stone; on its crown a hatch where a Whirligig's rotor idles, and a windsock
@@ -1328,7 +1633,9 @@ export const MODELS = {
         part(g, box(0.26, 0.42, 0.05), mat('#3f4a55'), Math.cos(a) * 1.15, 0.78, Math.sin(a) * 1.15).rotation.y = -a + Math.PI / 2;
       }
       part(g, cyl(1.2, 1.2, 0.1, 16), p.trim, 0, 1.25, 0);
-      for (let i = 0; i < 12; i++) part(g, lune(1.1, i, 12, Math.PI / 2), metal(i % 2 ? '#d9a63a' : '#c08a2a'), 0, 1.28, 0).scale.y = 0.85;
+      // a solar dome: every other gore of blue cells
+      for (let i = 0; i < 12; i++) part(g, lune(1.1, i, 12, Math.PI / 2), i % 2 ? metal('#d9a63a') : pv(), 0, 1.28, 0).scale.y = 0.85;
+      garland(g, 1.42, 0, 0.1, 0, 18, 1);
       for (let i = 0; i < 6; i++) {
         const rib = part(g, shape('whirlrib', () => new THREE.TorusGeometry(1.11, 0.035, 4, 10, Math.PI / 2)), mat('#5a4030'), 0, 1.28, 0);
         rib.rotation.y = (i / 6) * Math.PI * 2;
@@ -1415,6 +1722,11 @@ export const MODELS = {
     }
     lit(part(body, box(0.16, 0.16, 0.03), glow('#ffe39a', '#ffb43a', 1.4), 0, 0.9, 0.2)).rotation.z = Math.PI / 4;
     part(body, box(0.27, 0.24, 0.25), mat('#c9b99a'), 0, 1.24, 0.03);
+    // a living golem: a sapling grows from its head, flowers in the moss on its shoulders
+    part(body, cyl(0.018, 0.024, 0.2, 4), mat('#7a5634'), 0.04, 1.45, -0.02);
+    part(body, ico(0.1, 0), leaf(1), 0.04, 1.58, -0.02);
+    part(body, ico(0.06, 0), leaf(3), -0.03, 1.52, 0.03);
+    for (const s of [-1, 1]) part(body, ico(0.04, 0), bloom(s > 0 ? 0 : 1), s * 0.36, 1.24, 0.04);
     for (const x of [-0.07, 0.07]) lit(part(body, box(0.05, 0.04, 0.02), glow('#ffe39a', '#ff8a1a', 1.6), x, 1.26, 0.16));
     const limb = (x, y, len, w) => {
       const h = holder(body, x, y, 0);
@@ -1456,6 +1768,7 @@ export const MODELS = {
     const sail = moving(part(body, shape('skatersail', () => new THREE.CylinderGeometry(0.75, 0.75, 1.3, 7, 1, true, -0.55, 1.1)), mat('#f3ecd8', { side: THREE.DoubleSide }), 0, 1.25, -0.72));
     sail.scale.set(0.9, 1, 0.8);
     part(body, box(0.22, 0.12, 0.02), team(rep), 0.11, 2.12, 0.05);
+    solarPanel(body, 0.36, 0.24, 0, 0.56, 0.3, 0.25, 0);
     body.scale.setScalar(1.1);
     rep.walk = (phase) => {
       for (const w of wheels) w.rotation.x = phase * 2;
@@ -1471,6 +1784,8 @@ export const MODELS = {
     part(body, ring(0.5, 0.04, 16), dark, 0, 0, 0).scale.set(1.08, 0.86, 1);
     part(body, box(0.5, 0.06, 0.06), team(rep), 0, 0.14, -0.38);
     for (const [x, z, k] of [[0, -0.02, 1], [0.2, -0.12, 0.7], [-0.2, -0.1, 0.75], [0.05, 0.15, 0.55]]) lit(part(body, octa(0.16 * k), glow('#c8f2ff', '#29a8ff', 1), x, 0.22 + 0.12 * k, z)).scale.y = 1.8;
+    // a little reef garden on its back about the crystals
+    for (const [x, z, i] of [[-0.3, 0.08, 0], [0.32, 0.05, 1], [-0.1, -0.28, 2], [0.18, 0.22, 3]]) part(body, ico(0.08, 0), i === 3 ? bloom(0) : leaf(i), x, 0.18, z);
     for (const x of [-0.1, 0.1]) {
       part(body, cyl(0.02, 0.02, 0.2, 4), dark, x, 0.24, 0.36);
       part(body, sph(0.05, 6, 4), mat('#111111'), x, 0.35, 0.36);
@@ -1510,6 +1825,11 @@ export const MODELS = {
     part(body, box(0.5, 0.3, 0.42), mat('#7a5a3a'), 0, 1.15, -0.12);
     part(body, cyl(0.14, 0.14, 0.56, 8), mat('#a87a50'), 0, 1.38, -0.12).rotation.z = Math.PI / 2;
     for (const z of [-0.25, 0.02]) part(body, box(0.56, 0.34, 0.05), team(rep), 0, 1.12, z);
+    // wildflowers and leaves caught in its shaggy coat
+    for (const [x, y, z, i] of [[0.2, 0.95, 0.3, 0], [-0.22, 0.9, 0.05, 3], [0.18, 0.88, -0.32, 1], [-0.1, 1.18, 0.32, 2]]) {
+      part(body, ico(0.06, 0), bloom(i), x, y, z);
+      part(body, ico(0.07, 0), leaf(i), x + 0.04, y - 0.05, z + 0.03);
+    }
     const head = holder(body, 0, 0.82, 0.52);
     part(head, box(0.34, 0.3, 0.32), mat('#5d5070'));
     part(head, box(0.24, 0.16, 0.16), fur, 0, -0.08, 0.18);
@@ -1582,6 +1902,10 @@ export const MODELS = {
       for (const x of [-0.2, 0.2]) part(body, cyl(0.02, 0.02, 0.5, 4), mat('#5a4a3a'), x, -0.75, 0.1);
       const prop = spin(rep, holder(body, 0, -1.05, -0.55), 'z', 14);
       part(prop, box(0.08, 0.7, 0.03), mat('#3a3330'));
+      // a solar airship: a strip of cells along the envelope's back, plants in the gondola
+      solarPanel(body, 0.44, 1.7, 0, 0.74, 0.1, 0, 0);
+      for (const z of [-0.25, 0.15, 0.5]) part(body, ico(0.12, 0), leaf(Math.round(z * 4)), 0, -0.82, z);
+      part(body, ico(0.06, 0), bloom(1), 0.1, -0.74, 0.15);
       rep.cargo = holder(g, 0, 2.3, 0);
       rep.cargoBelow = 2.0;
     } else if (f === 'rain') {
@@ -1617,6 +1941,9 @@ export const MODELS = {
       part(body, cyl(0.28, 0.22, 0.38, 6), mat('#8a5a34'), 0, -1.68, 0);
       part(body, ring(0.28, 0.04, 6), metal('#d9a63a'), 0, -1.5, 0).rotation.x = Math.PI / 2;
       lit(part(body, cyl(0.2, 0.2, 0.2, 6), glow('#ffe39a', '#ffb43a', 0.9), 0, -1.66, 0));
+      // a hanging garden: greens spilling over the gondola's rim
+      garland(body, 0.27, 0, -1.47, 0, 8, 1);
+      for (const a of [0.5, 2.6, 4.6]) part(body, box(0.04, 0.32, 0.04), leaf(Math.round(a)), Math.cos(a) * 0.3, -1.68, Math.sin(a) * 0.3);
       rep.cargo = holder(g, 0, 1.4, 0);
       rep.cargoBelow = 1.8;
     }
@@ -1637,6 +1964,12 @@ export const MODELS = {
     part(figure, cone(0.1, 0.24, 6), mat('#f2f0ea'), 0, 1.0, 0.11).rotation.x = Math.PI + 0.25;
     const crown = holder(figure);
     part(crown, lathe('mitre', [[0.13, 0], [0.15, 0.15], [0.1, 0.32], [0.02, 0.42]], 8), gold, 0, 1.25, 0);
+    // solarpunk: a wreath of leaves at the mitre's brim, a stole of green down his front
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      part(crown, ico(0.045, 0), i % 5 ? leaf(i) : bloom(1), Math.cos(a) * 0.155, 1.27, Math.sin(a) * 0.155);
+    }
+    for (const s of [-1, 1]) part(figure, box(0.06, 0.62, 0.02), leaf(0), s * 0.07, 0.6, 0.265).rotation.x = -0.2;
     // the Combahee Raid's Wayfinder in disguise (sim/raid.ts): a traveller's hooded cloak over his
     // robe, the mitre put away, a stoop
     const guise = holder(figure);
@@ -1653,6 +1986,8 @@ export const MODELS = {
     const staff = holder(right, 0, -0.4, 0.04);
     part(staff, cyl(0.025, 0.025, 1.5, 5), mat('#6f4e33'), 0, 0.3, 0);
     part(staff, ring(0.09, 0.02, 8), gold, 0, 1.06, 0);
+    // his staff in leaf: shoots up its length
+    for (const [y, a] of [[0.1, 0], [0.45, 2.1], [0.8, 4.2]]) part(staff, ico(0.045, 0), leaf(Math.round(a)), Math.cos(a) * 0.04, y, Math.sin(a) * 0.04);
     const light = lit(moving(part(staff, ico(0.09, 0), glow('#fff3c0', '#ffd24a', 1.2), 0, 1.1, 0)));
     if (rep.id != null) {
       // a light of his own, that swells as he prays (a captive carried off has none)
@@ -1727,6 +2062,9 @@ export const MODELS = {
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2 + 0.9, r = 0.18 + hash(i, 7, 71) * 0.15;
       part(g, dodeca(r), mat('#857766'), Math.cos(a) * 1.35, r * 0.5, Math.sin(a) * 1.35);
+      // moss on the stones, ferns between them, fed by the warm damp
+      part(g, ico(r * 0.7, 0), leaf(i), Math.cos(a) * 1.35, r * 0.95, Math.sin(a) * 1.35).scale.y = 0.45;
+      part(g, cone(0.12, 0.42, 5), leaf(i + 1), Math.cos(a + 0.6) * 1.25, 0.21, Math.sin(a + 0.6) * 1.25);
     }
     part(g, cyl(0.42, 0.5, 0.25, 10), mat('#2b2522'), 0, 0.2, 0);
     const throat = lit(moving(part(g, cyl(0.34, 0.34, 0.04, 10), glow('#c8f2ff', '#39c6ff', 1), 0, 0.33, 0)));
@@ -1763,6 +2101,10 @@ export const MODELS = {
     lit(part(cap, octa(0.28), glow('#e0d4ff', '#8a5cff', 1.4))).scale.y = 1.7;
     const ring2 = spin(rep, holder(g, 0, 0.6, 0), 'y', 1.1, rep.id);
     for (let i = 0; i < 4; i++) lit(part(ring2, ico(0.06, 0), glow('#e0d4ff', '#8a5cff', 1.8), Math.cos(i * 1.57) * 0.85, Math.sin(i * 2.3) * 0.2 + 0.3, Math.sin(i * 1.57) * 0.85));
+    // overgrown: moss on its steps, ivy down two faces, flowers at its foot
+    greenRoof(g, 1.0, 1.0, 0, 0.45, 0, 5);
+    for (const a of [0, Math.PI / 2]) vines(g, Math.sin(a) * 0.36, 3.1, Math.cos(a) * 0.36, 0.35, { n: 2, turn: a, len: 1.6, seed: a });
+    garland(g, 0.82, 0, 0.26, 0, 12, 3);
   },
   /** "As a Temple is built, the alignment of that Temple grows into the Residence": its walls,
    * roof and trim are those of the Fury whose Temple holds the island (`theme`), the Sun's on
@@ -1777,8 +2119,12 @@ export const MODELS = {
     part(g, box(0.26, 0.7, 0.26), mat(p.dark), 0.6, 2.0, -0.3);
     part(g, box(0.42, 0.65, 0.05), mat('#6b4a2c'), 0, 0.38, 0.86);
     for (const x of [-0.7, 0.7]) part(g, box(0.34, 0.3, 0.05), glow(p.glow[0], p.glow[1], 0.7), x, 0.8, 0.86);
-    part(g, ico(0.45), mat('#4b7a30'), -1.4, 0.4, 1.3);
-    part(g, ico(0.35), mat('#4b7a30'), 1.45, 0.35, -1.2);
+    part(g, ico(0.45, 1), leaf(0), -1.4, 0.4, 1.3);
+    part(g, ico(0.35, 1), leaf(1), 1.45, 0.35, -1.2);
+    // solarpunk: a solar panel on the sunny slope, window boxes in flower, a tree in blossom
+    solarPanel(g, 1.0, 0.55, 0, 1.86, 0.5, 0.8, 0);
+    for (const [x, k] of [[-0.7, 0], [0.7, 3]]) planter(g, x, 0.42, 0.95, 0.42, 0, k);
+    tree(g, 1.35, 1.25, 0.42);
   },
   generic(rep, g, e) {
     const d = defs.get(e.type);

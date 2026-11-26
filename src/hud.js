@@ -38,8 +38,8 @@ export class Hud {
     this.acc = 0;
     $('pause').onclick = () => this.togglePause();
     $('speed').onclick = () => this.setSpeed(G.speed === SPEEDS[SPEEDS.length - 1] ? -9 : 1);
-    $('artSprites').onclick = () => this.art.setMode('sprites');
-    $('artModels').onclick = () => this.art.setMode('models');
+    $('artSprites').onclick = () => this.art.setMode('sprites', true);
+    $('artModels').onclick = () => this.art.setMode('models', true);
     $('help').onclick = () => this.help();
     $('howto').onclick = () => this.howToPlay();
     const sound = this.sound = game.el.systems['ns-sound'];

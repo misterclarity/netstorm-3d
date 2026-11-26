@@ -158,7 +158,7 @@ export function campaignMap(hud) {
   hud.modal(`<h2>${escapeHtml(TD_TITLE)}</h2>
     ${INTRO.map((t) => `<p class="text">${escapeHtml(t)}</p>`).join('')}
     <svg class="td-map" viewBox="0 0 790 340" role="group" aria-label="The campaign map">
-      <defs><linearGradient id="tdSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5b86c7"/><stop offset="1" stop-color="#a9c7ea"/></linearGradient></defs>
+      <defs><linearGradient id="tdSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3f9fb8"/><stop offset="0.7" stop-color="#9fd8d4"/><stop offset="1" stop-color="#ffe6b0"/></linearGradient></defs>
       <rect width="790" height="340" rx="12" fill="url(#tdSky)"/>
       <g class="clouds">${[[60, 60, 50], [300, 40, 70], [560, 60, 60], [720, 300, 70], [250, 320, 80], [440, 310, 60]].map(([x, y, r]) => `<ellipse cx="${x}" cy="${y}" rx="${r}" ry="${r * 0.32}"/>`).join('')}</g>
       <path d="${way}" class="way"/>

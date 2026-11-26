@@ -80,7 +80,9 @@ export const OWNER_COLOR = ['#d9d2bf', '#3f86e8', '#e3603f', '#a070e0', '#e0c040
 export const FURY_COLOR = { sun: '#e8b04a', rain: '#59b3e6', wind: '#8cc05a', thunder: '#a184ea' };
 /** Grass tiles of the original by Fury, as netstorm-web's texture-selection.ts picks them. */
 export const FURY_TILES = { sun: 'rgrass', rain: 'ragrass', wind: 'wigrass', thunder: 'thgrass' };
-export const GROUND_PAINT = { sun: [150, 146, 104], rain: [86, 136, 66], wind: [121, 146, 62], thunder: [104, 120, 92] };
+// each Fury's island ground in 3D: meadows, lush and sunlit (a golden green for the Sun, deep for
+// the Rain, spring green for the Wind, sage for the Thunder)
+export const GROUND_PAINT = { sun: [134, 166, 80], rain: [74, 146, 86], wind: [116, 168, 70], thunder: [98, 142, 108] };
 export const BUILDABLE = new Set(['Shooter', 'Defense', 'Anti-Air', 'Source of Energy', 'Air Attack Base',
   'Production', 'Energy', 'Altar', 'Residence', 'Ground Transport', 'Aerial Transport']);
 export const PRIEST_BUILT = new Set(['Energy', 'Production', 'Altar']);

@@ -219,7 +219,7 @@ AFRAME.registerComponent('ns-effects', {
     this.wave(ground, reach, color);
     if (look === 'blast') {
       this.fireball(ground, reach, color);
-      for (let i = 0; i < 6; i++) this.puff(spot().setY(y + 0.6), '#5a5048', 1.4, 1.6);
+      for (let i = 0; i < 6; i++) this.puff(spot().setY(y + 0.6), '#b0a490', 1.4, 1.6); // (dust, not soot)
     } else if (look === 'lightning') {
       for (let i = 0; i < 8; i++) {
         const to = spot();

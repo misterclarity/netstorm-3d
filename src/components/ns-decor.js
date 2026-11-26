@@ -26,28 +26,32 @@ const ISLAND = 1;
 // the parts, made once: one unit is one cell
 const GEO = {
   trunk: new THREE.CylinderGeometry(0.06, 0.1, 0.62, 5).translate(0, 0.31, 0),
-  crown: new THREE.IcosahedronGeometry(0.36, 0).translate(0, 0.82, 0),
+  // round, full crowns (solarpunk: lush, not spiky), a second lobe beside the first, blossom on some:
+  // low spheres, shared corners and all (fewer corners than a faceted ball, a map has thousands)
+  crown: new THREE.SphereGeometry(0.36, 7, 5).translate(0, 0.82, 0),
+  crownTop: new THREE.SphereGeometry(0.24, 6, 4).translate(0.12, 1.08, -0.06),
+  blossom: new THREE.OctahedronGeometry(0.055, 0),
   pine: new THREE.ConeGeometry(0.34, 0.75, 6).translate(0, 0.7, 0),
   pineTop: new THREE.ConeGeometry(0.24, 0.55, 6).translate(0, 1.08, 0),
-  bush: new THREE.IcosahedronGeometry(0.24, 0).scale(1, 0.72, 1).translate(0, 0.14, 0),
+  bush: new THREE.SphereGeometry(0.24, 7, 4).scale(1, 0.72, 1).translate(0, 0.14, 0),
   rock: new THREE.DodecahedronGeometry(0.2, 0).scale(1.2, 0.62, 1).translate(0, 0.08, 0),
   flower: new THREE.IcosahedronGeometry(0.06, 0).translate(0, 0.07, 0),
   tuft: new THREE.ConeGeometry(0.05, 0.3, 3).translate(0, 0.15, 0),
 };
 /** How much bigger than its part above each kind is drawn: the trees and the bushes twice. */
-const GROWN = { trunk: 2, crown: 2, pine: 2, pineTop: 2, bush: 2 };
+const GROWN = { trunk: 2, crown: 2, crownTop: 2, pine: 2, pineTop: 2, bush: 2 };
 const MAT = new THREE.MeshStandardMaterial({ color: '#ffffff', flatShading: true, roughness: 0.9 });
-const SHADOWS = new Set(['trunk', 'crown', 'pine', 'pineTop', 'bush', 'rock']);
+const SHADOWS = new Set(['trunk', 'crown', 'crownTop', 'pine', 'pineTop', 'bush', 'rock']);
 
-/** Each Fury's greens and flowers: the islands of a side look like its Temple's. */
+/** Each Fury's greens and flowers: the islands of a side look like its Temple's, all of them lush. */
 const PALETTE = {
-  sun: { leaves: ['#5f9a3a', '#6fae45', '#86b84a', '#4f8a34'], flowers: ['#ffd84a', '#ff7a4a', '#ffffff', '#ffb0c8'], grass: '#7fa848' },
-  wind: { leaves: ['#7f9a3a', '#93a74a', '#a3b45a', '#6f8a34'], flowers: ['#fff3a0', '#ffffff', '#e8c870'], grass: '#94a64a' },
-  rain: { leaves: ['#3f8f6a', '#4fa07a', '#5aa88a', '#357f5c'], flowers: ['#7ac8ff', '#ffffff', '#b0e0ff'], grass: '#5f9a5a' },
-  thunder: { leaves: ['#4f6a44', '#5a5f72', '#64546e', '#46603e'], flowers: ['#c49aff', '#ff9ad8', '#ffffff'], grass: '#5f6e4c' },
+  sun: { leaves: ['#5fa43a', '#76b846', '#8cc44e', '#4f9436'], flowers: ['#ffd84a', '#ff8a5a', '#ffffff', '#ffb0c8'], blossom: ['#ffc4d6', '#fff4e0'], grass: '#86b44c' },
+  wind: { leaves: ['#78a83c', '#8cb84a', '#a2c45a', '#679a36'], flowers: ['#fff3a0', '#ffffff', '#ffd27a', '#f6a5c0'], blossom: ['#fff8e6', '#ffe6a8'], grass: '#96b24c' },
+  rain: { leaves: ['#3f9a66', '#4fab78', '#62b688', '#358a5a'], flowers: ['#7ac8ff', '#ffffff', '#b0e0ff', '#c3a2f0'], blossom: ['#e0f4ff', '#ffffff'], grass: '#62a45c' },
+  thunder: { leaves: ['#5a8e5a', '#6a9a72', '#7a8fa0', '#4f8458'], flowers: ['#c49aff', '#ff9ad8', '#ffffff', '#b498f0'], blossom: ['#d8c4ff', '#f4d0ff'], grass: '#6a9468' },
 };
-const ROCKS = ['#8a8478', '#9a9286', '#7a7268', '#a39a8c'];
-const TRUNK = '#6b4a2c';
+const ROCKS = ['#a09684', '#b0a48e', '#8e8474', '#b8ab94'];
+const TRUNK = '#7a5634';
 const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), C = new THREE.Color();
 
 /** Whether a cell lies within a cell of a tower defense battle's road or a platform. */
@@ -114,7 +118,7 @@ AFRAME.registerComponent('ns-decor', {
     this.islands = islands;
     for (const { mesh } of Object.values(this.meshes)) { this.group.remove(mesh); mesh.dispose(); }
     this.meshes = {};
-    const lots = { trunk: [], crown: [], pine: [], pineTop: [], bush: [], rock: [], flower: [], tuft: [] }, cells = new Set();
+    const lots = { trunk: [], crown: [], crownTop: [], blossom: [], pine: [], pineTop: [], bush: [], rock: [], flower: [], tuft: [] }, cells = new Set();
     // with tiered islands (heights.js), on the ground of its island's height
     const put = (kind, cell, x, z, scale, role, pick, turn) => {
       lots[kind].push({ cell, x, y: heightOfCell(cell % WORLD, Math.floor(cell / WORLD)), z, scale: scale * (GROWN[kind] ?? 1), turn, role, pick, hidden: false });
@@ -153,12 +157,24 @@ AFRAME.registerComponent('ns-decor', {
           } else {
             put('trunk', i, tx, tz, size, 'trunk', 0, turn);
             put('crown', i, tx, tz, size, 'leaves', pick(6), turn);
+            put('crownTop', i, tx, tz, size, 'leaves', pick(10), turn);
+            // a third of the round trees in blossom: petals scattered over the crown
+            if (pick(11) < 0.34) {
+              // on the crown's skin: a bearing round it and a height up it
+              const R = 0.36 * 2 * size * 1.02, mid = 0.82 * 2 * size;
+              for (let k = 0; k < 8; k++) {
+                const a = k * 2.4 + pick(12) * 6, e = -0.25 + pick(13 + k) * 1.2;
+                put('blossom', i, tx + Math.cos(a) * Math.cos(e) * R, tz + Math.sin(a) * Math.cos(e) * R, 1.3 + pick(30 + k) * 0.6, 'blossom', pick(40 + k), 0);
+                lots.blossom[lots.blossom.length - 1].y += mid + Math.sin(e) * R;
+              }
+            }
           }
         } else if (r < trees + 0.035) put('bush', i, cx, cz, size, 'leaves', pick(8), turn);
-        else if (r < trees + 0.055) put('rock', i, cx, cz, size, 'rock', pick(9), turn);
-        else if (r < trees + 0.09) {
-          for (let k = 0; k < 3; k++) put('flower', i, cx + (pick(20 + k) - 0.5) * 0.5, cz + (pick(30 + k) - 0.5) * 0.5, 1, 'flowers', pick(40 + k), 0);
-        } else if (r < trees + 0.2) {
+        else if (r < trees + 0.05) put('rock', i, cx, cz, size, 'rock', pick(9), turn);
+        else if (r < trees + 0.12) {
+          // wildflowers, more of them than before
+          for (let k = 0; k < 4; k++) put('flower', i, cx + (pick(20 + k) - 0.5) * 0.55, cz + (pick(30 + k) - 0.5) * 0.55, 1, 'flowers', pick(40 + k), 0);
+        } else if (r < trees + 0.22) {
           for (let k = 0; k < 3; k++) put('tuft', i, cx + (pick(50 + k) - 0.5) * 0.4, cz + (pick(60 + k) - 0.5) * 0.4, 0.8 + pick(70 + k) * 0.5, 'grass', 0, pick(80 + k) * 6);
         }
       }
@@ -223,7 +239,7 @@ AFRAME.registerComponent('ns-decor', {
     for (const { mesh, items } of Object.values(this.meshes)) {
       items.forEach((item, n) => {
         const pal = PALETTE[v.owner[item.cell] ? playerTheme(v.owner[item.cell]) : 'sun'] ?? PALETTE.sun;
-        const list = item.role === 'leaves' ? pal.leaves : item.role === 'flowers' ? pal.flowers : item.role === 'rock' ? ROCKS : null;
+        const list = item.role === 'leaves' ? pal.leaves : item.role === 'flowers' ? pal.flowers : item.role === 'blossom' ? pal.blossom : item.role === 'rock' ? ROCKS : null;
         mesh.setColorAt(n, C.set(list ? list[Math.floor(item.pick * list.length)] : item.role === 'grass' ? pal.grass : TRUNK));
       });
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;

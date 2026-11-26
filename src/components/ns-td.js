@@ -282,7 +282,7 @@ AFRAME.registerComponent('ns-td', {
     this.guard = {
       rings: new THREE.InstancedMesh(new THREE.RingGeometry(0.42, 0.6, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.9, depthWrite: false }), 16),
       cells: new THREE.InstancedMesh(new THREE.PlaneGeometry(0.86, 0.86).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd04a', transparent: true, opacity: 0.7, depthWrite: false }), 8),
-      back: new THREE.InstancedMesh(new THREE.PlaneGeometry(1.36, 0.2), new THREE.MeshBasicMaterial({ color: '#1d2433', transparent: true, opacity: 0.85, depthTest: false }), 16),
+      back: new THREE.InstancedMesh(new THREE.PlaneGeometry(1.36, 0.2), new THREE.MeshBasicMaterial({ color: '#173a30', transparent: true, opacity: 0.85, depthTest: false }), 16),
       fill: new THREE.InstancedMesh(new THREE.PlaneGeometry(1.24, 0.11), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, depthTest: false }), 16),
     };
     this.camQ = new THREE.Quaternion();

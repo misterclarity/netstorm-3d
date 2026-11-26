@@ -1,8 +1,9 @@
 /**
- * The art style: the simple 3D models, or the original game's sprites as camera-facing cards.
- * The sprites are not part of this repository: they are read at run time from netstorm-web's
- * repository on GitHub (at the commit the submodule pins), which works wherever the page may load
- * images from other sites. Where it may not, the models stay.
+ * The art style: the 3D models (solarpunk: gardens, solar and wind), or the original game's sprites
+ * as camera-facing cards. The models are shown unless the player picks the sprites (HUD: Sprites),
+ * a choice remembered in this browser. The sprites are not part of this repository: they are read
+ * at run time from netstorm-web's repository on GitHub (at the commit the submodule pins), which
+ * works wherever the page may load images from other sites. Where it may not, the models stay.
  *
  * Units are animated as in netstorm-web: its slotOf() says which frame ("slot") each unit shows on
  * each tick (walking, turning, firing, building, chanting …). A type's frames are loaded the first
@@ -13,6 +14,9 @@ import { ART, NS, G } from '../state.js';
 const { THREE } = AFRAME;
 const PX = 16; // pixels per cell across
 const LOADS_AT_ONCE = 8;
+/** Where the player's pick of art style is kept (storage can be missing or refuse: then none is). */
+const PICK = 'ns3d-art';
+const picked = () => { try { return localStorage.getItem(PICK); } catch { return null; } };
 
 AFRAME.registerSystem('ns-art', {
   init() {
@@ -47,14 +51,16 @@ AFRAME.registerSystem('ns-art', {
       this.tiles = Object.fromEntries(tiles);
       this.available = true;
       this.el.emit('ns-art-available', { ok: true });
-      this.setMode('sprites');
+      if (picked() === 'sprites') this.setMode('sprites');
     }).catch(() => {
       this.available = false;
       this.el.emit('ns-art-available', { ok: false });
     });
   },
 
-  setMode(mode) {
+  /** Show `mode` ('models' or 'sprites'); `remember`, as the player's own pick, for the next time too. */
+  setMode(mode, remember = false) {
+    if (remember) { try { localStorage.setItem(PICK, mode); } catch { /* not kept */ } }
     if (mode === 'sprites' && !this.images) return;
     this.mode = mode;
     this.el.emit('ns-art-mode', { mode });

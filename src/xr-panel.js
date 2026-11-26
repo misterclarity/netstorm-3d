@@ -11,8 +11,8 @@ const W = 1280, H = 800; // canvas pixels
 const PANEL_SIZE = { w: 0.5, h: 0.3125 }; // metres
 const FONT = 'system-ui, "Segoe UI", Roboto, Arial, sans-serif';
 const C = {
-  bg: '#0e1522', edge: 'rgba(255, 255, 255, 0.16)', text: '#eef3fa', muted: '#a3b1c5',
-  accent: '#f2c14e', good: '#6fd08c', bad: '#ff7a6b', button: '#27344b', hover: '#3a4c6b', on: '#5a4a1c',
+  bg: '#12302a', edge: 'rgba(236, 214, 160, 0.22)', text: '#f6f2e4', muted: '#bccbb6',
+  accent: '#f2c14e', good: '#6fd08c', bad: '#ff7a6b', button: '#24493e', hover: '#356353', on: '#5a4a1c',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -206,7 +206,7 @@ export class Panel {
     for (const p of paras) {
       if (room <= 0) break;
       const lines = Math.min(room, p.bold ? 1 : 3);
-      out.texts.push({ x: 40, y, w: W - 80, text: p.text, size: p.bold ? 28 : 25, bold: p.bold, lines, color: p.bold ? C.text : '#d6deea' });
+      out.texts.push({ x: 40, y, w: W - 80, text: p.text, size: p.bold ? 28 : 25, bold: p.bold, lines, color: p.bold ? C.text : '#e9efdf' });
       const used = this.measure(p.text, W - 80, p.bold ? 28 : 25, p.bold, lines);
       y += used * 34 + 8;
       room -= used;

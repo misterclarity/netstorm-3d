@@ -11,6 +11,7 @@
  * cells at its ground; a cell is one unit.
  */
 import { THREE } from './state.js';
+import { grade } from './models.js';
 
 /** The unit shapes, each with its base at y 0 and its middle at x 0, z 0, flat and non-indexed. */
 const SHAPES = (() => {
@@ -45,9 +46,10 @@ const SHAPES = (() => {
 const coarse = (shape, sx, sy, sz) => (shape === 'ball' && Math.max(sx, sy, sz) < 0.5 ? 'rock' : shape);
 
 const COLORS = new Map();
+/** A colour as the batch keeps it: through the models' solarpunk grade (models.js), as theirs are. */
 const color = (hex) => {
   let c = COLORS.get(hex);
-  if (!c) { c = new THREE.Color(hex); COLORS.set(hex, c); }
+  if (!c) { c = new THREE.Color(grade(hex)); COLORS.set(hex, c); }
   return c;
 };
 
@@ -149,13 +151,14 @@ export class Kit {
 
 const pick = (list, v) => list[Math.floor(v * list.length) % list.length];
 const FURY = { sun: '#e8a23a', rain: '#3f8fd8', wind: '#7fb04a', thunder: '#8f6ae0', med: '#2f68b8', concord: '#d8c07a' };
-const WINDOW = '#2b2620';
+// (windows of glass that shows the sky)
+const WINDOW = '#3f5c63';
 const LANTERN = '#ffc870';
 const STYLE = {
   sun: { walls: ['#e2c08a', '#d9b07a', '#e8cd9e', '#d6a76c'], trim: '#a8683a', roof: ['#c6743e', '#b8653a', '#d08a4a'], door: '#6a4024', lit: '#ffcf7a' },
   rain: { walls: ['#cbd7e0', '#bccbd6', '#d6dfe5'], trim: '#eef3f6', roof: ['#3d6d9e', '#2f7f8f', '#4a5f9a'], door: '#2f5f8a', lit: '#cfe6ff' },
   wind: { walls: ['#efeedc', '#e5e8d2', '#f1e9d6'], trim: '#7a5a3a', roof: ['#7f9a5d', '#a68f5c', '#6e8a6a'], door: '#5a7a3a', lit: '#fff0b0' },
-  thunder: { walls: ['#666c7e', '#5b6072', '#717486'], trim: '#9aa3b5', roof: ['#4f4370', '#5d4c82', '#463d63'], door: '#2c2838', lit: '#d8c8ff' },
+  thunder: { walls: ['#c9bfd8', '#bdb3cf', '#d2c9de'], trim: '#c98a4a', roof: ['#4f9a88', '#7a68b0', '#5a8f80'], door: '#5a4a78', lit: '#d8c8ff' },
   med: { walls: ['#f6f4ee', '#f1eee5', '#f8f6f1', '#ede7db'], trim: '#e2dccf', roof: ['#2f68b8', '#2a7fb0', '#3a6fc4'], door: '#2f68b8', lit: '#ffd88a' },
 };
 const SHUTTERS = ['#2f68b8', '#2a8f9a', '#4f8f4a', '#c98a2c', '#2f68b8'];
@@ -191,6 +194,34 @@ function windows(k, st, W, D, floors, v, door) {
   }
 }
 
+/** Solar panels in a row on a flat roof W × D whose top is at y: brass frames, blue cells, tilted to the front. */
+function solarRoof(k, W, D, y, n = 2) {
+  const pw = (W - 0.4) / n;
+  for (let i = 0; i < n; i++) {
+    const x = -W / 2 + 0.2 + pw * (i + 0.5);
+    k.part('box', x, y + 0.12, 0, pw - 0.1, 0.05, Math.min(1.1, D - 0.5), '#d9aa45', 0.35);
+    k.part('box', x, y + 0.15, 0.01, pw - 0.18, 0.05, Math.min(1.1, D - 0.5) - 0.08, '#2c5d8a', 0.35);
+  }
+}
+/** A garden on a flat roof W × D whose top is at y: a bed of turf, bushes and flowers in it. */
+function roofGarden(k, W, D, y, v) {
+  k.part('box', 0, y, 0, W - 0.3, 0.1, D - 0.3, '#5f9a3e');
+  const n = Math.max(2, Math.round((W * D) / 1.6));
+  for (let i = 0; i < n; i++) {
+    const x = (((v * 41 + i * 0.37) % 1) - 0.5) * (W - 0.6), z = (((v * 23 + i * 0.61) % 1) - 0.5) * (D - 0.6);
+    k.part('ball', x, y + 0.08, z, 0.42, 0.3, 0.42, ['#4f9a3c', '#6db34a', '#3f8a3a'][i % 3]);
+    if (i % 2) k.part('ball', x + 0.12, y + 0.3, z, 0.14, 0.14, 0.14, ['#f6a5c0', '#ffd34e', '#ffffff', '#c3a2f0'][i % 4]);
+  }
+}
+/** Ivy down a wall: strands from the top (y) of the front (z = D / 2) at a few places across W. */
+function ivy(k, W, D, y, v) {
+  for (let i = 0; i < 3; i++) {
+    const x = (((v * 59 + i * 0.29) % 1) - 0.5) * (W - 0.4), len = 0.6 + ((v * 71 + i * 0.43) % 1) * Math.min(1.2, y - 0.3);
+    k.part('box', x, y - len, D / 2 + 0.04, 0.16, len, 0.06, i % 2 ? '#4f9a3c' : '#3f8a3a');
+    k.part('ball', x, y - len - 0.05, D / 2 + 0.07, 0.24, 0.2, 0.12, '#5c9e40');
+  }
+}
+
 /** A house of the style p.s on its cells, its door toward the street. */
 export function house(k, p) {
   const [cw, cd] = sizeOf(p), st = STYLE[p.s] ?? STYLE.med, v = p.v;
@@ -214,6 +245,12 @@ export function house(k, p) {
       k.part('box', 0, H, 0, W + 0.1, 0.25, D + 0.1, st.trim);
       k.part('box', 0, H + 0.25, 0, W - 0.2, 0.05, D - 0.2, wall);
       k.part('cyl', door, 1.0, D / 2 + 0.05, 0.42, 0.05, 0.42, '#e8b43a', Math.PI / 2);
+      // solarpunk: solar panels or a garden on the roof (not under a pavilion), ivy on some fronts
+      if (!(v > 0.55 && big >= 6)) {
+        if (((v * 3) % 1) < 0.5) solarRoof(k, W, D, H + 0.25, Math.max(1, Math.round(W / 1.2)));
+        else roofGarden(k, W, D, H + 0.25, v);
+      }
+      if (((v * 9) % 1) < 0.4) ivy(k, W, D, H, v);
       if (v > 0.55 && big >= 6) {
         k.part('box', -W / 4, H + 0.25, -D / 4, W / 2.4, 0.9, D / 2.4, wall);
         k.part('box', -W / 4, H + 1.15, -D / 4 + 0.15, W / 2, 0.06, D / 2 + 0.3, roof, -0.12);
@@ -230,6 +267,7 @@ export function house(k, p) {
         k.part('cone', W / 2 - 0.4, H + 0.9, -D / 2 + 0.4, 1.15, 1.0, 1.15, roof);
       }
       k.part('cyl', door - 0.55, 0, D / 2 + 0.2, 0.36, 0.5, 0.36, '#6f8aa0');
+      if (((v * 9) % 1) < 0.55) ivy(k, W, D, H, v);
       break;
     }
     case 'wind': {
@@ -237,6 +275,12 @@ export function house(k, p) {
       k.part('gable', 0, H, 0, W + 0.25, Math.min(1.6, 0.6 + W * 0.4), D + 0.25, roof);
       for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.part('box', (sx * W) / 2, 0, (sz * D) / 2, 0.12, H, 0.12, st.trim);
       for (let f = 1; f < floors; f++) k.part('box', 0, f * 1.15 - 0.05, 0, W + 0.04, 0.1, D + 0.04, st.trim);
+      if (((v * 3) % 1) < 0.6) {
+        // a solar panel down one slope of the gable (its ridge along z: the slope faces +x)
+        const rise = Math.min(1.6, 0.6 + W * 0.4), half = (W + 0.25) / 2, tilt = Math.atan2(rise, half);
+        k.part('box', half / 2, H + rise / 2, 0, Math.hypot(rise, half) * 0.62, 0.05, D * 0.72, '#d9aa45', 0, 0, -tilt);
+        k.part('box', half / 2, H + rise / 2 + 0.02, 0, Math.hypot(rise, half) * 0.56, 0.05, D * 0.66, '#2c5d8a', 0, 0, -tilt);
+      }
       if (v > 0.4) {
         const top = H + Math.min(1.6, 0.6 + W * 0.4);
         k.part('box', 0, top - 0.1, -D / 4, 0.05, 0.9, 0.05, '#5a4a3a');
@@ -251,6 +295,7 @@ export function house(k, p) {
       k.part('pyramid', 0, H + 0.15, 0, W + 0.1, top, D + 0.1, roof);
       k.part('cyl', 0, H + 0.15 + top - 0.2, 0, 0.06, 0.9, 0.06, '#b8c0d0');
       k.glow('ball', 0, H + top + 0.65, 0, 0.16, 0.16, 0.16, '#c9a8ff');
+      if (((v * 9) % 1) < 0.6) ivy(k, W, D, H, v);
       break;
     }
     default: {
@@ -275,6 +320,10 @@ export function house(k, p) {
           if (i % 2) k.part('ball', -pw / 2 + (i + 0.5) * (pw / 4) + 0.12, H + 1.42, pd / 2 - 0.05, 0.16, 0.12, 0.16, '#c2307a');
         }
         k.part('box', -pw / 2, H + 0.22, pd / 2 - 0.05, 0.12, 1.05, 0.14, '#4f7f3a');
+      }
+      if (v >= 0.3 && v <= 0.8 && W >= 1.4) {
+        if (((v * 3) % 1) < 0.5) solarRoof(k, W, D, H + 0.26, Math.max(1, Math.round(W / 1.2)));
+        else roofGarden(k, W, D, H + 0.26, v);
       }
       if (((v * 23) % 1) < 0.5) {
         for (let i = 0; i < 4; i++) k.part('ball', door + (i - 1.5) * 0.28, 1.0 + (i % 2) * 0.2, D / 2 + 0.06, 0.32, 0.26, 0.18, i % 3 ? '#c2307a' : '#d84a95');
@@ -353,7 +402,7 @@ export function tree(k, p) {
       break;
     case 'thunder':
       k.part('taper', 0, 0, 0, 0.2, 0.7 * s, 0.2, '#4a3a30');
-      for (let i = 0; i < 3; i++) k.part('cone6', 0, 0.5 * s + i * 0.75 * s, 0, (1.5 - i * 0.35) * s, 1.25 * s, (1.5 - i * 0.35) * s, i % 2 ? '#2f5a52' : '#2a4f48');
+      for (let i = 0; i < 3; i++) k.part('cone6', 0, 0.5 * s + i * 0.75 * s, 0, (1.5 - i * 0.35) * s, 1.25 * s, (1.5 - i * 0.35) * s, i % 2 ? '#4f8a6a' : '#3f7a5e');
       break;
     default:
       cypress(k, p);

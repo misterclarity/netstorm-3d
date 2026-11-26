@@ -2,7 +2,8 @@ import { THREE, G, NS } from '../state.js';
 
 /** Seconds a dusk or a dawn takes: it ends as the night (or the day) begins by the rules. */
 const TWILIGHT = 24;
-const DAY = { sun: '#fff0d8', sunI: 2.6, sky: '#e3eefc', ground: '#7a6248', skyI: 1.15, fog: '#b4c8e4' };
+// the day: a golden sun, light from the sky a little green where the islands' gardens throw it back
+const DAY = { sun: '#ffe4b8', sunI: 2.7, sky: '#eaf6ee', ground: '#76804e', skyI: 1.2, fog: '#c9e2dc' };
 const NIGHT = { sun: '#a9bcff', sunI: 0.9, sky: '#7686bc', ground: '#3a3848', skyI: 0.85, fog: '#232d48' };
 /** How bright the moonlight is by the moon's phase (NS.MOON_PHASES): new, first quarter, full, third quarter. */
 const MOONLIGHT = [0.55, 0.85, 1.15, 0.85];

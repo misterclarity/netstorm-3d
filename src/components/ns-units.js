@@ -73,7 +73,7 @@ const HERO_SPRITE = { scale: 1.35, stride: 1.44 / 8, acts: { call: [77, 1.1], ra
 const ALLY_TINT = '#ffe08a';
 /** And one of it heaving a stone or fire hops so long (ms), so high (cells), turned to its mark. */
 const HEAVE = { ms: 280, high: 0.45 };
-const AIR_SHADOW = { geo: new THREE.CircleGeometry(1, 24), mat: new THREE.MeshBasicMaterial({ color: '#0a1020', transparent: true, opacity: 0.3, depthWrite: false }) };
+const AIR_SHADOW = { geo: new THREE.CircleGeometry(1, 24), mat: new THREE.MeshBasicMaterial({ color: '#12301f', transparent: true, opacity: 0.28, depthWrite: false }) };
 const cards = new WeakMap();
 /** A sprite's texture, plane and material, made once per picture and shared by every card of it. */
 function cardParts(img) {
@@ -107,7 +107,7 @@ function barParts() {
   BAR ??= {
     back: new THREE.PlaneGeometry(1.4, 0.16),
     fill: new THREE.PlaneGeometry(1.36, 0.11),
-    dark: new THREE.MeshBasicMaterial({ color: '#1a1a1a', depthTest: false, transparent: true, opacity: 0.8 }),
+    dark: new THREE.MeshBasicMaterial({ color: '#173a30', depthTest: false, transparent: true, opacity: 0.8 }),
     good: new THREE.MeshBasicMaterial({ color: '#6fd08c', depthTest: false }),
     hurt: new THREE.MeshBasicMaterial({ color: '#f2c14e', depthTest: false }),
     low: new THREE.MeshBasicMaterial({ color: '#ff6b5b', depthTest: false }),

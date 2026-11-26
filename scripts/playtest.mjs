@@ -1435,7 +1435,7 @@ SCENARIOS.fog = async () => {
   });
   const near = (rgb, hex) => rgb.every((c, i) => Math.abs(c - parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16)) < 14);
   const start = await look();
-  if (!start.on || !start.haze || start.over < 0.9 || start.by > 0 || start.drawn !== false || !start.plants || start.shown || !near(start.mini, '#59616c')) throw new Error(`the fog as the skirmish begins: ${JSON.stringify(start)}`);
+  if (!start.on || !start.haze || start.over < 0.9 || start.by > 0 || start.drawn !== false || !start.plants || start.shown || !near(start.mini, '#8e8a9c')) throw new Error(`the fog as the skirmish begins: ${JSON.stringify(start)}`);
   // hovered and clicked, the Temple the fog hides is not there
   const [fx, fy] = start.foe;
   const blind = await page.evaluate(([x, y]) => {
@@ -1460,7 +1460,7 @@ SCENARIOS.fog = async () => {
   await page.waitForFunction(() => document.getElementById('fog').components['ns-fog'].fading.length === 0, null, { timeout: 60000 });
   await page.waitForTimeout(1000);
   const after = await look();
-  if (!thinning.fading || after.by > 0.05 || after.over > 0.1 || !after.shown || near(after.mini, '#59616c')) throw new Error(`the fog by the enemy Temple once he is there: ${JSON.stringify({ thinning, after })}`);
+  if (!thinning.fading || after.by > 0.05 || after.over > 0.1 || !after.shown || near(after.mini, '#8e8a9c')) throw new Error(`the fog by the enemy Temple once he is there: ${JSON.stringify({ thinning, after })}`);
   const picked = await page.evaluate(([x, y]) => { const { G, game } = window.NS3D; game.select([]); game.primary(x, y); return G.selected === G.world.templeOf(2).id; }, [fx + 1, fy + 1]);
   if (!picked) throw new Error('the enemy Temple, seen, cannot be selected');
   // the setting off: no fog in the next battle
@@ -1476,7 +1476,7 @@ SCENARIOS.fog = async () => {
   await page.click('#modal button.main');
   await page.waitForTimeout(1000);
   const off = await look();
-  if (off.on || off.haze || !off.drawn || !off.shown || near(off.mini, '#59616c')) throw new Error(`the fog with the setting off: ${JSON.stringify(off)}`);
+  if (off.on || off.haze || !off.drawn || !off.shown || near(off.mini, '#8e8a9c')) throw new Error(`the fog with the setting off: ${JSON.stringify(off)}`);
   console.log(`  at the start the haze ${start.over} thick over the enemy Temple's corner, which is not drawn, hovered, clicked or on the minimap, ${start.plants} plants by it hidden; his Priest beside it: the haze thinning there (${thinning.fading} texels) to ${after.over}, ${after.shown} plants and the Temple drawn and clicked; off in Settings, none`);
   return errors;
 };

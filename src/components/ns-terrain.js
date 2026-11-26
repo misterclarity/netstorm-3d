@@ -118,6 +118,17 @@ function cityGround(g, x, y, px, py, T, code, theme) {
 }
 
 const { THREE } = AFRAME;
+/** The wildflowers in the painted meadows (3D), and the ivy and its leaves hanging from the islands' rims. */
+const MEADOW = ['#f6a5c0', '#ffd34e', '#fffaf0', '#c3a2f0', '#ff9a6a'];
+const IVY = ['#3f7f34', '#4f9a3c', '#5c9e40', '#356d2e', '#6aa84a'];
+/** Smooth noise over the cells, -1 to 1, changing over some six cells: a meadow's patches. */
+function meadow(x, y) {
+  const at = (X, Y) => hash(X, Y, 65) * 2 - 1, S = 6;
+  const fx = x / S, fy = y / S, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+  const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+  const top = at(ix, iy) + (at(ix + 1, iy) - at(ix, iy)) * sx, bot = at(ix, iy + 1) + (at(ix + 1, iy + 1) - at(ix, iy + 1)) * sx;
+  return top + (bot - top) * sy;
+}
 
 AFRAME.registerComponent('ns-terrain', {
   init() {
@@ -204,8 +215,12 @@ AFRAME.registerComponent('ns-terrain', {
         } else if (set?.length) {
           g.drawImage(set[Math.floor(hash(x, y, 40) * set.length)], cx * T, cy * T, T, T);
         } else {
-          const [r, gg, b] = owner ? GROUND_PAINT[theme] : [138, 140, 104];
-          const v = 0.9 + hash(x, y, 41) * 0.18, q = T / 16;
+          const [r0, g0, b0] = owner ? GROUND_PAINT[theme] : [128, 156, 94];
+          // the meadow's light and its yellower and deeper patches change slowly across the island,
+          // a cell from the next only a little (no chequerboard)
+          const patch = meadow(x, y), q = T / 16;
+          const r = r0 * (1 + patch * 0.1), gg = g0 * (1 + patch * 0.06), b = b0 * (1 - patch * 0.08);
+          const v = 0.97 + hash(x, y, 41) * 0.05;
           g.fillStyle = `rgb(${r * v | 0},${gg * v | 0},${b * v | 0})`;
           g.fillRect(cx * T, cy * T, T, T);
           for (let i = 0; i < 6; i++) {
@@ -213,9 +228,16 @@ AFRAME.registerComponent('ns-terrain', {
             g.fillStyle = `rgba(${r * l | 0},${gg * l | 0},${b * l | 0},0.9)`;
             g.fillRect(cx * T + hash(x, y * 9 + i, 43) * 14 * q, cy * T + hash(x * 3 + i, y, 44) * 14 * q, (2 + hash(i, x, 45) * 3) * q, 2 * q);
           }
+          // a meadow: here and there a wildflower or two in the grass
+          if (hash(x, y, 46) < 0.4) {
+            for (let i = 0; i < 1 + (hash(x, y, 47) < 0.4); i++) {
+              g.fillStyle = MEADOW[Math.floor(hash(x * 5 + i, y, 48) * MEADOW.length)];
+              g.fillRect(cx * T + (2 + hash(x, y * 5 + i, 49) * 11) * q, cy * T + (2 + hash(x * 9 + i, y, 50) * 11) * q, 1.6 * q, 1.6 * q);
+            }
+          }
         }
-        // a darker lip where the island ends
-        g.fillStyle = 'rgba(70, 52, 30, 0.55)';
+        // a darker, mossy lip where the island ends
+        g.fillStyle = 'rgba(44, 72, 32, 0.5)';
         const lip = Math.max(1, T / 8);
         if (!this.land(x, y - 1)) g.fillRect(cx * T, cy * T, T, lip);
         if (!this.land(x, y + 1)) g.fillRect(cx * T, cy * T + T - lip * 1.5, T, lip * 1.5);
@@ -293,15 +315,16 @@ AFRAME.registerComponent('ns-terrain', {
       const [x, , z] = top(X, Y), j = edge(X, Y) ? 0.25 : 0.55;
       return [x + (hash(X, Y, 7) - 0.5) * j, -depth(X, Y), z + (hash(X, Y, 8) - 0.5) * j];
     };
-    const A = new THREE.Color('#7b5b3a'), B = new THREE.Color('#5b5550'), K = new THREE.Color('#3a3634');
+    // warm earth under the meadows, deeper down the rock: no cold grey (solarpunk)
+    const A = new THREE.Color('#86603c'), B = new THREE.Color('#6d5a48'), K = new THREE.Color('#4e4238');
     const rock = (dd, x, z) => {
       const t = THREE.MathUtils.clamp(dd / 10, 0, 1);
       const band = 0.9 + 0.12 * Math.sin(dd * 2.6 + hash(x * 13 | 0, z * 7 | 0, 9) * 1.5);
       const c = t < 0.45 ? A.clone().lerp(B, t / 0.45) : B.clone().lerp(K, (t - 0.45) / 0.55);
       return c.multiplyScalar(band * (0.92 + hash(x * 31 | 0, z * 17 | 0, 10) * 0.16));
     };
-    const grass = new THREE.Color('#4f7a2f');
-    const tp = [], tuv = [], rp = [], rc = [], spikes = [];
+    const grass = new THREE.Color('#4f8f36');
+    const tp = [], tuv = [], rp = [], rc = [], spikes = [], ivy = [];
     const tri = (arr, a, b, c) => arr.push(...a, ...b, ...c);
     // with tiered islands, each cell's ground stands at its height
     const heightOf = (x, y) => heightOfCell(x, y);
@@ -335,6 +358,12 @@ AFRAME.registerComponent('ns-terrain', {
           const tA = T(p), tB = T(s), bA = Bot(p), bB = Bot(s);
           tri(rp, tA, tB, bB); col(grass, grass, rk(bottom(...s), 0.6));
           tri(rp, tA, bB, bA); col(grass, rk(bottom(...s), 0.6), rk(bottom(...p), 0.6));
+          // ivy hanging from the rim over the side, now and then: a strand out from the wall,
+          // as long as the rock is deep there or a little longer
+          if (hash(p[0], p[1], 56 + dx * 3 + dy) < 0.3) {
+            const k = hash(p[0], p[1], 57), out = 0.18;
+            ivy.push([tA[0] + (tB[0] - tA[0]) * k + dx * out, tA[1] + 0.06, tA[2] + (tB[2] - tA[2]) * k + dy * out, 0.6 + hash(p[0], p[1], 58) * (0.4 - bA[1] + tA[1]) * 0.8, hash(p[0], p[1], 59)]);
+          }
         }
         if (D(x, y) >= 2 && hash(x, y, 50) < 0.045) {
           const [px, py, pz] = bottom(x, y);
@@ -373,17 +402,37 @@ AFRAME.registerComponent('ns-terrain', {
       inst.castShadow = true;
       this.islands.add(inst);
     }
+    if (ivy.length) {
+      // the ivy: a strand down from the rim, tapering, and a tuft of leaves at its end and middle
+      const strand = new THREE.CylinderGeometry(0.07, 0.035, 1, 4).translate(0, -0.5, 0);
+      const tuft = new THREE.IcosahedronGeometry(0.2, 0);
+      const strands = new THREE.InstancedMesh(strand, this.ivyMat ??= new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.9 }), ivy.length);
+      const tufts = new THREE.InstancedMesh(tuft, this.ivyMat, ivy.length * 2);
+      const m = new THREE.Matrix4(), qt = new THREE.Quaternion(), e = new THREE.Euler(), c = new THREE.Color(), v = new THREE.Vector3(), s = new THREE.Vector3();
+      ivy.forEach(([x, y, z, len, k], i) => {
+        qt.setFromEuler(e.set((k - 0.5) * 0.25, k * 6, (hash(i, 4, 60) - 0.5) * 0.25));
+        strands.setMatrixAt(i, m.compose(v.set(x, y, z), qt, s.set(1, len, 1)));
+        strands.setColorAt(i, c.set(IVY[Math.floor(k * IVY.length)]));
+        for (const [n, at, size] of [[0, 0.45, 0.8 + k * 0.4], [1, 0.95, 1 + k * 0.6]]) {
+          tufts.setMatrixAt(i * 2 + n, m.compose(v.set(x, y - len * at, z), qt, s.setScalar(size)));
+          tufts.setColorAt(i * 2 + n, c.set(IVY[Math.floor(hash(i, n, 61) * IVY.length)]));
+        }
+      });
+      strands.castShadow = tufts.castShadow = true;
+      this.islands.add(strands, tufts);
+    }
   },
 
   makeBridgeMeshes() {
     const cv = document.createElement('canvas');
     cv.width = cv.height = 64;
     const g = cv.getContext('2d');
+    // honey-coloured planks
     for (let i = 0; i < 8; i++) {
       const l = 0.85 + hash(i, 1, 60) * 0.3;
-      g.fillStyle = `rgb(${150 * l | 0},${104 * l | 0},${62 * l | 0})`;
+      g.fillStyle = `rgb(${184 * l | 0},${138 * l | 0},${86 * l | 0})`;
       g.fillRect(0, i * 8, 64, 7);
-      g.fillStyle = 'rgba(60,38,20,0.9)';
+      g.fillStyle = 'rgba(92,62,34,0.9)';
       g.fillRect(0, i * 8 + 7, 64, 1);
     }
     const wood = new THREE.CanvasTexture(cv);
@@ -400,15 +449,19 @@ AFRAME.registerComponent('ns-terrain', {
     };
     this.deck = make(new THREE.BoxGeometry(1.02, 0.16, 1.02), new THREE.MeshStandardMaterial({ map: wood, roughness: 0.9 }), N);
     this.deck.setColorAt(0, new THREE.Color('#fff'));
-    this.beam = make(new THREE.BoxGeometry(0.16, 0.22, 1.02), new THREE.MeshStandardMaterial({ color: '#4d321c', roughness: 0.9 }), N);
-    this.rail = make(new THREE.BoxGeometry(1, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: '#6a4426', roughness: 0.9 }), N * 2);
-    this.post = make(new THREE.BoxGeometry(0.1, 0.32, 0.1), new THREE.MeshStandardMaterial({ color: '#6a4426', roughness: 0.9 }), N * 2);
-    // a lift: four posts of timber bound with iron from its foot to its head, a beam across the
+    this.beam = make(new THREE.BoxGeometry(0.16, 0.22, 1.02), new THREE.MeshStandardMaterial({ color: '#6e4b2c', roughness: 0.9 }), N);
+    // rails of wood, some wound with ivy (their colour per rail), and a pot of flowers on some posts
+    this.rail = make(new THREE.BoxGeometry(1, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9 }), N * 2);
+    this.rail.setColorAt(0, new THREE.Color('#86603a'));
+    this.post = make(new THREE.BoxGeometry(0.1, 0.32, 0.1), new THREE.MeshStandardMaterial({ color: '#86603a', roughness: 0.9 }), N * 2);
+    this.pot = make(new THREE.IcosahedronGeometry(0.13, 0), new THREE.MeshStandardMaterial({ color: '#ffffff', flatShading: true, roughness: 0.85 }), N * 2);
+    this.pot.setColorAt(0, new THREE.Color('#4f9a3c'));
+    // a lift: four posts of timber bound with brass from its foot to its head, a beam across the
     // head with a pulley, ropes, and the car: a platform with a rail round it
-    const L = 200, iron = new THREE.MeshStandardMaterial({ color: '#5d5a62', metalness: 0.5, roughness: 0.45 });
-    this.liftPost = make(new THREE.BoxGeometry(0.12, 1, 0.12), new THREE.MeshStandardMaterial({ color: '#7a5030', roughness: 0.85 }), L * 4);
+    const L = 200, iron = new THREE.MeshStandardMaterial({ color: '#b08d57', metalness: 0.45, roughness: 0.45 });
+    this.liftPost = make(new THREE.BoxGeometry(0.12, 1, 0.12), new THREE.MeshStandardMaterial({ color: '#9a7046', roughness: 0.85 }), L * 4);
     this.liftBand = make(new THREE.BoxGeometry(1.1, 0.07, 1.1), iron, L * 8);
-    this.liftHead = make(new THREE.BoxGeometry(1.2, 0.2, 0.2), new THREE.MeshStandardMaterial({ color: '#4d321c', roughness: 0.9 }), L);
+    this.liftHead = make(new THREE.BoxGeometry(1.2, 0.2, 0.2), new THREE.MeshStandardMaterial({ color: '#6e4b2c', roughness: 0.9 }), L);
     this.liftWheel = make(new THREE.CylinderGeometry(0.28, 0.28, 0.1, 12), iron, L);
     this.liftRope = make(new THREE.BoxGeometry(0.03, 1, 0.03), new THREE.MeshStandardMaterial({ color: '#d8c79a', roughness: 1 }), L * 2);
     this.liftCar = make(new THREE.BoxGeometry(0.92, 0.14, 0.92), new THREE.MeshStandardMaterial({ map: wood, roughness: 0.9 }), L);
@@ -502,7 +555,7 @@ AFRAME.registerComponent('ns-terrain', {
         let bar = this.bars.get(key);
         if (!bar) {
           const group = new THREE.Group();
-          const back = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.2), new THREE.MeshBasicMaterial({ color: '#1b1f27', transparent: true, opacity: 0.85, depthWrite: false }));
+          const back = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.2), new THREE.MeshBasicMaterial({ color: '#173a30', transparent: true, opacity: 0.85, depthWrite: false }));
           const fill = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.12), new THREE.MeshBasicMaterial({ color: '#6fd08c', depthWrite: false }));
           fill.position.z = 0.001;
           back.renderOrder = 10;
@@ -546,8 +599,10 @@ AFRAME.registerComponent('ns-terrain', {
   buildBridges() {
     const v = G.view, m = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
     const turn = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0)), none = new THREE.Quaternion();
-    const whole = new THREE.Color('#ffffff'), cracked = new THREE.Color('#a07a5c'), hard = new THREE.Color('#b8b2a8');
-    let d = 0, r = 0, po = 0;
+    const whole = new THREE.Color('#ffffff'), cracked = new THREE.Color('#a07a5c'), hard = new THREE.Color('#c8bca4');
+    const wood = new THREE.Color('#86603a'), wound = [new THREE.Color('#4f8f36'), new THREE.Color('#3f7f34')];
+    const pots = ['#4f9a3c', '#6db34a', '#f6a5c0', '#ffd34e', '#c3a2f0', '#fffaf0'].map((c) => new THREE.Color(c));
+    let d = 0, r = 0, po = 0, fl = 0;
     this.fogRev = FOG.revision;
     this.fogged = false;
     for (let y = 0; y < WORLD; y++) {
@@ -566,18 +621,24 @@ AFRAME.registerComponent('ns-terrain', {
         for (const [open, ox, oz, ew] of [[!(links & 1), 0, -0.46, false], [!(links & 4), 0, 0.46, false], [!(links & 2), 0.46, 0, true], [!(links & 8), -0.46, 0, true]]) {
           if (!open) continue;
           m.compose(p.set(px + ox, h + 0.22, pz + oz), ew ? turn : none, one);
+          this.rail.setColorAt(r, hash(x * 5 + ox * 4, y * 5 + oz * 4, 62) < 0.35 ? wound[(x + y) & 1] : wood);
           this.rail.setMatrixAt(r++, m);
         }
         for (const [ox, oz] of [[-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45]]) {
           if (hash(x * 3 + (ox > 0), y * 3 + (oz > 0), 61) < 0.55) {
             m.compose(p.set(px + ox, h + 0.12, pz + oz), none, one);
             this.post.setMatrixAt(po++, m);
+            if (hash(x * 3 + (ox > 0), y * 3 + (oz > 0), 63) < 0.3) {
+              m.compose(p.set(px + ox, h + 0.33, pz + oz), none, one);
+              this.pot.setMatrixAt(fl, m);
+              this.pot.setColorAt(fl++, pots[Math.floor(hash(x + ox, y + oz, 64) * pots.length)]);
+            }
           }
         }
       }
     }
     this.buildLifts();
-    for (const [im, n] of [[this.deck, d], [this.beam, d], [this.rail, r], [this.post, po]]) {
+    for (const [im, n] of [[this.deck, d], [this.beam, d], [this.rail, r], [this.post, po], [this.pot, fl]]) {
       im.count = n;
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;

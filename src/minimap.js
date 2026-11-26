@@ -8,8 +8,8 @@ import { G, ME, WORLD, OWNER_COLOR, FURY_COLOR, origin, wx, wz, playerTheme } fr
 import { groundPoint, lookAtCell, unit } from './space.js';
 import { FOG, seenEntity } from './fog.js';
 
-/** Island ground not yet explored: the fog's dark grey (ns-fog.js). */
-const FOGGED = '#59616c';
+/** Island ground not yet explored: the fog's lilac mist (ns-fog.js). */
+const FOGGED = '#8e8a9c';
 
 const { THREE } = AFRAME;
 const SIZE = 190;
@@ -181,4 +181,4 @@ function rgba(hex, k = 1) {
 }
 
 /** The minimap's ground: under the fog, a bridge, a free island (an owned one: its Fury's colour). */
-const COLOR = { fogged: rgba(FOGGED), bridge: rgba('#8a5a34'), ground: rgba('#6f7a5a') };
+const COLOR = { fogged: rgba(FOGGED), bridge: rgba('#a8804e'), ground: rgba('#7aa05a') };

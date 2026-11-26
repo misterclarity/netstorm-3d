@@ -1,7 +1,7 @@
 /**
  * The fog of war, seen (`ns-fog`): island ground the player has not explored (src/fog.js) lies
- * under a dark grey haze, as in an RTS: flat, a hand above the ground, soft at its edges and slowly
- * stirring, darker by night. Where the player's things come within sight it thins away over half a
+ * under a haze, as in an RTS (a soft lilac mist, like a low cloud come to rest on it): flat, a hand
+ * above the ground, soft at its edges and slowly stirring, darker by night. Where the player's things come within sight it thins away over half a
  * second. One plane over the map for each level of the islands (heights.js), drawn by a shader from
  * a texture of the fog's density, a texel to a cell: dense over ground not yet explored, nothing
  * over ground explored or open sky; blurred at the edge of what has been seen, so that it fades out
@@ -17,7 +17,7 @@ const { THREE } = AFRAME;
 const N = WORLD;
 /** The levels of tiered islands, and the texture's channel each is drawn from (R, G, B). */
 const LEVELS = [-1, 0, 1];
-const HAZE = '#3b4047';
+const HAZE = '#aaa4be';
 /** How high over its ground the haze lies, and how fast it thins (ms to most of the way). */
 const LIFT = 0.4;
 const FADE_MS = 160;

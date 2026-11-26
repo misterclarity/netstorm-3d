@@ -30,7 +30,8 @@ AFRAME.registerComponent('ns-clouds', {
         puffs.push([cx + (hash(c, i, 7) - 0.5) * size * 3.2, cy + hash(c, i, 8) * size * 0.5, cz + (hash(c, i, 9) - 0.5) * size * 1.8, s]);
       }
     }
-    const material = new THREE.MeshLambertMaterial({ color: '#f6f8fc', emissive: '#4a5a70', emissiveIntensity: 0.25, flatShading: true });
+    // sunlit: a warm white, their shade a soft peach rather than grey
+    const material = new THREE.MeshLambertMaterial({ color: '#fffaf0', emissive: '#8a7466', emissiveIntensity: 0.26, flatShading: true });
     const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), material, puffs.length);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     puffs.forEach(([x, y, z, s], i) => {

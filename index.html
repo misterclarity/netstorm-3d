@@ -29,7 +29,7 @@
   <div id="more">
     <div class="sep"></div>
     <button class="tb" id="artSprites" title="The original pixel-art sprites" disabled>Sprites</button>
-    <button class="tb on" id="artModels" title="Simple 3D models">3D</button>
+    <button class="tb on" id="artModels" title="The 3D models: solarpunk, with gardens, solar panels and wind turbines">3D</button>
     <div class="sep"></div>
     <button class="tb" id="sfxToggle" title="Sound effects on or off">Sound</button>
     <button class="tb" id="musicToggle" title="Music on or off">Music</button>
@@ -79,7 +79,7 @@
 <a-scene renderer="antialias: true; toneMapping: ACESFilmic; exposure: 1.05; anisotropy: 8; maxCanvasWidth: 2560; maxCanvasHeight: 2560"
          shadow="type: pcf; autoUpdate: false"
          light="defaultLightsEnabled: false"
-         fog="type: linear; color: #b4c8e4; near: 170; far: 640"
+         fog="type: linear; color: #c9e2dc; near: 170; far: 640"
          xr-mode-ui="enabled: false"
          keyboard-shortcuts="enterVR: false; exitVR: false"
          webxr="optionalFeatures: bounded-floor, hand-tracking"
@@ -89,7 +89,7 @@
 
   <!-- sky and clouds -->
   <a-sky radius="1200" segments-width="48" segments-height="24" material="shader: ns-sky; sunDirection: -0.53 0.71 0.41"></a-sky>
-  <a-entity id="skylight" light="type: hemisphere; color: #e3eefc; groundColor: #7a6248; intensity: 1.15"></a-entity>
+  <a-entity id="skylight" light="type: hemisphere; color: #eaf6ee; groundColor: #76804e; intensity: 1.2"></a-entity>
   <a-entity id="clouds"
             ns-clouds__low="clusters: 85; seed: 11; innerRadius: 20; outerRadius: 480; height: -62; spread: 16; size: 7; spin: 0.004"
             ns-clouds__high="clusters: 16; seed: 23; innerRadius: 125; outerRadius: 340; height: 8; spread: 26; size: 5; spin: -0.006"></a-entity>
@@ -100,7 +100,7 @@
   <a-entity id="table">
     <a-entity id="world">
       <a-entity id="sun" position="-70 95 55" ns-sun
-                light="type: directional; color: #fff0d8; intensity: 2.6; target: #sun-target; castShadow: true;
+                light="type: directional; color: #ffe4b8; intensity: 2.7; target: #sun-target; castShadow: true;
                        shadowMapWidth: 4096; shadowMapHeight: 4096; shadowBias: -0.0004;
                        shadowCameraLeft: -95; shadowCameraRight: 95; shadowCameraTop: 80; shadowCameraBottom: -80;
                        shadowCameraNear: 10; shadowCameraFar: 340"></a-entity>

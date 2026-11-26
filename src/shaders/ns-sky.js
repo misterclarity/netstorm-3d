@@ -1,6 +1,7 @@
 /**
- * A gradient sky with a soft sun, for <a-sky material="shader: ns-sky">: deep blue overhead, a warm
- * haze at the horizon and a lighter blue below, where the sea of clouds lies. The colours are
+ * A gradient sky with a soft sun, for <a-sky material="shader: ns-sky">: a clear turquoise overhead,
+ * a golden haze at the horizon and a pale aqua below, where the sea of clouds lies, the sun's glow
+ * wide and warm (the solarpunk day: bright, clean air, sunlight everywhere). The colours are
  * written in the shader as display values (a `color` uniform would be converted to linear space).
  * `night` (0 to 1, ns-sun.js) darkens it to a night sky with stars and a moon opposite the sun;
  * `moon` is its phase as the house rules number them: 0 new, 1 first quarter, 2 full, 3 third quarter.
@@ -23,15 +24,15 @@ AFRAME.registerShader('ns-sky', {
     uniform float night;
     uniform float moon;
     void main() {
-      vec3 zenith = vec3(0.17, 0.36, 0.68);
-      vec3 middle = vec3(0.50, 0.68, 0.88);
-      vec3 horizon = vec3(0.93, 0.89, 0.82);
-      vec3 below = vec3(0.50, 0.64, 0.84);
+      vec3 zenith = vec3(0.14, 0.45, 0.70);
+      vec3 middle = vec3(0.47, 0.76, 0.86);
+      vec3 horizon = vec3(1.00, 0.91, 0.72);
+      vec3 below = vec3(0.60, 0.80, 0.84);
       float h = vDir.y;
       vec3 c = h > 0.0 ? mix(horizon, middle, smoothstep(0.0, 0.25, h)) : mix(horizon, below, smoothstep(0.0, -0.35, h));
       c = mix(c, zenith, smoothstep(0.25, 0.9, h));
       float s = max(dot(normalize(vDir), normalize(sunDirection)), 0.0);
-      c += vec3(1.0, 0.85, 0.6) * (pow(s, 64.0) * 0.6 + pow(s, 6.0) * 0.12);
+      c += vec3(1.0, 0.82, 0.5) * (pow(s, 64.0) * 0.75 + pow(s, 6.0) * 0.2 + pow(s, 2.0) * 0.05);
       if (night > 0.0) {
         // night: deep blue overhead, a dim violet horizon, stars, and the moon across from the sun
         vec3 n = h > 0.0 ? mix(vec3(0.16, 0.15, 0.27), vec3(0.04, 0.06, 0.16), smoothstep(0.0, 0.6, h)) : mix(vec3(0.16, 0.15, 0.27), vec3(0.08, 0.10, 0.20), smoothstep(0.0, -0.35, h));

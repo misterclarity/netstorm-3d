@@ -300,7 +300,7 @@ AFRAME.registerComponent('ns-dungeon', {
     return {
       stone: lam({ map: rock(false) }),
       wood: lam({ map: planks() }),
-      iron: lam({ color: '#3b3a3e' }),
+      iron: lam({ color: '#4f8f80' }), // (solarpunk: copper gone green, not iron)
       gold: lam({ color: '#c79a3c', emissive: '#3a2400' }),
       bone: lam({ color: '#cfc8b4' }),
       root: lam({ color: '#4a3a28' }),
