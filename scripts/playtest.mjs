@@ -1764,6 +1764,83 @@ SCENARIOS.dungeon = async () => {
     return { below: G.world.below.has(p.id), inside: dungeon.inside, table: document.getElementById('table').object3D.visible, root: dungeon.root.visible, info: document.getElementById('fpInfo').textContent };
   });
   if (!down.below || !down.inside || down.table || !down.root) throw new Error(`not down in the dungeon: ${JSON.stringify(down)}`);
+  // nothing of the cave in his way, nor through his eyes, in this dungeon and twelve more dug and
+  // dressed for the purpose: no stone, crystal, root or column, from his shins to over his head,
+  // reaches into the floor or the pits he can be over (more than a hair: ns-dungeon.js, CLEAR).
+  // Each solid's outline from above is walked round a hundredth of a tile apart, and across.
+  const audit = await page.evaluate(() => {
+    const { G, NS } = window.NS3D, THREE = AFRAME.THREE, dun = document.getElementById('dungeon').components['ns-dungeon'];
+    const { SHIN, HEAD, CLEAR, TILE_SIZE: T } = dun.clearance;
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const hull = (pts) => {
+      const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]), lower = [], upper = [];
+      for (const q of p) { while (lower.length >= 2 && cross(lower.at(-2), lower.at(-1), q) <= 0) lower.pop(); lower.push(q); }
+      for (const q of p.reverse()) { while (upper.length >= 2 && cross(upper.at(-2), upper.at(-1), q) <= 0) upper.pop(); upper.push(q); }
+      return lower.slice(0, -1).concat(upper.slice(0, -1));
+    };
+    const one = (d, group) => {
+      const N = d.w, TILE = NS.TILE, tile = (x, y) => (x < 0 || y < 0 || x >= N || y >= d.h ? TILE.rock : d.tiles[y * N + x]);
+      const free = (x, y) => tile(x, y) === TILE.floor || tile(x, y) === TILE.pit;
+      // how far a point (in tiles) is into where he can be: from the nearest tile he cannot
+      const into = (tx, ty) => {
+        const ix = Math.floor(tx), iy = Math.floor(ty);
+        if (!free(ix, iy)) return 0;
+        let near = 1;
+        for (let y = iy - 1; y <= iy + 1; y++) {
+          for (let x = ix - 1; x <= ix + 1; x++) if (!free(x, y)) near = Math.min(near, Math.hypot(tx - Math.max(x, Math.min(tx, x + 1)), ty - Math.max(y, Math.min(ty, y + 1))));
+        }
+        return near;
+      };
+      group.updateMatrixWorld(true);
+      const inv = group.matrixWorld.clone().invert(), m = new THREE.Matrix4(), im = new THREE.Matrix4(), v = new THREE.Vector3();
+      let worst = { depth: 0 }, solids = 0;
+      const check = (what, matrix, geo) => {
+        const pos = geo.attributes.position, pts = [];
+        let lo = Infinity, hi = -Infinity;
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(matrix);
+          lo = Math.min(lo, v.y);
+          hi = Math.max(hi, v.y);
+          pts.push([v.x / T + N / 2, v.z / T + d.h / 2]);
+        }
+        if (hi <= SHIN || lo >= HEAD) return;
+        solids++;
+        const rim = hull(pts), mid = rim.reduce((a, q) => [a[0] + q[0] / rim.length, a[1] + q[1] / rim.length], [0, 0]), samples = [mid];
+        rim.forEach((q, k) => {
+          const r = rim[(k + 1) % rim.length], n = Math.max(1, Math.ceil(Math.hypot(r[0] - q[0], r[1] - q[1]) / 0.01));
+          for (let j = 0; j < n; j++) samples.push([q[0] + ((r[0] - q[0]) * j) / n, q[1] + ((r[1] - q[1]) * j) / n]);
+          for (const f of [0.33, 0.66]) samples.push([mid[0] + (q[0] - mid[0]) * f, mid[1] + (q[1] - mid[1]) * f]);
+        });
+        for (const [sx, sy] of samples) {
+          const k = into(sx, sy);
+          if (k > CLEAR + 1e-4 && k > worst.depth) worst = { depth: +k.toFixed(3), at: [+sx.toFixed(2), +sy.toFixed(2)], what, lo: +lo.toFixed(2), hi: +hi.toFixed(2) };
+        }
+      };
+      const ghostly = (o) => { for (let q = o; q; q = q.parent) if (q.userData.ghost) return true; return false; };
+      group.traverse((o) => {
+        if (!o.isMesh || ghostly(o) || [].concat(o.material).some((mm) => mm.transparent || mm.blending === THREE.AdditiveBlending)) return;
+        m.multiplyMatrices(inv, o.matrixWorld);
+        if (o.isInstancedMesh) for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, im); check(`${o.geometry.type} #${i}`, im.clone().premultiply(m), o.geometry); }
+        else check(o.geometry.type, m, o.geometry);
+      });
+      return { solids, worst };
+    };
+    const out = (dun.built ?? []).map((b, n) => one(G.world.dungeons[n], b.group));
+    // (dug with the world's own dungeons set aside, and put away again)
+    const kept = G.world.dungeons.splice(0);
+    for (let seed = 101; seed <= 112; seed++) {
+      const d = NS.digDungeon(G.world, NS.ME, seed);
+      G.world.dungeons.length = 0;
+      if (!d) continue;
+      const group = new THREE.Group();
+      dun.dress(d, group);
+      out.push(one(d, group));
+    }
+    G.world.dungeons.push(...kept);
+    return out;
+  });
+  const crowded = audit.filter((a) => a.worst.depth > 0);
+  if (audit.length < 10 || crowded.length || audit.some((a) => a.solids < 200)) throw new Error(`the cave in his way: ${JSON.stringify(crowded.length ? crowded : audit)}`);
   if (process.env.DEBUG_DUNGEON) {
     await page.waitForTimeout(3000);
     console.log(JSON.stringify(await page.evaluate(() => {

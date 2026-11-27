@@ -2319,8 +2319,8 @@ export function cellHash(x: number, y: number, s: number): number {
   was: `export function movePriest(`,
   now: `/** (netstorm-3d) A Priest walked by hand stands to 1/WALK_SUB of a cell. */
 export const WALK_SUB = 1024;
-/** (netstorm-3d) How far a Priest walked by hand keeps from what he cannot step onto. */
-const WALK_RADIUS = Math.round(WALK_SUB * 0.26);
+/** (netstorm-3d) How far a Priest walked by hand keeps from what he cannot step onto (below: his disc's radius). */
+export const WALK_RADIUS = Math.round(WALK_SUB * 0.26);
 const WALK_STEP = (PRIEST_SPEED * WALK_SUB) / TPS;
 
 /** (netstorm-3d) Steer the player's Priest by hand: see scripts/house-rules.mjs. */
@@ -3339,8 +3339,10 @@ function caveOpen(d: Dungeon, x: number, y: number, fly = false): boolean {
 }
 
 /** (netstorm-3d) Where a Priest below at (x, y) (in 1/WALK_SUB of a tile) is after \`share\` of a tick
- * walking the way (vx, vy): as walkStep on the surface, in the dungeon's tiles. For the view's
- * foresight too (src/systems/ns-fp.js). */
+ * walking the way (vx, vy): as walkStep on the surface, in the dungeon's tiles. He is a disc,
+ * WALK_RADIUS from its middle to its rim, that never overlaps a tile he may not stand on: it slides
+ * along a wall and round a corner (no corner catches it), in steps shorter than half of it (so it
+ * goes through none). For the view's foresight too (src/systems/ns-fp.js). */
 export function caveStep(
   d: Dungeon,
   x: number,
@@ -3350,25 +3352,103 @@ export function caveStep(
   share = 1,
   fly = false,
 ): { x: number; y: number; } {
-  for (const axis of [0, 1]) {
-    const dd = ((axis ? vy : vx) / 100) * WALK_STEP * share;
+  const dx = (vx / 100) * WALK_STEP * share, dy = (vy / 100) * WALK_STEP * share;
 
-    if (!dd) {
-      continue;
+  if (!dx && !dy) {
+    return { x, y };
+  }
+
+  const tile = d.tiles[Math.floor(y / WALK_SUB) * d.w + Math.floor(x / WALK_SUB)];
+
+  // (his middle where he may not stand: over a pit when the Hover is spent he stays to fall; in
+  // the rock, as no step of his can leave him, he is set in the middle of the nearest floor)
+  if (!caveOpen(d, Math.floor(x / WALK_SUB), Math.floor(y / WALK_SUB), fly)) {
+    return tile === TILE.pit ? { x, y } : caveNearest(d, x, y, fly);
+  }
+
+  const n = Math.max(1, Math.ceil(Math.sqrt(dx * dx + dy * dy) / (WALK_RADIUS / 2)));
+
+  for (let i = 0; i < n; i++) {
+    // the whole way, pushed off what it touches; else along one axis; else not this step
+    const next = caveClear(d, x + dx / n, y + dy / n, fly) ?? caveClear(d, x + dx / n, y, fly) ?? caveClear(d, x, y + dy / n, fly);
+
+    if (!next) {
+      break;
     }
 
-    const cx = Math.floor(x / WALK_SUB), cy = Math.floor(y / WALK_SUB), c = axis ? cy : cx;
-    const open = axis ? caveOpen(d, cx, cy + Math.sign(dd), fly) : caveOpen(d, cx + Math.sign(dd), cy, fly);
-    let v = (axis ? y : x) + dd;
+    x = next.x;
+    y = next.y;
+  }
 
-    if (!open) {
-      v = dd > 0 ? Math.min(v, Math.max((axis ? y : x), (c + 1) * WALK_SUB - WALK_RADIUS)) : Math.max(v, Math.min((axis ? y : x), c * WALK_SUB + WALK_RADIUS));
+  return { x, y };
+}
+
+/** (netstorm-3d) A Priest's disc below at (x, y) pushed off every tile he may not stand on that it
+ * overlaps, each the shortest way (over again, where two meet); null if his middle is in one, or
+ * the disc cannot be cleared. */
+function caveClear(d: Dungeon, x: number, y: number, fly: boolean): { x: number; y: number; } | null {
+  for (let pass = 0; pass < 4; pass++) {
+    const cx = Math.floor(x / WALK_SUB), cy = Math.floor(y / WALK_SUB);
+    let pushed = false;
+
+    if (!caveOpen(d, cx, cy, fly)) {
+      return null;
     }
 
-    if (axis) {
-      y = v;
-    } else {
-      x = v;
+    for (let ty = cy - 1; ty <= cy + 1; ty++) {
+      for (let tx = cx - 1; tx <= cx + 1; tx++) {
+        if (caveOpen(d, tx, ty, fly)) {
+          continue;
+        }
+
+        // the tile's nearest point to his middle, and how far it is
+        const nx = Math.max(tx * WALK_SUB, Math.min(x, (tx + 1) * WALK_SUB));
+        const ny = Math.max(ty * WALK_SUB, Math.min(y, (ty + 1) * WALK_SUB));
+        const far = Math.sqrt((x - nx) * (x - nx) + (y - ny) * (y - ny));
+
+        if (far >= WALK_RADIUS) {
+          continue;
+        }
+
+        // (his middle on the tile's very edge: straight away from the tile)
+        const ux = far > 0 ? (x - nx) / far : Math.sign(cx - tx) * (ty === cy ? 1 : Math.SQRT1_2);
+        const uy = far > 0 ? (y - ny) / far : Math.sign(cy - ty) * (tx === cx ? 1 : Math.SQRT1_2);
+        x = nx + ux * WALK_RADIUS;
+        y = ny + uy * WALK_RADIUS;
+        pushed = true;
+      }
+    }
+
+    if (!pushed) {
+      return { x, y };
+    }
+  }
+
+  return null;
+}
+
+/** (netstorm-3d) The middle of the floor tile nearest (x, y) of a dungeon, by rings out from it. */
+function caveNearest(d: Dungeon, x: number, y: number, fly: boolean): { x: number; y: number; } {
+  const cx = Math.floor(x / WALK_SUB), cy = Math.floor(y / WALK_SUB);
+
+  for (let r = 1; r < d.w; r++) {
+    let best: [number, number] | null = null, bestFar = Infinity;
+
+    for (let ty = cy - r; ty <= cy + r; ty++) {
+      for (let tx = cx - r; tx <= cx + r; tx++) {
+        if ((Math.abs(tx - cx) === r || Math.abs(ty - cy) === r) && caveOpen(d, tx, ty, fly)) {
+          const far = (tx - cx) * (tx - cx) + (ty - cy) * (ty - cy);
+
+          if (far < bestFar) {
+            best = [tx, ty];
+            bestFar = far;
+          }
+        }
+      }
+    }
+
+    if (best) {
+      return { x: best[0] * WALK_SUB + WALK_SUB / 2, y: best[1] * WALK_SUB + WALK_SUB / 2 };
     }
   }
 
@@ -3953,6 +4033,7 @@ export function movePriest(`,
   now: `export {
   walkStep,
   WALK_SUB,
+  WALK_RADIUS,
   digDungeon,
   caveStep,
   TILE,

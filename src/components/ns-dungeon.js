@@ -33,6 +33,13 @@ const TOP = 5;
 /** How far the Priest's light shows anything, in scene units; tiles a chunk. */
 const REVEAL = 16;
 const CHUNK = 6;
+/**
+ * Where the Priest walks below nothing solid stands between his shins (SHIN) and over his head
+ * (HEAD, scene units: his eyes are at 1.45, hovering 1.8), nor reaches into a tile he can be on
+ * more than CLEAR of a tile (src/components/ns-dungeon.js, dress; the rules keep his disc off the
+ * others).
+ */
+export const SHIN = 0.3, HEAD = 2.05, CLEAR = 0.03;
 /** Each kind of room's vault, in scene units (it wanders about this); passages, the stairwell. */
 const HEIGHT = { entry: 3, crystal: 3.3, hall: 3.2, pool: 2.9, grotto: 2.7, shrine: 3.7, ember: 3, passage: 2.4, stairs: 4.2 };
 /** Each kind's tint of its walls, floor and vault: all rock. */
@@ -212,6 +219,8 @@ AFRAME.registerComponent('ns-dungeon', {
     this.built = null;
     this.mats = null;
     this.boost = 0;
+    // (for the playtest's audit of the dressing: see SHIN)
+    this.clearance = { SHIN, HEAD, CLEAR, TILE_SIZE };
     this.tone = new THREE.Color('#ffd7a3');
     // the Priest's own light: it goes with him, held at his staff, and casts the shadows
     this.lamp = new THREE.PointLight('#ffd7a3', 9 * LUX, REVEAL, 1.0);
@@ -374,7 +383,52 @@ AFRAME.registerComponent('ns-dungeon', {
     const wallSide = (x, y) => NS.DIRS.map(([dx, dy]) => [dx, dy]).filter(([dx, dy]) => at(x + dx, y + dy) === TILE.rock)[0];
     const open = [], byWall = [];
 
-    // the rock: walls that lean and bulge, floors, vaults of uneven height
+    // Where the Priest can be: on the floor, and over the pits he hovers across. The rules keep his
+    // disc off every other tile; nothing solid here between his shins and the top of his head
+    // (SHIN to HEAD) reaches into those tiles more than a hair (CLEAR), so nothing goes through him
+    // or his eyes, however narrow the passage and whichever way he walks. What cannot be put so is
+    // left out; a wall's block is drawn smaller and straighter until it fits.
+    const free = (x, y) => { const t = at(x, y); return t === TILE.floor || t === TILE.pit; };
+    const inside = (tx, ty) => {
+      const ix = Math.floor(tx), iy = Math.floor(ty);
+      if (!free(ix, iy)) return false;
+      for (let y = iy - 1; y <= iy + 1; y++) {
+        for (let x = ix - 1; x <= ix + 1; x++) {
+          if (free(x, y)) continue;
+          // (half the hair: what is put is checked at points apart, and may reach between them)
+          if (Math.hypot(tx - Math.max(x, Math.min(tx, x + 1)), ty - Math.max(y, Math.min(ty, y + 1))) <= CLEAR / 2) return false;
+        }
+      }
+      return true;
+    };
+    /** Whether a footprint (points [x, z] in the scene) stays out of where he can be. */
+    const clearOf = (pts) => pts.every(([px, pz]) => !inside(px / T + N / 2, pz / T + d.h / 2));
+    /** A disc's footprint, radius r about (x, z): its middle and its rim. */
+    const disc = (x, z, r) => [[x, z], ...Array.from({ length: 48 }, (_, i) => [x + Math.cos((i * Math.PI) / 24) * r, z + Math.sin((i * Math.PI) / 24) * r])];
+    /** A block's footprint, w across x and l along z about (x, z), turned `turn`: its rim close
+     * (a hair's breadth apart) and a grid over it. */
+    const rect = (x, z, w, l, turn) => {
+      const c = Math.cos(turn), s = Math.sin(turn), out = [], n = Math.max(2, Math.ceil(Math.max(w, l) / (T * 0.02)));
+      const at2 = (a, b) => out.push([x + a * c + b * s, z - a * s + b * c]);
+      for (let i = 0; i <= n; i++) {
+        const f = i / n - 0.5;
+        at2(f * w, -l / 2); at2(f * w, l / 2); at2(-w / 2, f * l); at2(w / 2, f * l);
+      }
+      for (let i = 1; i < 6; i++) for (let j = 1; j < 6; j++) at2((i / 6 - 0.5) * w, (j / 6 - 0.5) * l);
+      return out;
+    };
+    /** Whether a solid from height lo to hi with this footprint may be put: under his shins or over
+     * his head, or out of his way. */
+    const fits = (lo, hi, pts) => hi <= SHIN || lo >= HEAD || clearOf(pts);
+    /** A lump (or spike) of the rock put only if it fits: its reach the largest of its sizes. */
+    const putClear = (lot, v, s, r, color) => {
+      const reach = lot === 'spike' ? 0.5 * Math.max(s[0], s[2]) : 0.5 * Math.max(...s), up = lot === 'spike' ? 0.5 * s[1] : reach;
+      if (!fits(v.y - up, v.y + up, disc(v.x, v.z, reach))) return false;
+      put(lot, v, s, r, color);
+      return true;
+    };
+
+    // the rock: walls that lean and bulge (away from where he can be), floors, vaults of uneven height
     for (let y = -1; y <= d.h; y++) {
       for (let x = -1; x <= N; x++) {
         const t = at(x, y);
@@ -388,8 +442,23 @@ AFRAME.registerComponent('ns-dungeon', {
             }
           }
           if (!near) continue;
-          const grow = 1.05 + rand() * 0.3;
-          put('wall', local(x + 0.5 + (rand() - 0.5) * 0.3, y + 0.5 + (rand() - 0.5) * 0.3, TOP / 2), [grow, TOP, grow], [0, (rand() - 0.5) * 0.7, 0], shade(TINT[near][0]));
+          let grow = 1.05 + rand() * 0.3, turn = (rand() - 0.5) * 0.7, ox = (rand() - 0.5) * 0.3, oz = (rand() - 0.5) * 0.3;
+          for (let k = 0; ; k++) {
+            // (as far back from an open side as the block reaches past its tile)
+            const reach = 0.5 * grow * (Math.abs(Math.cos(turn)) + Math.abs(Math.sin(turn)));
+            if (free(x + 1, y)) ox = Math.min(ox, 0.5 - reach);
+            if (free(x - 1, y)) ox = Math.max(ox, reach - 0.5);
+            if (free(x, y + 1)) oz = Math.min(oz, 0.5 - reach);
+            if (free(x, y - 1)) oz = Math.max(oz, reach - 0.5);
+            if (k === 6) { grow = 1; turn = 0; ox = 0; oz = 0; }
+            const v = local(x + 0.5 + ox, y + 0.5 + oz, TOP / 2);
+            if (k === 6 || clearOf(rect(v.x, v.z, T * grow, T * grow, turn))) {
+              put('wall', v, [grow, TOP, grow], [0, turn, 0], shade(TINT[near][0]));
+              break;
+            }
+            turn *= 0.6;
+            grow = 1 + (grow - 1) * 0.6;
+          }
           continue;
         }
         const k = kindAt(x, y), h = high(x, y);
@@ -404,27 +473,34 @@ AFRAME.registerComponent('ns-dungeon', {
         byWall.push([x, y, side]);
         // (not by the stairs: the way out stays clear)
         if (Math.abs(x - d.stairs[0]) + Math.abs(y - d.stairs[1]) <= 2) continue;
-        // the wall bulges into the cave: lumps at its foot and up its face
+        // the wall bulges toward the cave: lumps at its foot and up its face, in its own tile (they
+        // show where its block stands back)
         for (let n = 0; n < 2; n++) {
-          const sz = 0.5 + rand() * 0.7, v = local(x + 0.5 + side[0] * (0.48 + rand() * 0.1) + (side[1] ? rand() - 0.5 : 0), y + 0.5 + side[1] * (0.48 + rand() * 0.1) + (side[0] ? rand() - 0.5 : 0), n ? rand() * h : 0.1);
-          put('lump', v, [sz, sz * (0.7 + rand() * 0.9), sz], [rand() * 3, rand() * 3, rand() * 3], shade(TINT[k][0]));
+          const sz = 0.5 + rand() * 0.7, tall = 0.7 + rand() * 0.9, reach = (0.5 * sz * Math.max(1, tall)) / T;
+          const deep = 0.5 + Math.max(0, reach - CLEAR * 0.5) + rand() * 0.06, along = rand() - 0.5;
+          const v = local(x + 0.5 + side[0] * deep + (side[1] ? along : 0), y + 0.5 + side[1] * deep + (side[0] ? along : 0), n ? rand() * h : 0.1);
+          putClear('lump', v, [sz, sz * tall, sz], [rand() * 3, rand() * 3, rand() * 3], shade(TINT[k][0]));
         }
       }
     }
-    // stalactites from the vaults, stalagmites and rubble by the walls
+    // stalactites from the vaults (over his head), stalagmites in the walls' feet, rubble by them
     for (const [x, y] of open) {
       const k = kindAt(x, y), h = high(x, y);
       if (k === 'stairs') continue;
       for (let n = 0; n < 2; n++) {
         if (rand() > 0.34) continue;
-        const len = Math.min(h - 1.95, 0.25 + rand() * 0.9), w = 0.12 + rand() * 0.22;
-        if (len > 0.15) put('spike', local(x + rand(), y + rand(), h - len / 2 + 0.03), [w, len, w], [Math.PI, rand() * 3, 0], shade(TINT[k][2]));
+        const len = Math.min(h - HEAD - 0.03, 0.25 + rand() * 0.9), w = 0.12 + rand() * 0.22;
+        if (len > 0.15) putClear('spike', local(x + rand(), y + rand(), h - len / 2 + 0.03), [w, len, w], [Math.PI, rand() * 3, 0], shade(TINT[k][2]));
       }
     }
     for (const [x, y, side] of byWall) {
-      const k = kindAt(x, y), v = () => local(x + 0.5 + side[0] * 0.3 + (rand() - 0.5) * 0.5, y + 0.5 + side[1] * 0.3 + (rand() - 0.5) * 0.5, 0);
-      if (rand() < 0.16) { const len = 0.3 + rand() * 0.9, w = 0.18 + rand() * 0.25; put('spike', v().setY(len / 2), [w, len, w], [0, rand() * 3, 0], shade(TINT[k][1])); }
-      if (rand() < 0.22) for (let n = 0; n < 3; n++) { const sz = 0.1 + rand() * 0.25; put('lump', v().setY(sz * 0.3), [sz, sz * 0.7, sz], [rand() * 3, rand() * 3, 0], shade(TINT[k][1])); }
+      const k = kindAt(x, y), v = (deep) => local(x + 0.5 + side[0] * deep + (side[1] ? rand() - 0.5 : (rand() - 0.5) * 0.3), y + 0.5 + side[1] * deep + (side[0] ? rand() - 0.5 : (rand() - 0.5) * 0.3), 0);
+      if (rand() < 0.16) {
+        const len = 0.3 + rand() * 0.9, w = 0.18 + rand() * 0.25;
+        putClear('spike', v(0.5 + (0.5 * w) / T).setY(len / 2), [w, len, w], [0, rand() * 3, 0], shade(TINT[k][1]));
+      }
+      // (low enough to walk over)
+      if (rand() < 0.22) for (let n = 0; n < 3; n++) { const sz = 0.1 + rand() * 0.25; putClear('lump', v(0.2 + rand() * 0.25).setY(sz * 0.3), [sz, sz * 0.7, sz], [rand() * 3, rand() * 3, 0], shade(TINT[k][1])); }
     }
     // columns, where floor and vault have grown together: a stack of rough stone, thick at both
     // ends; a shrine's are standing stones, leaning
@@ -433,14 +509,21 @@ AFRAME.registerComponent('ns-dungeon', {
         if (at(x, y) !== TILE.pillar) continue;
         const k = kindAt(x, y), h = high(x, y), base = local(x + 0.5 + (rand() - 0.5) * 0.25, y + 0.5 + (rand() - 0.5) * 0.25);
         if (k === 'shrine') {
+          // (a standing stone: upright enough to keep to its tile, or straighter)
           const tall = 1.6 + rand() * 0.9;
-          put('lump', base.clone().setY(tall / 2 - 0.1), [0.75 + rand() * 0.2, tall * 1.15, 0.5 + rand() * 0.2], [(rand() - 0.5) * 0.25, rand() * 3, (rand() - 0.5) * 0.25], shade('#8f8a80'));
+          for (let lean = 0.25; lean > 0.01; lean *= 0.5) {
+            const v = base.clone().setY(tall / 2 - 0.1), w = 0.75 + rand() * 0.2, r = [(rand() - 0.5) * lean, rand() * 3, (rand() - 0.5) * lean];
+            if (clearOf(disc(v.x, v.z, 0.5 * w + Math.sin(lean / 2) * tall * 0.6))) { put('lump', v, [w, tall * 1.15, 0.5 + rand() * 0.2], r, shade('#8f8a80')); break; }
+          }
           continue;
         }
         const parts = 5;
         for (let n = 0; n < parts; n++) {
-          const f = n / (parts - 1), wide = 0.62 + Math.abs(f - 0.5) * 0.9 + rand() * 0.2;
-          put('lump', base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.14, f * h, (rand() - 0.5) * 0.14)), [wide, h / parts * 1.7, wide], [0, rand() * 3, 0], shade(TINT[k][0]));
+          const f = n / (parts - 1), v = base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.14, f * h, (rand() - 0.5) * 0.14));
+          // (as wide as the pillar's tile holds)
+          let wide = 0.62 + Math.abs(f - 0.5) * 0.9 + rand() * 0.2;
+          while (wide > 0.3 && !fits(v.y - 0.85 * h / parts, v.y + 0.85 * h / parts, disc(v.x, v.z, 0.5 * wide))) wide *= 0.9;
+          put('lump', v, [wide, h / parts * 1.7, wide], [0, rand() * 3, 0], shade(TINT[k][0]));
         }
       }
     }
@@ -455,23 +538,43 @@ AFRAME.registerComponent('ns-dungeon', {
       if (!floor.length) continue;
       if (r.kind === 'crystal') {
         for (let k = 0; k < 7 && walls.length; k++) {
-          const [x, y, [dx, dy]] = pick(walls), base = local(x + 0.5 + dx * 0.3, y + 0.5 + dy * 0.3);
+          // a cluster grown out of the wall's foot (its shards where its block stands back, not in his way)
+          const [x, y, [dx, dy]] = pick(walls), base = local(x + 0.5 + dx * 0.45, y + 0.5 + dy * 0.45);
           const mat = rand() < 0.65 ? M.crystalBlue : M.crystalViolet;
           for (let n = 0; n < 3; n++) {
-            const len = 0.5 + rand() * 1.2, o = mesh(GEO.shard, mat, base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.6, len * 0.45, (rand() - 0.5) * 0.6)));
+            // (tall where it keeps out of his way, by the wall where its block stands back; else short
+            // enough to walk over)
+            let len = 0.5 + rand() * 1.2;
+            const tilt = (rand() - 0.5) * 0.9, at3 = base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.6, 0, (rand() - 0.5) * 0.6));
+            if (!clearOf(disc(at3.x, at3.z, 0.22 + Math.abs(Math.sin(tilt)) * len * 0.5 + 0.05))) len = 0.28;
+            const o = mesh(GEO.shard, mat, at3.setY(len * 0.45));
             o.scale.set(1, len * 2.2, 1);
-            o.rotation.set((rand() - 0.5) * 0.9, rand() * 3, (rand() - 0.5) * 0.9);
+            o.rotation.set(len > 0.3 ? tilt : tilt * 0.3, rand() * 3, (rand() - 0.5) * Math.abs(tilt) * (len > 0.3 ? 1 : 0.3));
           }
-          glowAt(base.clone().setY(0.8), mat === M.crystalBlue ? '#4fc8ff' : '#b06bff', 2.4, 0.15);
+          glowAt(local(x + 0.5 + dx * 0.4, y + 0.5 + dy * 0.4, 0.8), mat === M.crystalBlue ? '#4fc8ff' : '#b06bff', 2.4, 0.15);
+        }
+        // great crystals jutting from the walls over his head, out and up into the vault
+        for (let k = 0; k < 12 && walls.length; k++) {
+          const [x, y, [dx, dy]] = pick(walls), top = high(x, y), len = 2.2 + rand() * 2.8, half = 0.22 * len;
+          const tilt = 0.5 + rand() * 0.5, dir = new THREE.Vector3(-dx * Math.sin(tilt), Math.cos(tilt), -dy * Math.sin(tilt));
+          const c = local(x + 0.5 + dx * 0.55, y + 0.5 + dy * 0.55, 0).addScaledVector(dir, half * 0.75);
+          c.y = HEAD + 0.25 + half * Math.cos(tilt) + rand() * 0.2;
+          if (c.y + half * Math.cos(tilt) + 0.22 > top - 0.05) continue;
+          const o = mesh(GEO.shard, rand() < 0.65 ? M.crystalBlue : M.crystalViolet, c);
+          o.scale.set(1.3, len, 1.3);
+          o.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
         }
         for (let k = 0; k < 5; k++) {
-          const [x, y] = pick(floor), o = mesh(GEO.shard, M.crystalBlue, local(x + 0.5, y + 0.5, high(x, y) - 0.45));
-          o.scale.set(1, 2.6, 1);
+          const [x, y] = pick(floor), hang = Math.min(2.6, (high(x, y) - HEAD - 0.05) / (2 * 0.22));
+          if (hang < 0.8) continue;
+          const o = mesh(GEO.shard, M.crystalBlue, local(x + 0.5, y + 0.5, high(x, y) - hang * 0.22));
+          o.scale.set(1, hang, 1);
         }
       } else if (r.kind === 'hall') {
         // threads of glow-worms hang among the columns
         for (let k = 0; k < 14; k++) {
-          const [x, y] = pick(floor), len = 0.3 + rand() * 0.8, top = local(x + rand(), y + rand(), high(x, y));
+          const [x, y] = pick(floor), len = Math.min(0.3 + rand() * 0.8, high(x, y) - HEAD - 0.05), top = local(x + rand(), y + rand(), high(x, y));
+          if (len < 0.15) continue;
           mesh(GEO.strand, M.worm, top.clone().setY(top.y - len / 2)).scale.y = len;
           mesh(GEO.dot, M.worm, top.clone().setY(top.y - len));
         }
@@ -484,18 +587,22 @@ AFRAME.registerComponent('ns-dungeon', {
             // its bank: stones where the water ends
             for (const [dx, dy] of NS.DIRS) {
               if (at(x + dx, y + dy) === TILE.water) continue;
+              // (lying flat: low enough to step over)
               const sz = 0.3 + rand() * 0.3;
-              put('lump', local(x + 0.5 + dx * 0.5 + (rand() - 0.5) * 0.4, y + 0.5 + dy * 0.5 + (rand() - 0.5) * 0.4, 0.08), [sz, sz * 0.6, sz], [rand() * 3, rand() * 3, 0], shade(TINT.pool[1]));
+              put('lump', local(x + 0.5 + dx * 0.5 + (rand() - 0.5) * 0.4, y + 0.5 + dy * 0.5 + (rand() - 0.5) * 0.4, 0.06), [sz, sz * 0.6, sz], [0, rand() * 3, 0], shade(TINT.pool[1]));
             }
           }
         }
         for (let k = 0; k < 4; k++) glowAt(mid.clone().add(new THREE.Vector3((rand() - 0.5) * r.w * 0.6, 0.35, (rand() - 0.5) * r.h * 0.6)), '#3fd0c0', 0.8, 0.5);
       } else if (r.kind === 'grotto') {
         for (let k = 0; k < 9 && walls.length; k++) {
-          const [x, y, [dx, dy]] = pick(walls), base = local(x + 0.5 + dx * 0.2, y + 0.5 + dy * 0.2);
+          const [x, y, [dx, dy]] = pick(walls), base = local(x + 0.5 + dx * 0.4, y + 0.5 + dy * 0.4);
           const mat = rand() < 0.6 ? M.capGreen : M.capViolet;
           for (let n = 0; n < 3; n++) {
-            const hh = 0.2 + rand() * 0.55, p3 = base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.7, 0, (rand() - 0.5) * 0.7));
+            // (tall ones only where they keep out of his way: by the wall where its block stands back)
+            let hh = 0.2 + rand() * 0.55;
+            const p3 = base.clone().add(new THREE.Vector3((rand() - 0.5) * 0.7, 0, (rand() - 0.5) * 0.7));
+            if (!fits(0, hh + (0.24 + hh * 0.5) * 0.5, disc(p3.x, p3.z, (0.24 + hh * 0.5) * 0.5))) hh = Math.min(hh, 0.14);
             mesh(GEO.stem, M.stem, p3.clone().setY(hh / 2)).scale.y = hh;
             mesh(GEO.cap, mat, p3.clone().setY(hh)).scale.setScalar(0.24 + hh * 0.5);
           }
@@ -505,10 +612,11 @@ AFRAME.registerComponent('ns-dungeon', {
       } else if (r.kind === 'shrine') {
         // a slab nobody remembers, a light over it, a beam on it from a crack in the vault
         const top = high(r.x + (r.w >> 1), r.y + (r.h >> 1));
-        put('lump', mid.clone().setY(0.3), [1.9, 0.9, 1.3], [0, rand() * 3, 0], shade('#8f8a80'));
-        const orb = mesh(GEO.skull, M.orb, mid.clone().setY(1.3));
-        glowAt(mid.clone().setY(1.3), '#ffd27a', 1.3, 0.2);
-        anim.push({ g: home(mid).g, f: (t) => { orb.position.y = 1.3 + Math.sin(t * 1.2) * 0.08; } });
+        // (a slab set in the floor, to walk over; the light over his head)
+        put('lump', mid.clone().setY(0.03), [1.9, 0.42, 1.3], [0, rand() * 3, 0], shade('#8f8a80'));
+        const orb = mesh(GEO.skull, M.orb, mid.clone().setY(HEAD + 0.35));
+        glowAt(mid.clone().setY(HEAD + 0.35), '#ffd27a', 1.3, 0.2);
+        anim.push({ g: home(mid).g, f: (t) => { orb.position.y = HEAD + 0.35 + Math.sin(t * 1.2) * 0.08; } });
         const crack = mesh(new THREE.CircleGeometry(0.45, 9), M.opening, mid.clone().setY(top - 0.01));
         crack.rotation.x = Math.PI / 2;
         shafts.push(this.shaft(home(mid).g, mid.clone().setY(top), mid.clone(), 0.4, 1.4, 'beam'));
@@ -519,7 +627,7 @@ AFRAME.registerComponent('ns-dungeon', {
           o.rotation.y = rand() * Math.PI;
           if (rand() < 0.3) glowAt(o.position.clone().setY(0.15), '#ff6a1a', 1.1, 0.35);
         }
-        for (let k = 0; k < 5; k++) { const [x, y] = pick(floor), sz = 0.5 + rand() * 0.7; put('lump', local(x + rand(), y + rand(), sz * 0.3), [sz, sz * 0.8, sz], [rand() * 3, rand() * 3, 0], shade('#5a3a30')); }
+        for (let k = 0; k < 5; k++) { const [x, y] = pick(floor), sz = 0.5 + rand() * 0.7; put('lump', local(x + rand(), y + rand(), 0.02), [sz, Math.min(sz * 0.8, 0.52), sz], [0, rand() * 3, 0], shade('#5a3a30')); }
         this.motes(home(mid).g, mid, r, hgt, '#ff8a3a', 20, 0.07, anim, -1.2);
       }
       // a wisp drifts about some rooms; dust in all, seen where his light falls
@@ -587,7 +695,7 @@ AFRAME.registerComponent('ns-dungeon', {
       if (k.kind === 'tunnel') {
         const o = mesh(new THREE.PlaneGeometry(1.2, 1.9), M.dark, local(k.x + 0.5 + dx * 0.3, k.y + 0.5 + dy * 0.3, 0.95));
         o.rotation.y = turn;
-        for (const sx of [-0.7, 0.7]) put('lump', local(k.x + 0.5 + dx * 0.3 - dy * sx, k.y + 0.5 + dy * 0.3 + dx * sx, 0.9), [0.6, 2.2, 0.6], [0, rand() * 3, 0], shade('#5a5650'));
+        for (const sx of [-0.7, 0.7]) putClear('lump', local(k.x + 0.5 + dx * 0.3 - dy * sx, k.y + 0.5 + dy * 0.3 + dx * sx, 0.9), [0.6, 2.2, 0.6], [0, rand() * 3, 0], shade('#5a5650'));
       } else if (k.kind === 'shrine') {
         put('lump', v.clone().setY(0.8), [0.8, 2, 0.6], [0, turn, 0.1], shade('#8f8a80'));
         const mat = new THREE.MeshBasicMaterial({ map: M.glyphs[0], color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
@@ -595,9 +703,10 @@ AFRAME.registerComponent('ns-dungeon', {
         mesh(GEO.pane, mat, local(k.x + 0.5 - dx * 0.36, k.y + 0.5 - dy * 0.36, 1.1)).rotation.y = turn;
       } else if (k.kind === 'crystal') {
         for (let n = 0; n < 4; n++) {
-          const o = mesh(GEO.shard, M.crystalViolet, v.clone().add(new THREE.Vector3((rand() - 0.5) * 0.6, 0.6 + rand() * 0.3, (rand() - 0.5) * 0.6)));
+          // (leaning no further than its tile holds)
+          const o = mesh(GEO.shard, M.crystalViolet, v.clone().add(new THREE.Vector3((rand() - 0.5) * 0.5, 0.6 + rand() * 0.3, (rand() - 0.5) * 0.5)));
           o.scale.set(1.4, 3 + rand() * 2, 1.4);
-          o.rotation.set((rand() - 0.5) * 0.6, rand() * 3, (rand() - 0.5) * 0.6);
+          o.rotation.set((rand() - 0.5) * 0.3, rand() * 3, (rand() - 0.5) * 0.3);
         }
       } else if (k.kind === 'valve') {
         mesh(new THREE.CylinderGeometry(0.14, 0.14, 1.1, 6), M.iron, v.clone().setY(0.55));
@@ -605,9 +714,9 @@ AFRAME.registerComponent('ns-dungeon', {
         wheel.rotation.y = turn;
       } else if (k.kind === 'roots') {
         for (let n = 0; n < 5; n++) {
-          const o = mesh(GEO.stem, M.root, v.clone().add(new THREE.Vector3((rand() - 0.5) * 0.7, 1.2, (rand() - 0.5) * 0.7)));
+          const o = mesh(GEO.stem, M.root, v.clone().add(new THREE.Vector3((rand() - 0.5) * 0.5, 1.2, (rand() - 0.5) * 0.5)));
           o.scale.set(3 + rand() * 2, 2.4, 3 + rand() * 2);
-          o.rotation.set((rand() - 0.5) * 0.5, 0, (rand() - 0.5) * 0.5);
+          o.rotation.set((rand() - 0.5) * 0.3, 0, (rand() - 0.5) * 0.3);
         }
       } else {
         const o = mesh(new THREE.CircleGeometry(0.5, 7), M.dark, v.clone().setY(0.02));
@@ -618,6 +727,7 @@ AFRAME.registerComponent('ns-dungeon', {
     // what comes for a light: a shape darker than the dark, two red eyes
     const lurkers = d.lurkers.map((l) => {
       const g = new THREE.Group(), body = new THREE.Mesh(GEO.lump, M.dark);
+      g.userData.ghost = true; // (it comes and goes: not of the cave)
       body.scale.set(1.1, 0.9, 1.4);
       g.add(body);
       for (const ex of [-0.12, 0.12]) { const o = new THREE.Mesh(GEO.dot, M.ember); o.position.set(ex, 0.12, 0.62); o.scale.setScalar(1.3); g.add(o); }
@@ -629,8 +739,9 @@ AFRAME.registerComponent('ns-dungeon', {
     const eyes = [];
     for (let k = 0; k < 16 && byWall.length; k++) {
       const [x, y, [dx, dy]] = pick(byWall), g = new THREE.Group();
-      g.position.copy(local(x + 0.5 + dx * 0.36, y + 0.5 + dy * 0.36, 0.4 + rand() * 1.3));
+      g.position.copy(local(x + 0.5 + dx * 0.5, y + 0.5 + dy * 0.5, 0.4 + rand() * 1.3));
       g.rotation.y = Math.atan2(-dx, -dy);
+      g.userData.ghost = true;
       for (const ex of [-0.07, 0.07]) { const o = new THREE.Mesh(GEO.dot, M.eye); o.position.x = ex; g.add(o); }
       g.scale.setScalar(0.8 + rand() * 0.9);
       home(g.position).g.add(g);
@@ -642,7 +753,7 @@ AFRAME.registerComponent('ns-dungeon', {
       const [x, y, [dx, dy]] = pick(byWall);
       const mat = new THREE.MeshBasicMaterial({ map: pick(M.glyphs), color: pick(['#7fd8ff', '#ffcf7a', '#c79bff']), transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
       mat.userData.own = true;
-      const o = mesh(GEO.pane, mat, local(x + 0.5 + dx * 0.2, y + 0.5 + dy * 0.2, 1 + rand() * 0.8));
+      const o = mesh(GEO.pane, mat, local(x + 0.5 + dx * (0.5 - CLEAR), y + 0.5 + dy * (0.5 - CLEAR), 1 + rand() * 0.8));
       o.rotation.y = Math.atan2(-dx, -dy);
       glyphs.push({ o, y: o.position.y, ph: rand() * 6 });
     }
@@ -657,7 +768,9 @@ AFRAME.registerComponent('ns-dungeon', {
     }
     for (const [x, y] of open) {
       if (kindAt(x, y) !== 'passage' || rand() > 0.3) continue;
-      const len = 0.3 + rand() * 0.7, o = mesh(GEO.stem, M.root, local(x + rand(), y + rand(), high(x, y) - len / 2));
+      const len = Math.min(0.3 + rand() * 0.7, high(x, y) - HEAD - 0.03);
+      if (len < 0.12) continue;
+      const o = mesh(GEO.stem, M.root, local(x + rand(), y + rand(), high(x, y) - len / 2));
       o.scale.set(0.8, len, 0.8);
       o.rotation.z = (rand() - 0.5) * 0.5;
       if (rand() < 0.12) glowAt(local(x + 0.5, y + 0.5, 0.25), '#59e0a0', 0.5, 0.4);

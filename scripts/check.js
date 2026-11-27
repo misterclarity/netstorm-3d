@@ -696,6 +696,80 @@ console.log(`energy: ${sites} sites agree with the rules, ${short} of them short
   }
   if (kinds.size < 6) fail(`the dungeons' rooms are of only ${[...kinds]}`);
 
+  // walking below (caveStep): the Priest is a disc that never overlaps the rock, a pillar, the water,
+  // a chest or a thing, nor gets stuck, on twelve dungeons: on random walks held into walls and
+  // corners, and on trips from the stairs to floor all over, steered as a player would (at the
+  // middle of each next tile of the way, or at a spot of it off to one side), each in good time
+  {
+    const R = NS.WALK_RADIUS, S = NS.WALK_SUB, T = NS.TILE;
+    const floor = (d, x, y) => x >= 0 && y >= 0 && x < d.w && y < d.h && d.tiles[y * d.w + x] === T.floor;
+    const overlap = (d, x, y) => {
+      const cx = Math.floor(x / S), cy = Math.floor(y / S);
+      if (!floor(d, cx, cy)) return 'his middle off the floor';
+      for (let ty = cy - 1; ty <= cy + 1; ty++) {
+        for (let tx = cx - 1; tx <= cx + 1; tx++) {
+          if (floor(d, tx, ty)) continue;
+          const nx = Math.max(tx * S, Math.min(x, (tx + 1) * S)), ny = Math.max(ty * S, Math.min(y, (ty + 1) * S));
+          if (Math.hypot(x - nx, y - ny) < R - 1) return `his disc over tile ${tx},${ty} (${d.tiles[ty * d.w + tx]})`;
+        }
+      }
+      return null;
+    };
+    let steps = 0, trips = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
+      const d = NS.digDungeon(skirmish(seed), NS.ME, seed);
+      if (!d) fail(`no dungeon dug on seed ${seed}`);
+      let a = seed * 9973 + 1;
+      const rand = () => (a = (a * 1103515245 + 12345) % 2147483648) / 2147483648;
+      const walk = (x, y, vx, vy, pace, why) => {
+        const at = NS.caveStep(d, x, y, vx, vy, pace, false), nx = Math.round(at.x), ny = Math.round(at.y);
+        const bad = overlap(d, nx, ny);
+        if (bad) fail(`seed ${seed}, ${why}: ${bad} at ${nx / S},${ny / S}`);
+        steps++;
+        return [nx, ny];
+      };
+      let x = d.arrive[0] * S + S / 2, y = d.arrive[1] * S + S / 2, vx = 0, vy = 0;
+      for (let i = 0; i < 4000; i++) {
+        if (i % 12 === 0) {
+          const turn = Math.floor(rand() * 8) * (Math.PI / 4) + (rand() < 0.3 ? (rand() - 0.5) * 0.6 : 0);
+          vx = Math.round(Math.cos(turn) * 100);
+          vy = Math.round(Math.sin(turn) * 100);
+        }
+        [x, y] = walk(x, y, vx, vy, i % 3 ? 1 : 1.8, `random walk, step ${i}`);
+      }
+      // the way from the stairs to each floor tile (by tiles side by side), and trips along it
+      const N = d.w, from = new Int32Array(N * d.h).fill(-1), start = d.arrive[1] * N + d.arrive[0], order = [start];
+      from[start] = start;
+      for (let h = 0; h < order.length; h++) {
+        const i = order[h];
+        for (const [dx, dy] of NS.DIRS) {
+          const tx = (i % N) + dx, ty = Math.floor(i / N) + dy, j = ty * N + tx;
+          if (floor(d, tx, ty) && from[j] < 0) { from[j] = i; order.push(j); }
+        }
+      }
+      for (let k = 1; k <= 24; k++) {
+        const goal = order[Math.floor((k / 24) * (order.length - 1))], way = [];
+        for (let i = goal; i !== start; i = from[i]) way.unshift(i);
+        for (const aside of [0, 0.3]) {
+          let px = d.arrive[0] * S + S / 2, py = d.arrive[1] * S + S / 2, at = 0, ticks = 0;
+          while (at < way.length) {
+            const tx = way[at] % N, ty = Math.floor(way[at] / N);
+            const gx = (tx + 0.5 + (aside ? (rand() < 0.5 ? -aside : aside) : 0)) * S, gy = (ty + 0.5 + (aside ? (rand() < 0.5 ? -aside : aside) : 0)) * S;
+            const far = Math.hypot(gx - px, gy - py) || 1;
+            [px, py] = walk(px, py, Math.round(((gx - px) / far) * 100), Math.round(((gy - py) / far) * 100), 1, `trip to ${goal % N},${Math.floor(goal / N)}`);
+            // (on to the next tile once he stands on this one, or on one further along)
+            const here = Math.floor(py / S) * N + Math.floor(px / S), ahead = way.indexOf(here, at);
+            if (ahead >= at) at = ahead + 1;
+            if (++ticks > 40 * (way.length + 2)) fail(`seed ${seed}: stuck on the way to ${goal % N},${Math.floor(goal / N)} at ${px / S},${py / S} (tile ${at} of ${way.length}${aside ? ', steered aside' : ''})`);
+          }
+          trips++;
+        }
+      }
+    }
+    if (trips < 500) fail(`only ${trips} trips below`);
+    console.log(`below: ${steps} steps on 12 dungeons, ${trips} trips, never in the rock nor stuck`);
+  }
+
   const w = skirmish(3), d = NS.digDungeon(w, NS.ME, 3), p = w.priestOf(NS.ME);
   const go = (cmd) => { w.step([{ player: NS.ME, ...cmd }]); return w.drainEvents().filter((e) => e.what === 'rejected').map((e) => e.data.err); };
   Object.assign(p, { x: d.x - 6, y: d.y, path: [], goal: 'idle' });
