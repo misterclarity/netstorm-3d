@@ -68,6 +68,8 @@ AFRAME.registerComponent('ns-city', {
     this.el.setObject3D('city', this.group);
     this.lit = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.88, metalness: 0 });
     this.glowing = new THREE.MeshBasicMaterial({ vertexColors: true });
+    // the solar roofs' cells: glossy, catching the sun
+    this.shiny = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.3, metalness: 0.4 });
     this.el.sceneEl.addEventListener('ns-new-game', () => this.build());
   },
 
@@ -76,7 +78,7 @@ AFRAME.registerComponent('ns-city', {
       this.group.remove(o);
       o.traverse?.((m) => {
         if (m.geometry && !m.isSprite) m.geometry.dispose();
-        if (m.material && m.material !== this.lit && m.material !== this.glowing) m.material.dispose();
+        if (m.material && m.material !== this.lit && m.material !== this.glowing && m.material !== this.shiny) m.material.dispose();
       });
     }
     this.movers = [];
@@ -91,8 +93,8 @@ AFRAME.registerComponent('ns-city', {
     const city = G.world?.city;
     this.city = city ?? null;
     if (!city) return;
-    const lit = new Batch(), glow = new Batch(), movers = [], lights = [];
-    const k = new Kit(lit, glow, movers, lights);
+    const lit = new Batch(), glow = new Batch(), shine = new Batch(), movers = [], lights = [];
+    const k = new Kit(lit, glow, movers, lights, shine);
     const med = city.name === 'altamar';
     // the props, each in its frame on its ground
     const piers = new Set();
@@ -127,7 +129,9 @@ AFRAME.registerComponent('ns-city', {
     const solid = new THREE.Mesh(lit.geometry(), this.lit);
     solid.castShadow = solid.receiveShadow = true;
     const glowing = new THREE.Mesh(glow.geometry(), this.glowing);
-    this.group.add(solid, glowing);
+    const cells = new THREE.Mesh(shine.geometry(), this.shiny);
+    cells.castShadow = cells.receiveShadow = true;
+    this.group.add(solid, glowing, cells);
     this.lamps = this.lightsOf(lights);
     this.moversOf(movers);
     this.townsfolk(city);
@@ -340,5 +344,6 @@ AFRAME.registerComponent('ns-city', {
     this.clear();
     this.lit.dispose();
     this.glowing.dispose();
+    this.shiny.dispose();
   },
 });

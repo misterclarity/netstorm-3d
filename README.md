@@ -46,12 +46,12 @@ campaign of its own:
 - **Sky cities** (the main menu): two demo maps with no battle, built to be walked through your
   Priest's eyes (**V**), with low-poly houses, stalls, trees and towers made for them standing in
   the way. **Concord** is the trading city of the four Furies: a quarter each, built its own way
-  (the Sun's of sandstone under awnings and sun discs, the Rain's of pale stone under blue vaults,
-  the Wind's of whitewash and timber under green gables, the Thunder's of slate under steep roofs
-  and lightning rods), each round a market square with its landmark (a sundial, a fountain, a wind
+  (the Sun's of sandstone under awnings and sun discs, the Rain's of pale stone under vaults, the
+  Wind's of whitewash and timber under gables, the Thunder's of slate under steep pyramids and
+  lightning rods; every roof of them one whole solar panel, its cells ruled in brass), each round a market square with its landmark (a sundial, a fountain, a wind
   tower, a coil) and its Fury's Temple at the end of its avenue, and bridges from all four to the
-  Temple of Concord on its compass rose. **Altamar** is a terraced city of whitewashed houses, blue
-  domes, roof pergolas and hanging vines on islands at three heights: a domed hall and its bell
+  Temple of Concord on its compass rose. **Altamar** is a terraced city of whitewashed houses, domes of
+  solar cells, flat roofs that are solar panels, pergolas and hanging vines on islands at three heights: a domed hall and its bell
   tower above, the town of lanes, a fountain square and windmills in the middle, the harbour with
   its warehouses, stalls and piers below, and a garden on an islet off each end of the town, joined
   by bridges and the lifts between the levels. Townsfolk stroll the streets, the airships of the
@@ -348,14 +348,15 @@ Two art styles can be switched in the top bar (the 3D models unless you pick the
 pick is remembered in the browser):
 
 - **3D** (the default): low-poly models made for this project, each after its sprite in the
-  original and drawn as solarpunk fantasy: a world of clean sun and wind, where gardens grow on
-  the roofs, ivy hangs from the walls and the islands' rims, solar panels and wind turbines stand
-  among the buildings, and nothing is soot-black (`grade()` in `src/models.js` warms every
+  original and drawn as solarpunk fantasy: a world of clean sun and wind, where every roof is one
+  whole solar panel (ridge roofs, spires, flat roofs and domes alike: cells ruled in brass from
+  eave to ridge), ivy hangs from the walls and the islands' rims, wind turbines stand among the
+  buildings, and nothing is soot-black (`grade()` in `src/models.js` warms every
   colour: dark iron turns to verdigris copper, grey to sandstone and brass). The islands are
   meadows in flower under round trees in blossom, the bridges honey-coloured wood with ivy on
   their rails and flowers on their posts, the sky turquoise over a golden haze, and the fog of war
   a lilac mist. Each Fury has its own look (the Sun's ivory, honey and terracotta, brass and teal
-  glass, solar roofs; the Wind's pale timber and canvas under leaf-green roofs, its sails, rotors
+  glass, solar roofs; the Wind's pale timber and canvas under teal solar roofs, its sails, rotors
   and turbines turning; the Rain's white ceramic, aqua glass and water, its domes greenhouses; the
   Thunder's lilac stone, wisteria and copper gone green, with violet light), every unit its own
   model, and each carries its owner's colour: a banner, a ring round its base, a belt. Most of

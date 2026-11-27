@@ -224,13 +224,6 @@ const gable = () => shape('gable', () => {
 const pyramid = () => shape('pyramid', () => new THREE.ConeGeometry(Math.SQRT1_2, 1, 4).rotateY(Math.PI / 4).translate(0, 0.5, 0));
 const ring = (r, t, n = 20) => shape(`ring${r},${t},${n}`, () => new THREE.TorusGeometry(r, t, 5, n));
 
-/** A ridge roof `w` × `l` (ridge along z), `h` high, its eaves at y. */
-function roof(g, material, w, h, l, x, y, z, turn = 0) {
-  const r = part(g, gable(), material, x, y, z);
-  r.scale.set(w, h, l);
-  r.rotation.y = turn;
-  return r;
-}
 /** A group inside `g` at (x, y, z), for parts that move together. */
 function holder(g, x = 0, y = 0, z = 0) {
   const h = new THREE.Group();
@@ -388,7 +381,11 @@ const BLOOM = ['#f6a5c0', '#ffd34e', '#ffffff', '#c3a2f0', '#ff9a6a'];
 const leaf = (i = 0) => mat(LEAF[((i % LEAF.length) + LEAF.length) % LEAF.length]);
 const bloom = (i = 0) => mat(BLOOM[((i % BLOOM.length) + BLOOM.length) % BLOOM.length]);
 const brass = () => mat('#d9aa45', { metalness: 0.35, roughness: 0.45 });
-const pv = () => mat('#2c5d8a', { metalness: 0.55, roughness: 0.22 });
+/** Solar cells, tinted to the Fury: the Sun's blue, the Wind's teal, the Rain's bright blue, the
+ * Thunder's indigo, the Fire's plum; and the pale lines between the cells. */
+const PV = { sun: '#3069a0', wind: '#2b7a86', rain: '#2f6fb0', thunder: '#4a55a6', fire: '#5a4880' };
+const pv = (f = 'sun') => mat(PV[f] ?? PV.sun, { metalness: 0.4, roughness: 0.3 });
+const cellLines = () => mat('#cfe2ea');
 
 /** Fold a holder's parts into its parent, where they are baked with the rest (for parts that never move). */
 function settle(h) {
@@ -397,17 +394,101 @@ function settle(h) {
   h.removeFromParent();
 }
 /**
- * A solar panel `w` × `d`, its middle at (x, y, z), tilted `tilt` (its +z edge down) and turned
- * `turn`: blue glass in a brass frame, its cells ruled across. Several make a solar roof.
+ * A sheet of solar cells w × l lying in its holder's own plane, face up: a brass frame round blue
+ * cells ruled both ways. What solar roofs and panels are made of.
  */
-function solarPanel(g, w, d, x, y, z, tilt = 0.45, turn = 0) {
+function solarSheet(h, w, l, f) {
+  part(h, box(w, 0.05, l), brass());
+  part(h, box(w - 0.12, 0.05, l - 0.12), pv(f), 0, 0.015, 0);
+  const iw = w - 0.12, il = l - 0.12, nx = Math.max(1, Math.round(iw / 0.38)), nz = Math.max(1, Math.round(il / 0.38));
+  for (let i = 1; i < nx; i++) part(h, box(0.02, 0.012, il), cellLines(), -iw / 2 + (iw * i) / nx, 0.043, 0);
+  for (let i = 1; i < nz; i++) part(h, box(iw, 0.012, 0.02), cellLines(), 0, 0.043, -il / 2 + (il * i) / nz);
+}
+/**
+ * A solar panel (or a flat roof that is one) `w` × `d`, its middle at (x, y, z), tilted `tilt` (its
+ * +z edge down) and turned `turn`, its cells of the Fury `f`.
+ */
+function solarPanel(g, w, d, x, y, z, tilt = 0.45, turn = 0, f = 'sun') {
   const h = holder(g, x, y, z);
   h.rotation.set(tilt, turn, 0, 'YXZ');
-  part(h, box(w + 0.08, 0.05, d + 0.08), brass());
-  part(h, box(w, 0.04, d), pv(), 0, 0.03, 0);
-  const n = Math.max(1, Math.round(w / 0.42));
-  for (let i = 1; i < n; i++) part(h, box(0.025, 0.012, d), mat('#d8ecf4'), -w / 2 + (i * w) / n, 0.052, 0);
+  solarSheet(h, w + 0.08, d + 0.08, f);
   settle(h);
+}
+/**
+ * A ridge roof `w` × `l` (its ridge along z), `h` high, its eaves at y and turned `turn`, that is
+ * all solar panel: each slope one sheet of cells from eave to ridge and end to end, a brass cap on
+ * the ridge, its gable ends of `ends` (the walls' stone).
+ */
+function solarRoof(g, w, h, l, x, y, z, { turn = 0, f = 'sun', ends = brass() } = {}) {
+  const hold = holder(g, x, y, z);
+  hold.rotation.y = turn;
+  part(hold, gable(), ends).scale.set(w * 0.98, h * 0.98, l * 0.98);
+  const half = w / 2, tilt = Math.atan2(h, half), slope = Math.hypot(h, half);
+  for (const s of [-1, 1]) {
+    const face = holder(hold, (s * half) / 2 + s * Math.sin(tilt) * 0.02, h / 2 + Math.cos(tilt) * 0.02, 0);
+    face.rotation.z = -s * tilt;
+    solarSheet(face, slope + 0.1, l + 0.12, f);
+    settle(face);
+  }
+  part(hold, box(0.14, 0.1, l + 0.16), brass(), 0, h + 0.02, 0);
+  settle(hold);
+}
+/**
+ * A roof of `n` sides tapering to a point, all solar panel: its faces of cells (a pyramid when n is
+ * 4, then `w` × `d` across), brass along its hips and round its eaves, lines of the cells across
+ * its faces; its eaves at y, `h` high.
+ */
+function solarSpire(g, w, d, h, x, y, z, { f = 'sun', n = 4 } = {}) {
+  const hold = holder(g, x, y, z), up = new THREE.Vector3(0, 1, 0), apex = new THREE.Vector3(0, h, 0);
+  const corners = n === 4
+    ? [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([cx, cz]) => new THREE.Vector3((cx * w) / 2, 0, (cz * d) / 2))
+    : Array.from({ length: n }, (_, i) => new THREE.Vector3(Math.sin((i / n) * Math.PI * 2) * (w / 2), 0, Math.cos((i / n) * Math.PI * 2) * (d / 2)));
+  if (n === 4) part(hold, pyramid(), pv(f)).scale.set(w, h, d);
+  else part(hold, cone(1, 1, n), pv(f), 0, h / 2, 0).scale.set(w / 2, h, d / 2);
+  const edge = (from, to, t, material) => {
+    const o = part(hold, box(t, from.distanceTo(to), t), material, (from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
+    o.quaternion.setFromUnitVectors(up, to.clone().sub(from).normalize());
+  };
+  corners.forEach((c, i) => {
+    const next = corners[(i + 1) % corners.length];
+    edge(c, apex, 0.06, brass());
+    edge(c, next, 0.06, brass());
+    // the cells' lines across the face, and down it from its middle
+    for (const t of [0.3, 0.6]) edge(c.clone().lerp(apex, t), next.clone().lerp(apex, t), 0.025, cellLines());
+    edge(c.clone().lerp(next, 0.5), apex, 0.025, cellLines());
+  });
+  settle(hold);
+}
+/**
+ * A dome `r` round, sat on (x, y, z), all solar panel: its `n` gores of cells, brass ribs between
+ * them, a brass ring at its foot and a knob at its crown.
+ */
+function solarDome(g, r, x, y, z, { f = 'sun', n = 12 } = {}) {
+  for (let i = 0; i < n; i++) part(g, lune(r, i, n, Math.PI / 2), pv(f), x, y, z);
+  const rib = shape(`solarrib${r}`, () => new THREE.TorusGeometry(r * 1.01, Math.max(0.025, r * 0.03), 4, 10, Math.PI / 2));
+  for (let i = 0; i < n; i++) part(g, rib, brass(), x, y, z).rotation.y = Math.PI - (i / n) * Math.PI * 2;
+  part(g, ring(r * 1.01, Math.max(0.03, r * 0.035), 24), brass(), x, y, z).rotation.x = Math.PI / 2;
+  for (const up of [0.33, 0.62]) part(g, ring(r * Math.cos(up * (Math.PI / 2)) * 1.012, Math.max(0.012, r * 0.012), 24), cellLines(), x, y + r * Math.sin(up * (Math.PI / 2)), z).rotation.x = Math.PI / 2;
+  part(g, sph(Math.max(0.06, r * 0.08), 6, 4), brass(), x, y + r, z);
+}
+/**
+ * A round roof turned on a lathe (an onion, a bell), all solar panel: cells over it, brass ribs
+ * down it along its `profile` (the lathe's), `n` of them.
+ */
+function solarLathe(g, key, profile, n, x, y, z, f = 'sun') {
+  part(g, lathe(key, profile, n), pv(f), x, y, z);
+  for (let i = 0; i < n; i++) part(g, tube(`${key}rib`, profile.map(([r, py]) => [r * 1.02 + 0.01, py, 0]), 0.03, { n: 4 }), brass(), x, y, z).rotation.y = -(i / n) * Math.PI * 2;
+  part(g, ring(profile[0][0] * 1.02, 0.04, 20), brass(), x, y + 0.02, z).rotation.x = Math.PI / 2;
+  // (the cells ruled across, at a third and two thirds of its height)
+  const top = profile[profile.length - 1][1];
+  cellRings(g, profile, [top / 3, (top * 2) / 3], x, y, z);
+}
+/** The cells' lines round a lathe of `profile` sat on (x, y, z), at the heights `ats` up it. */
+function cellRings(g, profile, ats, x, y, z) {
+  for (const at of ats) {
+    const i = Math.max(1, profile.findIndex(([, py]) => py >= at)), [r0, y0] = profile[i - 1], [r1, y1] = profile[i];
+    part(g, ring((r0 + ((r1 - r0) * (at - y0)) / (y1 - y0)) * 1.02 + 0.005, 0.014, 20), cellLines(), x, y + at, z).rotation.x = Math.PI / 2;
+  }
 }
 /** A garden on a flat roof `w` × `d` about (x, z), its turf at y: low bushes and flowers in it. */
 function greenRoof(g, w, d, x, y, z, seed = 0) {
@@ -446,19 +527,6 @@ function planter(g, x, y, z, w = 0.8, turn = 0, seed = 0) {
     if ((i + seed) % 2 === 0) part(h, ico(0.06, 0), bloom(i + seed), px + 0.04, 0.4, 0.05);
   }
   settle(h);
-}
-/**
- * Solar panels on one slope of a ridge roof (roof()): its ridge `l` long along x (`alongX`) or z,
- * `half` its half-width and `rise` its height, the eaves at y; `side` (±1) is the slope, `n` panels.
- */
-function roofSolar(g, x, y, z, l, half, rise, { side = 1, alongX = true, n = 2 } = {}) {
-  const tilt = Math.atan2(rise, half), slope = Math.hypot(rise, half), pw = (l * 0.86) / n;
-  for (let i = 0; i < n; i++) {
-    const off = -l * 0.43 + pw * (i + 0.5);
-    const [px, pz] = alongX ? [x + off, z + side * half * 0.5] : [x + side * half * 0.5, z + off];
-    const turn = alongX ? (side > 0 ? 0 : Math.PI) : side * (Math.PI / 2);
-    solarPanel(g, pw - 0.12, slope * 0.62, px, y + rise * 0.5 + 0.07, pz, tilt, turn);
-  }
 }
 /** A ring of flowers and leaves `r` round (x, y, z): a garland laid on a dais or a rim. */
 function garland(g, r, x, y, z, n = 12, seed = 0) {
@@ -731,11 +799,11 @@ export const MODELS = {
     else if (e.type === 'guildfactory') {
       // a guild hall: a long hall with a bell tower whose bell swings, a banner of each Fury over the door
       part(g, box(w * 0.7, 2.0, h * 0.5), p.stone, -w * 0.05, 1.35, -h * 0.1);
-      roof(g, p.roof, h * 0.56, 1.1, w * 0.75, -w * 0.05, 2.35, -h * 0.1, Math.PI / 2);
+      solarRoof(g, h * 0.56, 1.1, w * 0.75, -w * 0.05, 2.35, -h * 0.1, { turn: Math.PI / 2, f, ends: p.stone });
       part(g, box(0.9, 3.6, 0.9), p.dark, w * 0.32, 2.1, -h * 0.25);
       part(g, box(1.0, 0.12, 1.0), p.trim, w * 0.32, 3.95, -h * 0.25);
       for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) part(g, box(0.12, 0.8, 0.12), p.dark, w * 0.32 + x * 0.4, 4.4, -h * 0.25 + z * 0.4);
-      part(g, pyramid(), p.roof, w * 0.32, 4.8, -h * 0.25).scale.set(1.2, 1.1, 1.2);
+      solarSpire(g, 1.2, 1.2, 1.1, w * 0.32, 4.8, -h * 0.25, { f });
       const bell = holder(g, w * 0.32, 4.7, -h * 0.25);
       part(bell, lathe('bell', [[0.3, -0.5], [0.26, -0.35], [0.16, -0.05], [0.02, 0]], 8), metal('#c9a14a'));
       rep.anim.push((s) => { bell.rotation.x = Math.sin(s * 2.4 + rep.id) * 0.35; });
@@ -745,8 +813,7 @@ export const MODELS = {
       });
       part(g, box(0.9, 1.2, 0.06), mat('#5a3d27'), -w * 0.05, 0.95, h * 0.16);
       for (const [x, z] of [[-w * 0.42, h * 0.35], [w * 0.42, h * 0.38]]) tree(g, x, z, 0.5);
-      // the guild's solar roof, and ivy and planters along its front
-      roofSolar(g, -w * 0.05, 2.35, -h * 0.1, w * 0.75, h * 0.28, 1.1, { n: 3 });
+      // ivy and planters along its front
       vines(g, -w * 0.3, 2.3, h * 0.15 + 0.01, 0.9, { n: 3, len: 1.1, seed: 2 });
       planter(g, w * 0.12, 0.36, h * 0.3, 0.9, 0, 1);
     } else if (f === 'wind') MODELS.windWorkshop(rep, g, p, w, h);
@@ -768,16 +835,14 @@ export const MODELS = {
     const wall = mat('#ece2cf'), hx = -w * 0.08, hz = -h * 0.24;
     part(g, box(w * 0.56, 2.1, h * 0.36), wall, hx, 1.4, hz);
     part(g, box(w * 0.58, 0.14, h * 0.38), p.trim, hx, 2.5, hz);
-    roof(g, p.roof, h * 0.42, 1.1, w * 0.62, hx, 2.55, hz, Math.PI / 2);
+    solarRoof(g, h * 0.42, 1.1, w * 0.62, hx, 2.55, hz, { turn: Math.PI / 2, f: 'sun', ends: wall });
     for (let i = 0; i < 4; i++) part(g, box(0.36, 0.55, 0.05), mat('#3f5560'), hx - w * 0.2 + i * w * 0.13, 1.75, hz + h * 0.18 + 0.01);
     // the arcade
     const front = hz + h * 0.18 + 0.55;
     for (let i = 0; i < 6; i++) part(g, cyl(0.1, 0.12, 1.7, 6), wall, hx - w * 0.25 + i * w * 0.1, 1.2, front);
     part(g, box(w * 0.56, 0.22, 0.4), wall, hx, 2.12, front);
-    part(g, box(w * 0.56, 0.06, 0.62), p.roof, hx, 2.25, front - 0.1);
-    // solarpunk: panels on the villa's sunny slope, a garden on the arcade's roof, ivy, planters
-    roofSolar(g, hx, 2.55, hz, w * 0.62, h * 0.21, 1.1, { n: 3 });
-    greenRoof(g, w * 0.56, 0.62, hx, 2.28, front - 0.1, 5);
+    // solarpunk: the arcade's roof a solar panel, as the villa's is; ivy, planters
+    solarPanel(g, w * 0.56, 0.62, hx, 2.27, front - 0.1, 0.12, 0, 'sun');
     vines(g, hx + w * 0.22, 2.4, hz + h * 0.18 + 0.02, 0.7, { n: 3, len: 1.3, seed: 4 });
     vines(g, hx - w * 0.28, 2.17, front + 0.21, w * 0.5, { n: 6, len: 0.7, seed: 9 });
     for (const s of [-1, 1]) planter(g, hx + s * w * 0.17, 0.36, front + 0.5, 0.85, 0, s + 2);
@@ -792,7 +857,7 @@ export const MODELS = {
       const a = (i / 4) * Math.PI * 2 + 0.4;
       part(g, box(0.22, 0.5, 0.05), mat('#3f5560'), tx + Math.cos(a) * 0.86, 2.6, tz + Math.sin(a) * 0.86).rotation.y = -a + Math.PI / 2;
     }
-    part(g, lathe('sundome', [[0.9, 0], [0.88, 0.35], [0.7, 0.85], [0.35, 1.2], [0.05, 1.35]], 12), p.accent, tx, 3.78, tz);
+    solarLathe(g, 'sundome', [[0.9, 0], [0.88, 0.35], [0.7, 0.85], [0.35, 1.2], [0.05, 1.35]], 12, tx, 3.78, tz, 'sun');
     part(g, cyl(0.04, 0.04, 0.7, 4), p.trim, tx, 5.4, tz);
     const orrery = spin(rep, holder(g, tx, 5.75, tz), 'y', 0.8);
     lit(part(orrery, sph(0.16, 8, 6), p.glow));
@@ -816,7 +881,10 @@ export const MODELS = {
    */
   windWorkshop(rep, g, p, w, h) {
     const lx = -w * 0.1, lz = -h * 0.08;
-    part(g, lathe('windlodge', [[2.0, 0], [1.95, 0.8], [1.6, 2.4], [1.05, 4.0], [0.45, 5.4], [0.04, 6.6]], 10), mat('#d9c39a'), lx, 0.35, lz);
+    // (its canvas is solar cells now, between the timber ribs)
+    const lodge = [[2.0, 0], [1.95, 0.8], [1.6, 2.4], [1.05, 4.0], [0.45, 5.4], [0.04, 6.6]];
+    part(g, lathe('windlodge', lodge, 10), pv('wind'), lx, 0.35, lz);
+    cellRings(g, lodge, [0.6, 2.05, 3.65, 4.9], lx, 0.35, lz);
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2;
       part(g, tube('windrib', [[2.02, 0, 0], [1.97, 0.8, 0], [1.62, 2.4, 0], [1.07, 4.0, 0], [0.47, 5.4, 0], [0.06, 6.6, 0]], 0.07, { n: 4 }), mat('#7a5534'), lx, 0.35, lz).rotation.y = -a;
@@ -833,7 +901,7 @@ export const MODELS = {
       const a = (i / 8) * Math.PI * 2;
       part(g, box(0.06, 3.6, 0.06), mat('#87603f'), mx + Math.cos(a) * 0.73, 2.1, mz + Math.sin(a) * 0.73).rotation.set(Math.sin(a) * 0.1, 0, -Math.cos(a) * 0.1);
     }
-    part(g, cone(0.8, 1.0, 8), p.roof, mx, 4.4, mz);
+    solarSpire(g, 1.6, 1.6, 1.0, mx, 3.9, mz, { f: 'wind', n: 8 });
     const sails = spin(rep, holder(g, mx, 3.6, mz + 0.75), 'z', 0.9, rep.id);
     part(sails, sph(0.14, 6, 4), p.dark);
     for (let i = 0; i < 4; i++) {
@@ -906,7 +974,7 @@ export const MODELS = {
    */
   thunderWorkshop(rep, g, p, w, h) {
     // solarpunk: domes of copper gone green, a hedge of lavender where its thorns were, a garden ring
-    const domeMat = mat('#5fa08e', { metalness: 0.35, roughness: 0.45 }), silver = metal('#b8b4c4'), rust = mat('#8a6a52');
+    const silver = metal('#b8b4c4'), rust = mat('#8a6a52');
     part(g, cyl(1, 1.05, 0.25, 16), mat('#5f9a3e'), -w * 0.05, 0.45, -h * 0.05).scale.set(w * 0.42, 1, h * 0.4);
     for (let i = 0; i < 14; i++) {
       const a = (i / 14) * Math.PI * 2, x = -w * 0.05 + Math.cos(a) * w * 0.4, z = -h * 0.05 + Math.sin(a) * h * 0.38;
@@ -920,13 +988,13 @@ export const MODELS = {
       lit(part(g, box(0.18, 0.7, 0.05), glow('#ffb05a', '#ff6a1a', 1.1), cx + Math.cos(a) * 1.66, 1.35, cz + Math.sin(a) * 1.66)).rotation.y = -a + Math.PI / 2;
     }
     part(g, ring(1.66, 0.08, 20), p.trim, cx, 2.15, cz).rotation.x = Math.PI / 2;
-    part(g, dome(1.6), domeMat, cx, 2.15, cz);
+    solarDome(g, 1.6, cx, 2.15, cz, { f: 'thunder', n: 14 });
     part(g, cone(0.1, 1.6, 6), silver, cx, 4.5, cz);
     const top = [cx, 5.4, cz];
     lit(pulsing(rep, part(g, sph(0.2, 10, 8), p.glow, ...top), 0.6, 2.4, 6));
     for (const [x, z, r] of [[-w * 0.33, -h * 0.28, 0.6], [w * 0.2, h * 0.22, 0.55], [-w * 0.32, h * 0.2, 0.5]]) {
       part(g, cyl(r, r * 1.08, 1.8, 10), p.dark, x, 1.2, z);
-      part(g, dome(r * 1.05), domeMat, x, 2.1, z);
+      solarDome(g, r * 1.05, x, 2.1, z, { f: 'thunder', n: 8 });
       part(g, cone(0.05, 0.7, 4), silver, x, 2.1 + r + 0.3, z);
     }
     // the coil tower, its lightning leaping to the great dome's rod
@@ -949,19 +1017,20 @@ export const MODELS = {
    * roofs on its wings, cypresses at its corners and a beacon burning over its gate.
    */
   outpost(rep, g, p, w, h) {
-    const wall = mat('#ece2cf'), tile = mat('#b8553a');
+    const wall = mat('#ece2cf'), f = furyOf({ type: 'outpost' });
+    // its wings' flat roofs and its corner towers' spires all solar panel
     for (const [x, z, sx, sz] of [[0, -h * 0.3, w * 0.7, 0.8], [0, h * 0.3, w * 0.7, 0.8], [-w * 0.3, 0, 0.8, h * 0.6], [w * 0.3, 0, 0.8, h * 0.6]]) {
       part(g, box(sx, 1.3, sz), wall, x, 1.0, z);
-      part(g, box(sx + 0.2, 0.3, sz + 0.2), tile, x, 1.75, z);
+      part(g, box(sx + 0.2, 0.3, sz + 0.2), wall, x, 1.75, z);
+      solarPanel(g, sx + 0.12, sz + 0.12, x, 1.93, z, 0, 0, f);
     }
     for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
       part(g, box(0.95, 1.9, 0.95), wall, x * w * 0.32, 1.3, z * h * 0.32);
-      part(g, pyramid(), tile, x * w * 0.32, 2.25, z * h * 0.32).scale.set(1.15, 0.6, 1.15);
+      solarSpire(g, 1.1, 1.1, 0.6, x * w * 0.32, 2.25, z * h * 0.32, { f });
     }
     part(g, cyl(1.0, 1.05, 0.9, 12), wall, 0, 1.6, 0);
-    part(g, lathe('outdome', [[1.05, 0], [1.0, 0.45], [0.75, 0.95], [0.35, 1.25], [0.05, 1.35]], 12), mat('#5fa08e', { metalness: 0.35, roughness: 0.45 }), 0, 2.05, 0);
-    // panels on the front and back wings, ivy and a planter by the gate
-    for (const s of [-1, 1]) solarPanel(g, w * 0.5, 0.62, 0, 2.0, s * h * 0.3, 0.3, s > 0 ? 0 : Math.PI);
+    solarLathe(g, 'outdome', [[1.05, 0], [1.0, 0.45], [0.75, 0.95], [0.35, 1.25], [0.05, 1.35]], 12, 0, 2.05, 0, f);
+    // ivy and a planter by the gate
     vines(g, -w * 0.2, 1.6, h * 0.3 + 0.41, 0.8, { n: 3, len: 0.9, seed: 3 });
     planter(g, w * 0.16, 0.36, h * 0.3 + 0.7, 0.7, 0, 2);
     part(g, box(0.7, 1.0, 0.1), mat('#5a3d27'), 0, 0.85, h * 0.3 + 0.41);
@@ -1307,13 +1376,9 @@ export const MODELS = {
         const a = (i / 14) * Math.PI * 2;
         part(g, box(0.2, 0.16, 0.24), p.trim, Math.cos(a) * 1.02, 0.52, Math.sin(a) * 1.02).rotation.y = -a;
       }
-      part(g, dome(0.82), mat('#ece6d6'), 0, 0.6, 0);
+      // (its dome all solar cells, brass ribs between them)
+      solarDome(g, 0.82, 0, 0.6, 0, { f, n: 10 });
       part(g, cyl(0.86, 0.86, 0.06, 16), p.trim, 0, 0.62, 0);
-      // a collar of solar panels round the dome
-      for (let i = 0; i < 6; i++) {
-        const a = ((i + 0.5) / 6) * Math.PI * 2;
-        solarPanel(g, 0.42, 0.3, Math.cos(a) * 0.66, 0.98, Math.sin(a) * 0.66, 0.85, Math.PI / 2 - a);
-      }
       part(g, cyl(0.1, 0.16, 0.7, 6), metal('#6b5a44'), 0, 1.6, 0);
       const arm = holder(g, 0, 1.95, 0);
       rep.discArm = arm;
@@ -1382,7 +1447,7 @@ export const MODELS = {
       for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) part(g, cyl(0.08, 0.12, 2.8, 5), mat('#8a6040'), x * 0.8, 1.6, z * 0.8).rotation.set(-z * 0.12, 0, x * 0.12);
       for (const y of [1.0, 2.0]) for (const r of [0, Math.PI / 2]) part(g, box(1.6, 0.08, 0.08), mat('#6f4e33'), 0, y, 0).rotation.y = r;
       part(g, box(1.3, 0.14, 1.3), mat('#a87a50'), 0, 2.95, 0);
-      part(g, cone(0.95, 0.7, 4), p.roof, 0, 3.4, 0).rotation.y = Math.PI / 4;
+      solarSpire(g, 1.34, 1.34, 0.7, 0, 3.05, 0, { f: 'wind' });
       const turned = holder(g);
       rep.turret = turned;
       turned.rotation.y = FACING_YAW[e.facing ?? 2];
@@ -1437,7 +1502,8 @@ export const MODELS = {
       for (let i = 0; i < 5; i++) part(g, box(0.05, 0.85, 0.05), iron, -0.24 + i * 0.12, 0.9, 1.4);
       for (const r of [Math.PI / 2, Math.PI, -Math.PI / 2]) lit(part(g, box(0.1, 0.45, 0.05), p.glow, Math.sin(r) * 1.27, 1.8, Math.cos(r) * 1.27)).rotation.y = r;
       part(g, cyl(1.2, 1.2, 0.18, 12), p.trim, 0, 2.6, 0);
-      part(g, dome(1.12), iron, 0, 2.68, 0);
+      part(g, dome(1.12), pv('thunder'), 0, 2.68, 0);
+      for (const up of [0.33, 0.62]) part(g, ring(1.12 * Math.cos(up * (Math.PI / 2)) * 1.012, 0.014, 24), cellLines(), 0, 2.68 + 1.12 * Math.sin(up * (Math.PI / 2)), 0).rotation.x = Math.PI / 2;
       for (let i = 0; i < 8; i++) {
         const rib = part(g, shape('bulwarkrib', () => new THREE.TorusGeometry(1.14, 0.05, 4, 8, Math.PI / 2)), p.trim, 0, 2.68, 0);
         rib.rotation.y = (i / 8) * Math.PI * 2;
@@ -1467,7 +1533,7 @@ export const MODELS = {
         part(g, box(0.12, 0.5, 0.12), p.stone, Math.cos(a) * 0.56, 3.8, Math.sin(a) * 0.56);
       }
       part(g, cyl(0.68, 0.68, 0.1, 10), p.trim, 0, 4.06, 0);
-      part(g, lathe('stoneonion', [[0.66, 0], [0.74, 0.25], [0.6, 0.6], [0.3, 0.95], [0.08, 1.2], [0.02, 1.35]], 12), p.accent, 0, 4.1, 0);
+      solarLathe(g, 'stoneonion', [[0.66, 0], [0.74, 0.25], [0.6, 0.6], [0.3, 0.95], [0.08, 1.2], [0.02, 1.35]], 12, 0, 4.1, 0, 'sun');
       banner(rep, g, 0, 0, 5.9, 0.6);
       // a roof garden in its battlements, ivy down its walls
       garland(g, 0.82, 0, 3.55, 0, 12, 0);
@@ -1559,7 +1625,7 @@ export const MODELS = {
       part(wheat, cone(0.07, 0.34, 4), mat(r % 2 ? '#c9b04a' : '#a8b84a'), -0.32 + c * 0.22, 0.17, -0.3 + r * 0.22);
     }
     part(g, box(0.28, 0.28, 0.26), mat('#c9a57c'), 0.32, 0.26, 0.32);
-    part(g, cone(0.24, 0.16, 4), mat('#8a5a34'), 0.32, 0.48, 0.32).rotation.y = Math.PI / 4;
+    solarSpire(g, 0.34, 0.34, 0.16, 0.32, 0.4, 0.32, { f: 'sun' });
     for (let i = 0; i < 5; i++) part(g, box(0.03, 0.18, 0.03), mat('#6f4e33'), -0.44 + i * 0.22, 0.2, 0.46);
     part(g, box(0.9, 0.025, 0.02), mat('#6f4e33'), 0, 0.24, 0.46);
     part(g, box(0.03, 0.55, 0.03), mat('#6f4e33'), -0.3, 0.38, 0.3);
@@ -1567,8 +1633,7 @@ export const MODELS = {
     part(g, box(0.16, 0.18, 0.08), team(rep), -0.3, 0.48, 0.3);
     part(g, sph(0.06, 6, 4), mat('#e2c56a'), -0.3, 0.64, 0.3);
     part(g, cone(0.1, 0.08, 6), mat('#c9a14a'), -0.3, 0.7, 0.3);
-    // a little solar panel by the shed, and sunflowers along the fence
-    solarPanel(g, 0.3, 0.2, 0.3, 0.22, 0.02, 0.6, 0);
+    // sunflowers along the fence
     for (const x of [-0.42, 0.06]) {
       part(g, cyl(0.012, 0.015, 0.5, 4), leaf(1), x, 0.37, 0.4);
       part(g, cyl(0.07, 0.07, 0.02, 8), mat('#ffcf3a'), x, 0.63, 0.42).rotation.x = Math.PI / 2 - 0.4;
@@ -1633,8 +1698,10 @@ export const MODELS = {
         part(g, box(0.26, 0.42, 0.05), mat('#3f4a55'), Math.cos(a) * 1.15, 0.78, Math.sin(a) * 1.15).rotation.y = -a + Math.PI / 2;
       }
       part(g, cyl(1.2, 1.2, 0.1, 16), p.trim, 0, 1.25, 0);
-      // a solar dome: every other gore of blue cells
-      for (let i = 0; i < 12; i++) part(g, lune(1.1, i, 12, Math.PI / 2), i % 2 ? metal('#d9a63a') : pv(), 0, 1.28, 0).scale.y = 0.85;
+      // (its dome all solar cells, brass ribs between them)
+      const solarHall = holder(g, 0, 1.28, 0);
+      solarDome(solarHall, 1.1, 0, 0, 0, { f: 'sun', n: 12 });
+      solarHall.scale.y = 0.85;
       garland(g, 1.42, 0, 0.1, 0, 18, 1);
       for (let i = 0; i < 6; i++) {
         const rib = part(g, shape('whirlrib', () => new THREE.TorusGeometry(1.11, 0.035, 4, 10, Math.PI / 2)), mat('#5a4030'), 0, 1.28, 0);
@@ -2113,16 +2180,13 @@ export const MODELS = {
     const p = FURY[theme] ?? FURY.sun;
     part(g, box(2.2, 1.2, 1.7), mat(p.stone), 0, 0.66, 0);
     part(g, box(2.3, 0.12, 1.8), mat(p.trim), 0, 1.3, 0);
-    const top = part(g, cone(1.75, 1.05, 4), mat(p.roof), 0, 1.78, 0);
-    top.rotation.y = Math.PI / 4;
-    top.scale.z = 0.82;
+    solarSpire(g, 2.48, 2.03, 1.05, 0, 1.255, 0, { f: FURY[theme] ? theme : 'sun' });
     part(g, box(0.26, 0.7, 0.26), mat(p.dark), 0.6, 2.0, -0.3);
     part(g, box(0.42, 0.65, 0.05), mat('#6b4a2c'), 0, 0.38, 0.86);
     for (const x of [-0.7, 0.7]) part(g, box(0.34, 0.3, 0.05), glow(p.glow[0], p.glow[1], 0.7), x, 0.8, 0.86);
     part(g, ico(0.45, 1), leaf(0), -1.4, 0.4, 1.3);
     part(g, ico(0.35, 1), leaf(1), 1.45, 0.35, -1.2);
-    // solarpunk: a solar panel on the sunny slope, window boxes in flower, a tree in blossom
-    solarPanel(g, 1.0, 0.55, 0, 1.86, 0.5, 0.8, 0);
+    // solarpunk: its roof one solar panel, window boxes in flower, a tree in blossom
     for (const [x, k] of [[-0.7, 0], [0.7, 3]]) planter(g, x, 0.42, 0.95, 0.42, 0, k);
     tree(g, 1.35, 1.25, 0.42);
   },
@@ -2130,7 +2194,7 @@ export const MODELS = {
     const d = defs.get(e.type);
     const fx = e.fx ?? 1, fy = e.fy ?? 1;
     part(g, box(fx * 0.8, 1.4, fy * 0.8), mat('#d9d0bd'), 0, 0.7, 0);
-    part(g, cone(Math.max(fx, fy) * 0.6, 1, 4), mat(FURY_COLOR[d?.theme] ?? '#bbb'), 0, 1.9, 0).rotation.y = Math.PI / 4;
+    solarSpire(g, fx * 0.9, fy * 0.9, 1, 0, 1.4, 0, { f: d?.theme ?? 'sun' });
   },
 };
 

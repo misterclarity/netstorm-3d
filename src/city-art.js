@@ -37,6 +37,10 @@ const SHAPES = (() => {
     cone6: base(new THREE.ConeGeometry(0.5, 1, 6)),
     pyramid: base(new THREE.ConeGeometry(Math.SQRT1_2, 1, 4).rotateY(Math.PI / 4)),
     dome: new THREE.SphereGeometry(0.5, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2).toNonIndexed(),
+    // (a flat square facing up, at its base: a line painted on a roof; give it a height of 1)
+    quad: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).toNonIndexed(),
+    // (a cylinder's side alone, open at its ends: a ring round a dome, a cone or a vault)
+    hoop: base(new THREE.CylinderGeometry(0.5, 0.5, 1, 16, 1, true)),
     ball: base(new THREE.IcosahedronGeometry(0.5, 1)),
     rock: base(new THREE.IcosahedronGeometry(0.5, 0)),
     gable: g,
@@ -97,10 +101,12 @@ export const TURN = [Math.PI, Math.PI / 2, 0, -Math.PI / 2];
 
 /** Builds into the batches in a prop's frame. */
 export class Kit {
-  /** `frame`: the prop's frame in the city's space; `lit` the batch of what is lit, `glow` of what glows. */
-  constructor(lit, glow, movers, lights) {
+  /** `frame`: the prop's frame in the city's space; `lit` the batch of what is lit, `glow` of what
+   * glows, `shine` of what is glossy (the solar cells). */
+  constructor(lit, glow, movers, lights, shine = lit) {
     this.lit = lit;
     this.glowing = glow;
+    this.shining = shine;
     this.movers = movers;
     this.lights = lights;
     this.frame = new THREE.Matrix4();
@@ -130,6 +136,17 @@ export class Kit {
     this.glowing.add(coarse(shape, sx, sy, sz), this.matrix(x, y, z, sx, sy, sz, rx, ry, rz), hex);
   }
 
+  /** The same, glossy: solar cells. */
+  shine(shape, x, y, z, sx, sy, sz, hex, rx = 0, ry = 0, rz = 0) {
+    this.shining.add(coarse(shape, sx, sy, sz), this.matrix(x, y, z, sx, sy, sz, rx, ry, rz), hex);
+  }
+
+  /** A part turned by the quaternion q (a roof's hips, its slopes), glossy if `shine`. */
+  partQ(shape, x, y, z, sx, sy, sz, hex, q, shine = false) {
+    L.compose(V.set(x, y, z), q, S.set(sx, sy, sz));
+    (shine ? this.shining : this.lit).add(coarse(shape, sx, sy, sz), M.multiplyMatrices(this.frame, L), hex);
+  }
+
   /** Where (x, y, z) of the frame is in the city's space. */
   point(x, y, z) {
     return new THREE.Vector3(x, y, z).applyMatrix4(this.frame);
@@ -155,11 +172,11 @@ const FURY = { sun: '#e8a23a', rain: '#3f8fd8', wind: '#7fb04a', thunder: '#8f6a
 const WINDOW = '#3f5c63';
 const LANTERN = '#ffc870';
 const STYLE = {
-  sun: { walls: ['#e2c08a', '#d9b07a', '#e8cd9e', '#d6a76c'], trim: '#a8683a', roof: ['#c6743e', '#b8653a', '#d08a4a'], door: '#6a4024', lit: '#ffcf7a' },
-  rain: { walls: ['#cbd7e0', '#bccbd6', '#d6dfe5'], trim: '#eef3f6', roof: ['#3d6d9e', '#2f7f8f', '#4a5f9a'], door: '#2f5f8a', lit: '#cfe6ff' },
-  wind: { walls: ['#efeedc', '#e5e8d2', '#f1e9d6'], trim: '#7a5a3a', roof: ['#7f9a5d', '#a68f5c', '#6e8a6a'], door: '#5a7a3a', lit: '#fff0b0' },
-  thunder: { walls: ['#c9bfd8', '#bdb3cf', '#d2c9de'], trim: '#c98a4a', roof: ['#4f9a88', '#7a68b0', '#5a8f80'], door: '#5a4a78', lit: '#d8c8ff' },
-  med: { walls: ['#f6f4ee', '#f1eee5', '#f8f6f1', '#ede7db'], trim: '#e2dccf', roof: ['#2f68b8', '#2a7fb0', '#3a6fc4'], door: '#2f68b8', lit: '#ffd88a' },
+  sun: { walls: ['#e2c08a', '#d9b07a', '#e8cd9e', '#d6a76c'], trim: '#a8683a', door: '#6a4024', lit: '#ffcf7a' },
+  rain: { walls: ['#cbd7e0', '#bccbd6', '#d6dfe5'], trim: '#eef3f6', door: '#2f5f8a', lit: '#cfe6ff' },
+  wind: { walls: ['#efeedc', '#e5e8d2', '#f1e9d6'], trim: '#7a5a3a', door: '#5a7a3a', lit: '#fff0b0' },
+  thunder: { walls: ['#c9bfd8', '#bdb3cf', '#d2c9de'], trim: '#c98a4a', door: '#5a4a78', lit: '#d8c8ff' },
+  med: { walls: ['#f6f4ee', '#f1eee5', '#f8f6f1', '#ede7db'], trim: '#e2dccf', door: '#2f68b8', lit: '#ffd88a' },
 };
 const SHUTTERS = ['#2f68b8', '#2a8f9a', '#4f8f4a', '#c98a2c', '#2f68b8'];
 
@@ -194,24 +211,113 @@ function windows(k, st, W, D, floors, v, door) {
   }
 }
 
-/** Solar panels in a row on a flat roof W × D whose top is at y: brass frames, blue cells, tilted to the front. */
-function solarRoof(k, W, D, y, n = 2) {
-  const pw = (W - 0.4) / n;
-  for (let i = 0; i < n; i++) {
-    const x = -W / 2 + 0.2 + pw * (i + 0.5);
-    k.part('box', x, y + 0.12, 0, pw - 0.1, 0.05, Math.min(1.1, D - 0.5), '#d9aa45', 0.35);
-    k.part('box', x, y + 0.15, 0.01, pw - 0.18, 0.05, Math.min(1.1, D - 0.5) - 0.08, '#2c5d8a', 0.35);
+/* ------------------------------ solar roofs: every roof is a solar panel ------------------------------ */
+/** Solar cells, tinted to the quarter's Fury (as the models' are: models.js, PV); the pale lines
+ * between the cells; brass. */
+const CELLS = { sun: '#3069a0', rain: '#2f6fb0', wind: '#2b7a86', thunder: '#4a55a6', med: '#3069a0' };
+const LINES = '#cfe2ea', BRASS = '#d9aa45';
+const cellsOf = (s) => CELLS[s] ?? CELLS.sun;
+const UP3 = new THREE.Vector3(0, 1, 0), QS = new THREE.Quaternion(), A3 = new THREE.Vector3(), B3 = new THREE.Vector3();
+const X3 = new THREE.Vector3(), N3 = new THREE.Vector3(), Z3 = new THREE.Vector3(), BASIS = new THREE.Matrix4();
+/** A straight seam `t` thick from a to b ([x, y, z] in the prop's frame): a hip, a ridge, a rib. */
+function seam(k, a, b, t, hex) {
+  A3.set(...a);
+  B3.set(...b);
+  QS.setFromUnitVectors(UP3, B3.clone().sub(A3).normalize());
+  k.partQ('box', a[0], a[1], a[2], t, A3.distanceTo(B3), t, hex, QS);
+}
+/** A line `t` wide from a to b on a face whose outward normal is n: a line between the cells, flat
+ * (two triangles, where a seam has twelve: the cities have thousands of them). */
+function strip(k, a, b, n, t, hex) {
+  A3.set(...a);
+  B3.set(...b);
+  X3.subVectors(B3, A3);
+  const len = X3.length();
+  X3.divideScalar(len);
+  N3.set(...n);
+  N3.addScaledVector(X3, -N3.dot(X3)).normalize();
+  Z3.crossVectors(X3, N3);
+  QS.setFromRotationMatrix(BASIS.makeBasis(X3, N3, Z3));
+  k.partQ('quad', (A3.x + B3.x) / 2, (A3.y + B3.y) / 2, (A3.z + B3.z) / 2, len, 1, t, hex, QS);
+}
+/** A flat roof W × D at height y that is one solar panel: brass round it, its cells ruled both ways. */
+function solarFlat(k, W, D, y, s, x = 0, z = 0) {
+  k.part('box', x, y, z, W, 0.06, D, BRASS);
+  k.shine('box', x, y + 0.02, z, W - 0.16, 0.06, D - 0.16, cellsOf(s));
+  const iw = W - 0.16, id = D - 0.16, nx = Math.max(1, Math.round(iw / 0.5)), nz = Math.max(1, Math.round(id / 0.5));
+  for (let i = 1; i < nx; i++) k.part('quad', x - iw / 2 + (iw * i) / nx, y + 0.085, z, 0.03, 1, id, LINES);
+  for (let i = 1; i < nz; i++) k.part('quad', x, y + 0.086, z - id / 2 + (id * i) / nz, iw, 1, 0.03, LINES);
+}
+/**
+ * A ridge roof as the gable shape (`w` across, `rise` high, `l` long, its ridge along z turned
+ * `turn`), its eaves' middle at (x, y, z): all solar panel, each slope one sheet of cells ruled
+ * across, brass on its ridge and eaves; its two ends of `ends`.
+ */
+function solarGable(k, x, y, z, w, rise, l, s, ends, turn = 0) {
+  k.part('gable', x, y, z, w * 0.98, rise * 0.98, l * 0.98, ends, 0, turn, 0);
+  const half = w / 2, tilt = Math.atan2(rise, half), slope = Math.hypot(rise, half), c = Math.cos(turn), sn = Math.sin(turn);
+  // a point (u across, v up, t along the ridge, `off` out of the slope on `side`) in the prop's frame
+  const at = (u, v, t, side = 0, off = 0) => {
+    const uu = u + side * Math.sin(tilt) * off, vv = v + Math.cos(tilt) * off;
+    return [x + uu * c + t * sn, y + vv, z - uu * sn + t * c];
+  };
+  for (const side of [-1, 1]) {
+    QS.setFromEuler(new THREE.Euler(0, turn, -side * tilt, 'YXZ'));
+    k.partQ('box', ...at((side * half) / 2, rise / 2, 0, side, 0.005), slope + 0.08, 0.05, l + 0.1, cellsOf(s), QS, true);
+    // its cells: lines down the slope, and along it, on the sheet (its face 0.055 out)
+    const o = at(0, 0, 0), out = at(0, 0, 0, side, 1).map((v, i) => v - o[i]), n = Math.max(1, Math.round(l / 0.5));
+    for (let i = 1; i < n; i++) { const t = -l / 2 + (l * i) / n; strip(k, at(side * half, 0, t, side, 0.058), at(0, rise, t, side, 0.058), out, 0.03, LINES); }
+    for (const f of [1 / 3, 2 / 3]) strip(k, at(side * half * (1 - f), rise * f, -l / 2, side, 0.059), at(side * half * (1 - f), rise * f, l / 2, side, 0.059), out, 0.03, LINES);
+    seam(k, at(side * half, 0, -l / 2 - 0.05, side, 0.04), at(side * half, 0, l / 2 + 0.05, side, 0.04), 0.07, BRASS);
+  }
+  seam(k, at(0, rise + 0.03, -l / 2 - 0.06), at(0, rise + 0.03, l / 2 + 0.06), 0.09, BRASS);
+}
+/** A pyramid roof W × D, `top` high, its eaves' middle at (x, y, z): its faces one solar panel each,
+ * brass on its hips and eaves, the cells ruled across. */
+function solarPyramid(k, x, y, z, W, top, D, s) {
+  k.shine('pyramid', x, y, z, W, top, D, cellsOf(s));
+  const apex = [x, y + top + 0.02, z], corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([cx, cz]) => [x + (cx * W * 1.01) / 2, y + 0.01, z + (cz * D * 1.01) / 2]);
+  const lerp = (a, b, f) => a.map((v, i) => v + (b[i] - v) * f);
+  corners.forEach((cn, i) => {
+    const next = corners[(i + 1) % 4], mid = lerp(cn, next, 0.5);
+    // (the face's outward normal: out from the middle of its foot as far as the roof is high, and up
+    // as far as the foot is from the middle; the cells' lines lie just off the face)
+    const across = Math.hypot(mid[0] - x, mid[2] - z), out = [((mid[0] - x) / across) * top, across, ((mid[2] - z) / across) * top];
+    const off = (pt) => pt.map((v, j) => v + (out[j] / Math.hypot(...out)) * 0.012);
+    seam(k, cn, apex, 0.07, BRASS);
+    seam(k, cn, next, 0.07, BRASS);
+    for (const f of [0.3, 0.6]) strip(k, off(lerp(cn, apex, f)), off(lerp(next, apex, f)), out, 0.03, LINES);
+    strip(k, off(mid), off(apex), out, 0.03, LINES);
+  });
+}
+/** A cone roof `d` across and `h` high on (x, y, z) (as the cone shape): all solar cells, rings of
+ * brass at its eaves and of the cells' lines up it. */
+function solarCone(k, x, y, z, d, h, s, shape = 'cone') {
+  k.shine(shape, x, y, z, d, h, d, cellsOf(s));
+  k.part('cyl16', x, y - 0.02, z, d + 0.08, 0.05, d + 0.08, BRASS);
+  for (const f of [0.3, 0.6]) k.part('hoop', x, y + h * f, z, d * (1 - f) + 0.04, 0.02, d * (1 - f) + 0.04, LINES);
+}
+/** A dome (as the dome shape, sx × sy × sz) on (x, y, z): all solar cells, brass ribs down it and a
+ * brass ring at its foot, the cells' lines round it. */
+function solarDome(k, x, y, z, sx, sy, sz, s, ribs = 10, rib = BRASS) {
+  k.shine('dome', x, y, z, sx, sy, sz, cellsOf(s));
+  k.part('cyl16', x, y - 0.02, z, sx + 0.08, 0.05, sz + 0.08, rib);
+  for (const f of [0.38, 0.72]) {
+    const r = Math.sqrt(1 - f * f);
+    k.part('hoop', x, y + sy * 0.5 * f, z, sx * r + 0.035, 0.02, sz * r + 0.035, LINES);
+  }
+  for (let i = 0; i < ribs; i++) {
+    const a = (i / ribs) * Math.PI * 2, pt = (th) => [x + 0.5 * 1.012 * sx * Math.cos(th) * Math.cos(a), y + 0.5 * 1.012 * sy * Math.sin(th), z + 0.5 * 1.012 * sz * Math.cos(th) * Math.sin(a)];
+    for (let j = 0; j < 4; j++) seam(k, pt((j / 4) * (Math.PI / 2)), pt(((j + 1) / 4) * (Math.PI / 2)), Math.max(0.035, sx * 0.012), rib);
   }
 }
-/** A garden on a flat roof W × D whose top is at y: a bed of turf, bushes and flowers in it. */
-function roofGarden(k, W, D, y, v) {
-  k.part('box', 0, y, 0, W - 0.3, 0.1, D - 0.3, '#5f9a3e');
-  const n = Math.max(2, Math.round((W * D) / 1.6));
-  for (let i = 0; i < n; i++) {
-    const x = (((v * 41 + i * 0.37) % 1) - 0.5) * (W - 0.6), z = (((v * 23 + i * 0.61) % 1) - 0.5) * (D - 0.6);
-    k.part('ball', x, y + 0.08, z, 0.42, 0.3, 0.42, ['#4f9a3c', '#6db34a', '#3f8a3a'][i % 3]);
-    if (i % 2) k.part('ball', x + 0.12, y + 0.3, z, 0.14, 0.14, 0.14, ['#f6a5c0', '#ffd34e', '#ffffff', '#c3a2f0'][i % 4]);
-  }
+/** A barrel vault (as the rod shape lying along z: `w` across, `l` long, `h` high) about (x, y, z):
+ * all solar cells, brass at its crown, the cells' lines over it. */
+function solarVault(k, x, y, z, w, l, h, s) {
+  k.shine('rod', x, y, z, w, l, h, cellsOf(s), Math.PI / 2);
+  const n = Math.max(1, Math.round(l / 0.55));
+  for (let i = 1; i < n; i++) k.part('hoop', x, y, z - l / 2 + (l * i) / n, w + 0.035, 0.02, h + 0.035, LINES, Math.PI / 2);
+  seam(k, [x, y + h / 2 + 0.01, z - l / 2], [x, y + h / 2 + 0.01, z + l / 2], 0.07, BRASS);
 }
 /** Ivy down a wall: strands from the top (y) of the front (z = D / 2) at a few places across W. */
 function ivy(k, W, D, y, v) {
@@ -228,7 +334,7 @@ export function house(k, p) {
   const W = cw - 0.22, D = cd - 0.22;
   const big = cw * cd;
   const floors = 1 + (v > 0.35 ? 1 : 0) + (v > 0.8 && big >= 6 ? 1 : 0);
-  const H = floors * 1.15, wall = pick(st.walls, v), roof = pick(st.roof, (v * 7) % 1);
+  const H = floors * 1.15, wall = pick(st.walls, v);
   const door = ((v * 31) % 1 - 0.5) * Math.max(0, W - 1.2);
   // the walls, a plinth, the door and its step
   k.part('box', 0, 0, 0, W, H, D, wall);
@@ -243,28 +349,25 @@ export function house(k, p) {
     case 'sun': {
       // a flat roof behind a parapet; a sun disc over the door; on some a pavilion with an awning
       k.part('box', 0, H, 0, W + 0.1, 0.25, D + 0.1, st.trim);
-      k.part('box', 0, H + 0.25, 0, W - 0.2, 0.05, D - 0.2, wall);
       k.part('cyl', door, 1.0, D / 2 + 0.05, 0.42, 0.05, 0.42, '#e8b43a', Math.PI / 2);
-      // solarpunk: solar panels or a garden on the roof (not under a pavilion), ivy on some fronts
-      if (!(v > 0.55 && big >= 6)) {
-        if (((v * 3) % 1) < 0.5) solarRoof(k, W, D, H + 0.25, Math.max(1, Math.round(W / 1.2)));
-        else roofGarden(k, W, D, H + 0.25, v);
-      }
+      // solarpunk: the roof (inside its parapet) one solar panel; ivy on some fronts
+      solarFlat(k, W - 0.2, D - 0.2, H + 0.2, 'sun');
       if (((v * 9) % 1) < 0.4) ivy(k, W, D, H, v);
       if (v > 0.55 && big >= 6) {
         k.part('box', -W / 4, H + 0.25, -D / 4, W / 2.4, 0.9, D / 2.4, wall);
-        k.part('box', -W / 4, H + 1.15, -D / 4 + 0.15, W / 2, 0.06, D / 2 + 0.3, roof, -0.12);
+        solarFlat(k, W / 2, D / 2 + 0.3, H + 1.15, 'sun', -W / 4, -D / 4 + 0.15);
       }
-      if (((v * 5) % 1) < 0.5) k.part('box', door, 1.05, D / 2 + 0.3, 1.1, 0.05, 0.6, roof, 0.25);
+      // (an awning of solar cells over the door)
+      if (((v * 5) % 1) < 0.5) { k.part('box', door, 1.05, D / 2 + 0.3, 1.1, 0.05, 0.6, BRASS, 0.25); k.shine('box', door, 1.07, D / 2 + 0.3, 1.0, 0.05, 0.5, cellsOf('sun'), 0.25); }
       break;
     }
     case 'rain': {
       // a vaulted roof; a round turret on the bigger houses; a rain barrel by the door
       k.part('box', 0, H, 0, W + 0.08, 0.12, D + 0.08, st.trim);
-      k.part('rod', 0, H + 0.06, 0, W * 0.98, D + 0.1, Math.min(1.5, W * 0.6), roof, Math.PI / 2);
+      solarVault(k, 0, H + 0.06, 0, W * 0.98, D + 0.1, Math.min(1.5, W * 0.6), 'rain');
       if (big >= 9 || (v > 0.7 && big >= 6)) {
         k.part('cyl', W / 2 - 0.4, 0, -D / 2 + 0.4, 0.9, H + 0.9, 0.9, wall);
-        k.part('cone', W / 2 - 0.4, H + 0.9, -D / 2 + 0.4, 1.15, 1.0, 1.15, roof);
+        solarCone(k, W / 2 - 0.4, H + 0.9, -D / 2 + 0.4, 1.15, 1.0, 'rain');
       }
       k.part('cyl', door - 0.55, 0, D / 2 + 0.2, 0.36, 0.5, 0.36, '#6f8aa0');
       if (((v * 9) % 1) < 0.55) ivy(k, W, D, H, v);
@@ -272,15 +375,9 @@ export function house(k, p) {
     }
     case 'wind': {
       // a steep gable, timber at the corners and a band between the floors, a pennant on the ridge
-      k.part('gable', 0, H, 0, W + 0.25, Math.min(1.6, 0.6 + W * 0.4), D + 0.25, roof);
+      solarGable(k, 0, H, 0, W + 0.25, Math.min(1.6, 0.6 + W * 0.4), D + 0.25, 'wind', st.trim);
       for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.part('box', (sx * W) / 2, 0, (sz * D) / 2, 0.12, H, 0.12, st.trim);
       for (let f = 1; f < floors; f++) k.part('box', 0, f * 1.15 - 0.05, 0, W + 0.04, 0.1, D + 0.04, st.trim);
-      if (((v * 3) % 1) < 0.6) {
-        // a solar panel down one slope of the gable (its ridge along z: the slope faces +x)
-        const rise = Math.min(1.6, 0.6 + W * 0.4), half = (W + 0.25) / 2, tilt = Math.atan2(rise, half);
-        k.part('box', half / 2, H + rise / 2, 0, Math.hypot(rise, half) * 0.62, 0.05, D * 0.72, '#d9aa45', 0, 0, -tilt);
-        k.part('box', half / 2, H + rise / 2 + 0.02, 0, Math.hypot(rise, half) * 0.56, 0.05, D * 0.66, '#2c5d8a', 0, 0, -tilt);
-      }
       if (v > 0.4) {
         const top = H + Math.min(1.6, 0.6 + W * 0.4);
         k.part('box', 0, top - 0.1, -D / 4, 0.05, 0.9, 0.05, '#5a4a3a');
@@ -292,7 +389,7 @@ export function house(k, p) {
       // a steep slate pyramid, metal at the eaves, a lightning rod with a violet glow at its tip
       k.part('box', 0, H, 0, W + 0.12, 0.15, D + 0.12, st.trim);
       const top = Math.min(2.2, 0.9 + Math.min(W, D) * 0.6);
-      k.part('pyramid', 0, H + 0.15, 0, W + 0.1, top, D + 0.1, roof);
+      solarPyramid(k, 0, H + 0.15, 0, W + 0.1, top, D + 0.1, 'thunder');
       k.part('cyl', 0, H + 0.15 + top - 0.2, 0, 0.06, 0.9, 0.06, '#b8c0d0');
       k.glow('ball', 0, H + top + 0.65, 0, 0.16, 0.16, 0.16, '#c9a8ff');
       if (((v * 9) % 1) < 0.6) ivy(k, W, D, H, v);
@@ -302,11 +399,12 @@ export function house(k, p) {
       // Altamar's: a flat roof behind a low parapet; on some a blue dome, a pergola on the roof,
       // bougainvillea over the door, a chimney
       k.part('box', 0, H, 0, W + 0.08, 0.22, D + 0.08, '#efebe2');
-      k.part('box', 0, H + 0.22, 0, W - 0.25, 0.04, D - 0.25, '#e4ddd0');
+      // (the roof inside its parapet one solar panel; a dome all solar cells)
+      solarFlat(k, W - 0.25, D - 0.25, H + 0.18, 'med');
       if (v < 0.3) {
         const r = Math.min(W, D) * 0.62;
         k.part('cyl', 0, H + 0.2, 0, r, 0.35, r, wall);
-        k.part('dome', 0, H + 0.55, 0, r, r * 1.05, r, roof);
+        solarDome(k, 0, H + 0.55, 0, r, r * 1.05, r, 'med', 8);
         k.part('ball', 0, H + 0.5 + r * 0.55, 0, 0.12, 0.12, 0.12, '#f0e8d0');
       } else if (v > 0.8) {
         // a pergola on the roof: white posts, two beams, slats across them, a vine along one side
@@ -320,10 +418,6 @@ export function house(k, p) {
           if (i % 2) k.part('ball', -pw / 2 + (i + 0.5) * (pw / 4) + 0.12, H + 1.42, pd / 2 - 0.05, 0.16, 0.12, 0.16, '#c2307a');
         }
         k.part('box', -pw / 2, H + 0.22, pd / 2 - 0.05, 0.12, 1.05, 0.14, '#4f7f3a');
-      }
-      if (v >= 0.3 && v <= 0.8 && W >= 1.4) {
-        if (((v * 3) % 1) < 0.5) solarRoof(k, W, D, H + 0.26, Math.max(1, Math.round(W / 1.2)));
-        else roofGarden(k, W, D, H + 0.26, v);
       }
       if (((v * 23) % 1) < 0.5) {
         for (let i = 0; i < 4; i++) k.part('ball', door + (i - 1.5) * 0.28, 1.0 + (i % 2) * 0.2, D / 2 + 0.06, 0.32, 0.26, 0.18, i % 3 ? '#c2307a' : '#d84a95');
@@ -473,7 +567,7 @@ export function windtower(k) {
   k.part('taper', 0, 0.4, 0, 1.6, 4.6, 1.6, '#efeedc');
   for (const y of [1.6, 3.0]) k.part('cyl', 0, y, 0, 1.62, 0.16, 1.62, '#7f9a5d');
   k.part('cyl', 0, 4.9, 0, 2.0, 0.14, 2.0, '#7a5a3a');
-  k.part('cone', 0, 5.04, 0, 1.4, 1.0, 1.4, '#7f9a5d');
+  solarCone(k, 0, 5.04, 0, 1.4, 1.0, 'wind');
   k.part('cyl', 0, 6.0, 0, 0.08, 0.8, 0.08, '#5a4a3a');
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2;
@@ -525,7 +619,8 @@ export function concord(k) {
   }
   k.part('cyl16', 0, 3.25, 0, 4.4, 0.35, 4.4, marble);
   k.part('cyl16', 0, 3.6, 0, 4.0, 0.1, 4.0, gold);
-  k.part('dome', 0, 3.7, 0, 3.6, 3.0, 3.6, '#e8d9a8');
+  // (its dome all solar cells between ribs of gold)
+  solarDome(k, 0, 3.7, 0, 3.6, 3.0, 3.6, 'sun', 16, gold);
   k.part('cyl', 0, 5.15, 0, 0.6, 0.5, 0.6, marble);
   k.part('cone', 0, 5.65, 0, 0.7, 0.6, 0.7, gold);
   for (let i = 0; i < 4; i++) {
@@ -547,7 +642,7 @@ export function concord(k) {
 export function windmill(k) {
   k.part('taper', 0, 0, 0, 2.5, 3.4, 2.5, '#f6f4ee');
   k.part('cyl', 0, 0, 0, 2.6, 0.25, 2.6, '#e2dccf');
-  k.part('cone', 0, 3.35, 0, 2.3, 1.3, 2.3, '#8a6a44');
+  solarCone(k, 0, 3.35, 0, 2.3, 1.3, 'med');
   k.part('box', 0, 0, 1.2, 0.55, 1.0, 0.1, '#2f68b8');
   k.glow('box', 0, 2.0, 1.12, 0.3, 0.38, 0.06, '#ffd88a');
   k.part('cyl', 0, 3.25, 1.05, 0.22, 0.5, 0.22, '#5a4632', Math.PI / 2);
@@ -555,7 +650,7 @@ export function windmill(k) {
 }
 
 export function hall(k) {
-  const white = '#f6f4ee', stone = '#e6e0d2', blue = '#2f68b8', [W, D] = [8.6, 6.6];
+  const white = '#f6f4ee', stone = '#e6e0d2', [W, D] = [8.6, 6.6];
   k.part('box', 0, 0, 0, W, 0.5, D, stone);
   for (let i = 0; i < 3; i++) k.part('box', 0, i * 0.17, D / 2 + 0.25 - i * 0.18, 4.2, 0.17, 0.55, stone);
   k.part('box', 0, 0.5, -0.4, 6.2, 3.2, 5.0, white);
@@ -566,19 +661,19 @@ export function hall(k) {
     const a = (i / 10) * Math.PI * 2;
     k.part('box', Math.cos(a) * 1.94, 4.15, -0.4 + Math.sin(a) * 1.94, 0.22, 0.6, 0.22, WINDOW, 0, -a, 0);
   }
-  k.part('dome', 0, 5.0, -0.4, 4.0, 3.6, 4.0, blue);
+  solarDome(k, 0, 5.0, -0.4, 4.0, 3.6, 4.0, 'med', 16);
   k.part('cyl', 0, 6.75, -0.4, 0.7, 0.6, 0.7, white);
-  k.part('dome', 0, 7.35, -0.4, 0.75, 0.6, 0.75, blue);
+  solarDome(k, 0, 7.35, -0.4, 0.75, 0.6, 0.75, 'med', 6);
   k.part('ball', 0, 7.7, -0.4, 0.2, 0.2, 0.2, '#e8c860');
   // a small dome on each corner of the roof
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     k.part('cyl', sx * 2.5, 3.9, -0.4 + sz * 1.9, 1.0, 0.45, 1.0, white);
-    k.part('dome', sx * 2.5, 4.35, -0.4 + sz * 1.9, 1.05, 0.9, 1.05, blue);
+    solarDome(k, sx * 2.5, 4.35, -0.4 + sz * 1.9, 1.05, 0.9, 1.05, 'med', 6);
   }
   // the portico: six columns, a roof and a pediment, the door and a round window over it
   for (let i = 0; i < 6; i++) k.part('cyl', -2.5 + i, 0.5, 2.85, 0.32, 2.6, 0.32, white);
   k.part('box', 0, 3.1, 2.4, 6.0, 0.3, 1.4, stone);
-  k.part('gable', 0, 3.4, 2.4, 1.5, 0.9, 6.2, white, 0, Math.PI / 2, 0);
+  solarGable(k, 0, 3.4, 2.4, 1.5, 0.9, 6.2, 'med', white, Math.PI / 2);
   k.part('box', 0, 0.5, 2.11, 1.2, 1.9, 0.06, '#5a3a24');
   k.glow('cyl16', 0, 2.75, 2.12, 0.9, 0.04, 0.9, '#ffd88a', Math.PI / 2);
   for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) k.glow('box', sx * 3.11, 1.3, -2.2 + i * 1.5, 0.05, 1.1, 0.42, '#ffd88a');
@@ -593,7 +688,7 @@ export function belltower(k) {
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.part('box', sx * 0.72, 5.46, sz * 0.72, 0.3, 1.2, 0.3, white);
   k.part('box', 0, 6.66, 0, 1.9, 0.16, 1.9, '#e2dccf');
   k.part('cone', 0, 5.7, 0, 0.7, 0.75, 0.7, '#c9a040');
-  k.part('dome', 0, 6.82, 0, 1.3, 1.1, 1.3, '#2f68b8');
+  solarDome(k, 0, 6.82, 0, 1.3, 1.1, 1.3, 'med', 8);
   k.part('cyl', 0, 4.25, 0.86, 0.7, 0.04, 0.7, '#f8f4e8', Math.PI / 2);
   k.part('box', 0.12, 4.4, 0.89, 0.04, 0.28, 0.02, '#2a2a2a', 0, 0, -0.6);
   k.part('box', 0, 0, 0.86, 0.5, 0.95, 0.05, '#2f68b8');
@@ -602,7 +697,7 @@ export function belltower(k) {
 export function warehouse(k, p) {
   const [cw, cd] = sizeOf(p), W = cw - 0.25, D = cd - 0.25, wall = pick(['#f1ece2', '#ece4d2', '#f4f0e6'], p.v);
   k.part('box', 0, 0, 0, W, 2.2, D, wall);
-  k.part('gable', 0, 2.2, 0, D + 0.3, 1.2, W + 0.3, '#b8613a', 0, Math.PI / 2, 0);
+  solarGable(k, 0, 2.2, 0, D + 0.3, 1.2, W + 0.3, 'med', wall, Math.PI / 2);
   k.part('box', 0, 0, D / 2, 1.6, 1.7, 0.08, '#5a3a24');
   k.part('cyl16', 0, 1.7, D / 2, 1.6, 0.08, 1.0, '#5a3a24', Math.PI / 2);
   for (const sx of [-1, 1]) k.glow('box', sx * (W / 2 - 0.9), 1.2, D / 2 + 0.01, 0.4, 0.45, 0.04, '#ffd88a');
